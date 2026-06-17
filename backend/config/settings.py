@@ -37,6 +37,13 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
+    # my apps
+    "apps.common.apps.CommonConfig",
+    "apps.bitrix.apps.BitrixConfig",
+    "apps.reports.apps.ReportsConfig",
+    "apps.billing.apps.BillingConfig",
+    "apps.users.apps.UsersConfig",
 ]
 
 MIDDLEWARE = [

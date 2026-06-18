@@ -3,6 +3,8 @@ from django.utils import timezone
 
 from apps.bitrix.models import BitrixPortal
 from apps.common.models import ActiveBaseModel, BaseModel, PublicBaseModel
+from apps.common.services.crypto import hash_value, make_fingerprint
+from apps.common.services.sanitizers import sanitize_payload
 
 
 class Plan(ActiveBaseModel):
@@ -242,6 +244,7 @@ class Subscription(PublicBaseModel):
         default=dict,
         blank=True,
         verbose_name="Дополнительные данные",
+        help_text="Автоматически очищается от секретов перед сохранением.",
     )
 
     class Meta:
@@ -307,6 +310,10 @@ class Subscription(PublicBaseModel):
             return False
 
         return True
+
+    def save(self, *args, **kwargs):
+        self.metadata = sanitize_payload(self.metadata)
+        super().save(*args, **kwargs)
 
 
 class Payment(PublicBaseModel):
@@ -433,11 +440,13 @@ class Payment(PublicBaseModel):
         default=dict,
         blank=True,
         verbose_name="Дополнительные данные",
+        help_text="Автоматически очищается от секретов перед сохранением.",
     )
     raw_provider_payload = models.JSONField(
         default=dict,
         blank=True,
-        verbose_name="Исходные данные провайдера",
+        verbose_name="Очищенные исходные данные провайдера",
+        help_text="Не сохранять сюда пароли, подписи и другие секреты.",
     )
 
     class Meta:
@@ -456,6 +465,11 @@ class Payment(PublicBaseModel):
     def __str__(self):
         return f"{self.portal.domain} — {self.order_id} — {self.amount} {self.currency}"
 
+    def save(self, *args, **kwargs):
+        self.metadata = sanitize_payload(self.metadata)
+        self.raw_provider_payload = sanitize_payload(self.raw_provider_payload)
+        super().save(*args, **kwargs)
+
 
 class PaymentWebhookEvent(BaseModel):
     """
@@ -463,9 +477,12 @@ class PaymentWebhookEvent(BaseModel):
 
     Нужно, чтобы:
     - не обработать оплату дважды;
-    - сохранить исходные данные webhook;
+    - сохранить очищенные данные webhook;
     - видеть ошибки обработки;
     - повторить обработку при сбое.
+
+    Реальные idempotency key и signature не храним.
+    Храним только fingerprint и hash.
     """
 
     class Provider(models.TextChoices):
@@ -487,11 +504,29 @@ class PaymentWebhookEvent(BaseModel):
     )
 
     idempotency_key = models.CharField(
-        max_length=255,
+        max_length=16,
+        blank=True,
+        default="",
+        db_index=True,
+        verbose_name="Fingerprint ключа идемпотентности",
+        help_text="Короткий безопасный отпечаток. Реальный ключ здесь не хранится.",
+    )
+    idempotency_key_hash = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
         unique=True,
         db_index=True,
-        verbose_name="Ключ идемпотентности",
-        help_text="Уникальный ключ, чтобы webhook не был обработан повторно.",
+        verbose_name="Хэш ключа идемпотентности",
+        help_text="Необратимый хэш, чтобы webhook не был обработан повторно.",
+    )
+
+    signature_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        db_index=True,
+        verbose_name="Хэш подписи webhook",
+        help_text="Необратимый хэш подписи. Реальная подпись здесь не хранится.",
     )
 
     event_id = models.CharField(
@@ -542,7 +577,8 @@ class PaymentWebhookEvent(BaseModel):
     payload = models.JSONField(
         default=dict,
         blank=True,
-        verbose_name="Данные события",
+        verbose_name="Очищенные данные события",
+        help_text="Автоматически очищается от секретов перед сохранением.",
     )
 
     received_at = models.DateTimeField(
@@ -575,10 +611,68 @@ class PaymentWebhookEvent(BaseModel):
             models.Index(fields=["status", "received_at"]),
             models.Index(fields=["portal", "received_at"]),
             models.Index(fields=["is_signature_valid"]),
+            models.Index(fields=["idempotency_key_hash"]),
+            models.Index(fields=["signature_hash"]),
         ]
 
     def __str__(self):
         return f"{self.provider} — {self.event_type} — {self.status}"
+
+    def set_idempotency_key(self, key: str, save: bool = False):
+        """
+        Сохраняет не реальный idempotency key, а fingerprint + hash.
+        """
+
+        if not key:
+            self.idempotency_key = ""
+            self.idempotency_key_hash = None
+        else:
+            self.idempotency_key = make_fingerprint(key, length=12)
+            self.idempotency_key_hash = hash_value(key)
+
+        if save:
+            self.save(
+                update_fields=[
+                    "idempotency_key",
+                    "idempotency_key_hash",
+                    "updated_at",
+                ]
+            )
+
+    def set_signature(self, signature: str, save: bool = False):
+        """
+        Сохраняет только hash подписи webhook.
+
+        Реальную подпись не храним, потому что она нужна только для проверки
+        в момент получения webhook.
+        """
+
+        self.signature_hash = hash_value(signature) if signature else ""
+
+        if save:
+            self.save(
+                update_fields=[
+                    "signature_hash",
+                    "updated_at",
+                ]
+            )
+
+    @property
+    def idempotency_key_fingerprint(self):
+        return self.idempotency_key or ""
+
+    @property
+    def signature_fingerprint(self):
+        return self.signature_hash[:12] if self.signature_hash else ""
+
+    def save(self, *args, **kwargs):
+        self.payload = sanitize_payload(self.payload)
+
+        if self.idempotency_key and not self.idempotency_key_hash:
+            raw_key = self.idempotency_key
+            self.set_idempotency_key(raw_key, save=False)
+
+        super().save(*args, **kwargs)
 
 
 class PortalAccess(BaseModel):
@@ -713,3 +807,8 @@ class PortalAccess(BaseModel):
             return False
 
         return self.valid_until >= timezone.now()
+
+    def save(self, *args, **kwargs):
+        self.features = sanitize_payload(self.features)
+        self.limits = sanitize_payload(self.limits)
+        super().save(*args, **kwargs)

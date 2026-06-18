@@ -3,6 +3,7 @@
 """
 
 import hashlib
+import hmac
 from typing import Optional
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -14,13 +15,6 @@ ENCRYPTION_PREFIX = "enc:v1:"
 
 
 def _get_encryption_key() -> str:
-    """
-    Получает ключ шифрования из settings.
-
-    Ключ должен храниться в переменной окружения FIELD_ENCRYPTION_KEY,
-    а не в коде и не в базе данных.
-    """
-
     key = getattr(settings, "FIELD_ENCRYPTION_KEY", "")
 
     if not key:
@@ -32,6 +26,18 @@ def _get_encryption_key() -> str:
     return key
 
 
+def _get_hash_secret() -> str:
+    secret = getattr(settings, "FIELD_HASH_SECRET", "")
+
+    if not secret:
+        raise ImproperlyConfigured(
+            "FIELD_HASH_SECRET is not configured. "
+            "Generate it with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+        )
+
+    return secret
+
+
 def _get_fernet() -> Fernet:
     return Fernet(_get_encryption_key().encode())
 
@@ -39,12 +45,7 @@ def _get_fernet() -> Fernet:
 def encrypt_value(value: Optional[str]) -> str:
     """
     Шифрует значение, которое потом нужно будет восстановить.
-
-    Используем для:
-    - access_token;
-    - refresh_token;
-    - application_token;
-    - других секретов, которые backend должен уметь расшифровать.
+    Используем для OAuth-токенов и других секретов backend.
     """
 
     if not value:
@@ -60,9 +61,6 @@ def encrypt_value(value: Optional[str]) -> str:
 def decrypt_value(value: Optional[str]) -> str:
     """
     Расшифровывает значение.
-
-    Если значение не зашифровано старым кодом или пришло пустым,
-    возвращает безопасный результат.
     """
 
     if not value:
@@ -81,33 +79,29 @@ def decrypt_value(value: Optional[str]) -> str:
 
 def hash_value(value: Optional[str]) -> str:
     """
-    Делает необратимый hash значения.
+    Делает необратимый HMAC-SHA256 hash.
 
-    Используем для сравнения и поиска, когда исходное значение восстанавливать не нужно.
-
-    Например:
-    - access_token_hash;
-    - refresh_token_hash;
-    - request_hash;
+    Используем для:
+    - token_hash;
+    - idempotency_key_hash;
     - signature_hash;
-    - idempotency_key_hash.
+    - request_hash;
+    - filters_hash.
     """
 
     if not value:
         return ""
 
-    secret_key = getattr(settings, "SECRET_KEY", "")
-    raw = f"{secret_key}:{value}".encode("utf-8")
-
-    return hashlib.sha256(raw).hexdigest()
+    return hmac.new(
+        _get_hash_secret().encode("utf-8"),
+        str(value).encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 def make_fingerprint(value: Optional[str], length: int = 12) -> str:
     """
     Короткий безопасный отпечаток для админки и логов.
-
-    Не раскрывает сам токен, но помогает понять,
-    изменился секрет или нет.
     """
 
     if not value:
@@ -118,10 +112,8 @@ def make_fingerprint(value: Optional[str], length: int = 12) -> str:
 
 def mask_secret(value: Optional[str], visible_start: int = 4, visible_end: int = 4) -> str:
     """
-    Маскирует секрет для отображения.
-
-    Например:
-    abcdefghijklmnop -> abcd********mnop
+    Маскирует секрет для отображения, если когда-то понадобится показать его частично.
+    Для OAuth-токенов лучше использовать fingerprint, а не mask.
     """
 
     if not value:

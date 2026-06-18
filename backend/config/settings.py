@@ -47,8 +47,8 @@ def get_list_env(name: str, default: str = "") -> list[str]:
 
 
 SECRET_KEY = get_env("SECRET_KEY", required=True)
-
 FIELD_ENCRYPTION_KEY = get_env("FIELD_ENCRYPTION_KEY", required=True)
+FIELD_HASH_SECRET = get_env("FIELD_HASH_SECRET", required=True)
 
 DEBUG = get_bool_env("DEBUG", default=True)
 
@@ -56,7 +56,6 @@ ALLOWED_HOSTS = get_list_env(
     "ALLOWED_HOSTS",
     default="127.0.0.1,localhost",
 )
-
 
 # Application definition
 

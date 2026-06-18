@@ -2,7 +2,7 @@ from django.db import models
 from django.utils import timezone
 
 from apps.common.models import ActiveModel, BaseModel, PublicBaseModel
-from apps.common.services.crypto import decrypt_value, encrypt_value, make_fingerprint
+from apps.common.services.crypto import decrypt_value, encrypt_value, hash_value, make_fingerprint
 from apps.common.services.sanitizers import sanitize_payload
 
 
@@ -731,11 +731,21 @@ class BitrixEvent(BaseModel):
     )
 
     idempotency_key = models.CharField(
-        max_length=255,
+        max_length=16,
+        blank=True,
+        default="",
+        db_index=True,
+        verbose_name="Fingerprint ключа идемпотентности",
+        help_text="Короткий безопасный отпечаток. Реальный ключ здесь не хранится.",
+    )
+    idempotency_key_hash = models.CharField(
+        max_length=64,
         null=True,
         blank=True,
         unique=True,
-        verbose_name="Ключ идемпотентности",
+        db_index=True,
+        verbose_name="Хэш ключа идемпотентности",
+        help_text="Необратимый хэш для защиты от повторной обработки события.",
     )
 
     status = models.CharField(
@@ -791,11 +801,45 @@ class BitrixEvent(BaseModel):
             models.Index(fields=["portal", "received_at"]),
             models.Index(fields=["entity_type", "entity_id"]),
             models.Index(fields=["status", "received_at"]),
+            models.Index(fields=["idempotency_key_hash"]),
         ]
 
     def __str__(self):
         return f"{self.portal.domain} — {self.event_name} — {self.status}"
 
+    def set_idempotency_key(self, key: str, save: bool = False):
+        """
+        Сохраняет не реальный ключ идемпотентности, а fingerprint + hash.
+
+        Этот метод нужно вызывать в сервисах обработки событий,
+        когда мы получаем реальный ключ события из Битрикс24.
+        """
+
+        if not key:
+            self.idempotency_key = ""
+            self.idempotency_key_hash = None
+        else:
+            self.idempotency_key = make_fingerprint(key, length=12)
+            self.idempotency_key_hash = hash_value(key)
+
+        if save:
+            self.save(
+                update_fields=[
+                    "idempotency_key",
+                    "idempotency_key_hash",
+                    "updated_at",
+                ]
+            )
+
+    @property
+    def idempotency_key_fingerprint(self):
+        return self.idempotency_key or ""
+
     def save(self, *args, **kwargs):
         self.payload = sanitize_payload(self.payload)
+
+        if self.idempotency_key and not self.idempotency_key_hash:
+            raw_key = self.idempotency_key
+            self.set_idempotency_key(raw_key, save=False)
+
         super().save(*args, **kwargs)

@@ -2,6 +2,8 @@ from django.db import models
 from django.utils import timezone
 
 from apps.common.models import ActiveModel, BaseModel, PublicBaseModel
+from apps.common.services.crypto import decrypt_value, encrypt_value, make_fingerprint
+from apps.common.services.sanitizers import sanitize_payload
 
 
 class BitrixPortal(PublicBaseModel, ActiveModel):
@@ -20,6 +22,10 @@ class BitrixPortal(PublicBaseModel, ActiveModel):
         BLOCKED = "blocked", "Заблокировано"
         ERROR = "error", "Ошибка"
 
+    class Protocol(models.TextChoices):
+        HTTPS = "https", "HTTPS"
+        HTTP = "http", "HTTP"
+
     member_id = models.CharField(
         max_length=100,
         unique=True,
@@ -35,7 +41,8 @@ class BitrixPortal(PublicBaseModel, ActiveModel):
     )
     protocol = models.CharField(
         max_length=20,
-        default="https",
+        choices=Protocol.choices,
+        default=Protocol.HTTPS,
         verbose_name="Протокол",
     )
 
@@ -99,14 +106,22 @@ class BitrixPortal(PublicBaseModel, ActiveModel):
 
     application_token_encrypted = models.TextField(
         blank=True,
-        verbose_name="Application token",
-        help_text="Хранить только в зашифрованном виде.",
+        verbose_name="Application token, encrypted",
+        help_text="Зашифрованный application_token. Не показывать в админке.",
+    )
+    application_token_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        db_index=True,
+        verbose_name="Хэш application token",
+        help_text="Необратимый хэш application_token для сравнения и отладки.",
     )
 
     raw_install_payload = models.JSONField(
         default=dict,
         blank=True,
-        verbose_name="Исходные данные установки",
+        verbose_name="Очищенные исходные данные установки",
+        help_text="Не сохранять сюда AUTH_ID, REFRESH_ID, application_token и другие секреты.",
     )
 
     class Meta:
@@ -127,6 +142,71 @@ class BitrixPortal(PublicBaseModel, ActiveModel):
     def base_url(self):
         return f"{self.protocol}://{self.domain}"
 
+    def set_application_token(self, token: str, save: bool = False):
+        """
+        Шифрует и сохраняет application_token.
+
+        Сам токен в открытом виде в БД не попадает.
+        """
+
+        if not token:
+            self.application_token_encrypted = ""
+            self.application_token_hash = ""
+        else:
+            self.application_token_encrypted = encrypt_value(token)
+            self.application_token_hash = make_fingerprint(token, length=64)
+
+        if save:
+            self.save(
+                update_fields=[
+                    "application_token_encrypted",
+                    "application_token_hash",
+                    "updated_at",
+                ]
+            )
+
+    def get_application_token(self) -> str:
+        """
+        Возвращает расшифрованный application_token.
+        Использовать только внутри backend-сервисов.
+        """
+
+        return decrypt_value(self.application_token_encrypted)
+
+    def clear_application_token(self, save: bool = False):
+        """
+        Полностью удаляет application_token из записи.
+        Нужно при удалении приложения или отзыве доступа.
+        """
+
+        self.application_token_encrypted = ""
+        self.application_token_hash = ""
+
+        if save:
+            self.save(
+                update_fields=[
+                    "application_token_encrypted",
+                    "application_token_hash",
+                    "updated_at",
+                ]
+            )
+
+    @property
+    def has_application_token(self):
+        return bool(self.application_token_encrypted)
+
+    @property
+    def application_token_fingerprint(self):
+        """
+        Короткий безопасный отпечаток для админки и логов.
+        """
+
+        return self.application_token_hash[:12] if self.application_token_hash else ""
+
+    def save(self, *args, **kwargs):
+        self.raw_install_payload = sanitize_payload(self.raw_install_payload)
+        super().save(*args, **kwargs)
+
 
 class BitrixAuthToken(BaseModel):
     """
@@ -144,12 +224,31 @@ class BitrixAuthToken(BaseModel):
     )
 
     access_token_encrypted = models.TextField(
-        verbose_name="Access token",
-        help_text="Хранить только в зашифрованном виде.",
+        blank=True,
+        default="",
+        verbose_name="Access token, encrypted",
+        help_text="Зашифрованный access_token. Не показывать в админке.",
     )
     refresh_token_encrypted = models.TextField(
-        verbose_name="Refresh token",
-        help_text="Хранить только в зашифрованном виде.",
+        blank=True,
+        default="",
+        verbose_name="Refresh token, encrypted",
+        help_text="Зашифрованный refresh_token. Не показывать в админке.",
+    )
+
+    access_token_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        db_index=True,
+        verbose_name="Хэш access token",
+        help_text="Необратимый хэш access_token для сравнения и отладки.",
+    )
+    refresh_token_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        db_index=True,
+        verbose_name="Хэш refresh token",
+        help_text="Необратимый хэш refresh_token для сравнения и отладки.",
     )
 
     expires_at = models.DateTimeField(
@@ -187,7 +286,8 @@ class BitrixAuthToken(BaseModel):
     raw_auth_payload = models.JSONField(
         default=dict,
         blank=True,
-        verbose_name="Исходные данные авторизации",
+        verbose_name="Очищенные исходные данные авторизации",
+        help_text="Не сохранять сюда AUTH_ID, REFRESH_ID, access_token, refresh_token и другие секреты.",
     )
 
     class Meta:
@@ -204,6 +304,139 @@ class BitrixAuthToken(BaseModel):
     @property
     def is_expired(self):
         return self.expires_at <= timezone.now()
+
+    def set_access_token(self, token: str, save: bool = False):
+        """
+        Шифрует и сохраняет access_token.
+        """
+
+        if not token:
+            self.access_token_encrypted = ""
+            self.access_token_hash = ""
+        else:
+            self.access_token_encrypted = encrypt_value(token)
+            self.access_token_hash = make_fingerprint(token, length=64)
+
+        if save:
+            self.save(
+                update_fields=[
+                    "access_token_encrypted",
+                    "access_token_hash",
+                    "updated_at",
+                ]
+            )
+
+    def get_access_token(self) -> str:
+        """
+        Возвращает расшифрованный access_token.
+        Использовать только внутри backend-сервисов.
+        """
+
+        return decrypt_value(self.access_token_encrypted)
+
+    def set_refresh_token(self, token: str, save: bool = False):
+        """
+        Шифрует и сохраняет refresh_token.
+        """
+
+        if not token:
+            self.refresh_token_encrypted = ""
+            self.refresh_token_hash = ""
+        else:
+            self.refresh_token_encrypted = encrypt_value(token)
+            self.refresh_token_hash = make_fingerprint(token, length=64)
+
+        if save:
+            self.save(
+                update_fields=[
+                    "refresh_token_encrypted",
+                    "refresh_token_hash",
+                    "updated_at",
+                ]
+            )
+
+    def get_refresh_token(self) -> str:
+        """
+        Возвращает расшифрованный refresh_token.
+        Использовать только внутри backend-сервисов.
+        """
+
+        return decrypt_value(self.refresh_token_encrypted)
+
+    def set_tokens(
+        self,
+        access_token: str,
+        refresh_token: str = "",
+        expires_at=None,
+        save: bool = False,
+    ):
+        """
+        Удобный метод для одновременного обновления access_token и refresh_token.
+        """
+
+        self.set_access_token(access_token, save=False)
+
+        if refresh_token:
+            self.set_refresh_token(refresh_token, save=False)
+
+        if expires_at is not None:
+            self.expires_at = expires_at
+
+        if save:
+            update_fields = [
+                "access_token_encrypted",
+                "access_token_hash",
+                "refresh_token_encrypted",
+                "refresh_token_hash",
+                "updated_at",
+            ]
+
+            if expires_at is not None:
+                update_fields.append("expires_at")
+
+            self.save(update_fields=update_fields)
+
+    def clear_tokens(self, save: bool = False):
+        """
+        Полностью удаляет OAuth-токены.
+        Нужно при удалении приложения, отзыве доступа или блокировке портала.
+        """
+
+        self.access_token_encrypted = ""
+        self.access_token_hash = ""
+        self.refresh_token_encrypted = ""
+        self.refresh_token_hash = ""
+
+        if save:
+            self.save(
+                update_fields=[
+                    "access_token_encrypted",
+                    "access_token_hash",
+                    "refresh_token_encrypted",
+                    "refresh_token_hash",
+                    "updated_at",
+                ]
+            )
+
+    @property
+    def access_token_fingerprint(self):
+        return self.access_token_hash[:12] if self.access_token_hash else ""
+
+    @property
+    def refresh_token_fingerprint(self):
+        return self.refresh_token_hash[:12] if self.refresh_token_hash else ""
+
+    @property
+    def has_access_token(self):
+        return bool(self.access_token_encrypted)
+
+    @property
+    def has_refresh_token(self):
+        return bool(self.refresh_token_encrypted)
+
+    def save(self, *args, **kwargs):
+        self.raw_auth_payload = sanitize_payload(self.raw_auth_payload)
+        super().save(*args, **kwargs)
 
 
 class PortalUser(BaseModel, ActiveModel):
@@ -562,3 +795,7 @@ class BitrixEvent(BaseModel):
 
     def __str__(self):
         return f"{self.portal.domain} — {self.event_name} — {self.status}"
+
+    def save(self, *args, **kwargs):
+        self.payload = sanitize_payload(self.payload)
+        super().save(*args, **kwargs)

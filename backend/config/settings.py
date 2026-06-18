@@ -10,22 +10,52 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
+from django.core.exceptions import ImproperlyConfigured
+from dotenv import load_dotenv
+
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+load_dotenv(BASE_DIR / ".env")
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-8p#zsl#x-@*k7%g4n$r2w7y#30xg43o3)@0ksh7d*bbbz_fu7&'
+def get_env(name: str, default=None, required: bool = False):
+    value = os.environ.get(name, default)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+    if required and not value:
+        raise ImproperlyConfigured(f"{name} is required but not configured.")
 
-ALLOWED_HOSTS = []
+    return value
+
+
+def get_bool_env(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+
+    if value is None:
+        return default
+
+    return value.lower() in ("1", "true", "yes", "on")
+
+
+def get_list_env(name: str, default: str = "") -> list[str]:
+    value = os.environ.get(name, default)
+
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+SECRET_KEY = get_env("SECRET_KEY", required=True)
+
+FIELD_ENCRYPTION_KEY = get_env("FIELD_ENCRYPTION_KEY", required=True)
+
+DEBUG = get_bool_env("DEBUG", default=True)
+
+ALLOWED_HOSTS = get_list_env(
+    "ALLOWED_HOSTS",
+    default="127.0.0.1,localhost",
+)
 
 
 # Application definition

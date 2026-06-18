@@ -11,16 +11,37 @@ from apps.billing.models import (
     PortalAccess,
     Subscription,
 )
+from apps.billing.services.access import (
+    activate_manual_pro,
+    activate_paid_subscription,
+    activate_trial,
+    block_access,
+    cancel_subscription,
+    expire_subscription,
+    set_free_access,
+    sync_portal_access_from_subscription,
+)
+
+
+def status_badge(text, color):
+    return format_html('<span style="color: {};">{}</span>', color, text)
+
+
+def yes_no_badge(value):
+    if value:
+        return status_badge("Да", "#027a48")
+
+    return status_badge("Нет", "#b42318")
 
 
 @admin.register(Plan)
 class PlanAdmin(admin.ModelAdmin):
     list_display = (
-        "name",
         "code",
-        "billing_period",
+        "name",
         "price",
         "currency",
+        "billing_period",
         "duration_months",
         "is_public",
         "is_default",
@@ -33,7 +54,6 @@ class PlanAdmin(admin.ModelAdmin):
         "is_public",
         "is_default",
         "is_active",
-        "created_at",
     )
     search_fields = (
         "code",
@@ -59,10 +79,18 @@ class PlanAdmin(admin.ModelAdmin):
                     "code",
                     "name",
                     "description",
-                    "billing_period",
-                    "duration_months",
+                    "is_active",
+                )
+            },
+        ),
+        (
+            "Оплата",
+            {
+                "fields": (
                     "price",
                     "currency",
+                    "billing_period",
+                    "duration_months",
                 )
             },
         ),
@@ -72,7 +100,6 @@ class PlanAdmin(admin.ModelAdmin):
                 "fields": (
                     "is_public",
                     "is_default",
-                    "is_active",
                     "sort_order",
                 )
             },
@@ -84,11 +111,7 @@ class PlanAdmin(admin.ModelAdmin):
                     "features",
                     "limits",
                 ),
-                "description": (
-                    "Для Free: save_report_state=false, save_report_presets=false, "
-                    "save_report_results=false. Для Pro: save_report_state=true, "
-                    "save_report_presets=true, save_report_results=false."
-                ),
+                "description": "save_report_results всегда должен быть false.",
             },
         ),
         (
@@ -122,19 +145,19 @@ class SubscriptionAdmin(admin.ModelAdmin):
         "provider",
         "pro_status",
         "trial_period",
-        "is_lifetime",
         "paid_until",
-        "started_at",
+        "is_lifetime",
+        "auto_renew",
         "created_at",
     )
     list_filter = (
         "status",
         "provider",
+        "plan",
         "is_lifetime",
         "auto_renew",
-        "paid_until",
-        "trial_started_at",
         "trial_until",
+        "paid_until",
         "created_at",
     )
     search_fields = (
@@ -149,6 +172,7 @@ class SubscriptionAdmin(admin.ModelAdmin):
     readonly_fields = (
         "public_id",
         "pro_status",
+        "trial_period",
         "created_at",
         "updated_at",
         "deleted_at",
@@ -162,15 +186,18 @@ class SubscriptionAdmin(admin.ModelAdmin):
     )
     date_hierarchy = "created_at"
     actions = (
+        "sync_access",
         "activate_trial_14_days",
+        "activate_manual_pro_30_days",
         "activate_lifetime_manual",
         "cancel_subscriptions",
-        "mark_as_expired",
+        "expire_subscriptions",
+        "block_subscriptions",
     )
 
     fieldsets = (
         (
-            "Подписка",
+            "Портал и тариф",
             {
                 "fields": (
                     "public_id",
@@ -183,34 +210,24 @@ class SubscriptionAdmin(admin.ModelAdmin):
             },
         ),
         (
-            "Сроки подписки",
+            "Периоды доступа",
             {
                 "fields": (
                     "started_at",
                     "paid_until",
+                    "trial_started_at",
+                    "trial_until",
+                    "trial_period",
                     "canceled_at",
-                    "is_lifetime",
-                    "auto_renew",
                 )
             },
         ),
         (
-            "Пробный период",
+            "Настройки подписки",
             {
                 "fields": (
-                    "trial_started_at",
-                    "trial_until",
-                ),
-                "description": (
-                    "Здесь можно вручную задать любой промежуток бесплатного Pro-периода. "
-                    "Для trial нужно поставить status=trial и provider=manual."
-                ),
-            },
-        ),
-        (
-            "Провайдер и ручная выдача",
-            {
-                "fields": (
+                    "is_lifetime",
+                    "auto_renew",
                     "provider_subscription_id",
                     "manual_reason",
                     "admin_comment",
@@ -218,7 +235,7 @@ class SubscriptionAdmin(admin.ModelAdmin):
             },
         ),
         (
-            "Дополнительно",
+            "Metadata",
             {
                 "fields": (
                     "metadata",
@@ -249,90 +266,146 @@ class SubscriptionAdmin(admin.ModelAdmin):
 
     @admin.display(description="Pro-доступ")
     def pro_status(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+
         if obj.has_pro_access:
             if obj.status == Subscription.Status.TRIAL:
-                return format_html('<span style="color: #175cd3;">Trial активен</span>')
+                return status_badge("Trial активен", "#175cd3")
 
-            return format_html('<span style="color: #027a48;">Pro активен</span>')
+            if obj.is_lifetime:
+                return status_badge("Бессрочный Pro", "#027a48")
+
+            return status_badge("Pro активен", "#027a48")
 
         if obj.status == Subscription.Status.FREE:
-            return format_html('<span style="color: #475467;">Free</span>')
+            return status_badge("Free", "#475467")
 
-        return format_html('<span style="color: #b42318;">Pro неактивен</span>')
+        if obj.status == Subscription.Status.BLOCKED:
+            return status_badge("Заблокирована", "#b42318")
+
+        return status_badge("Нет Pro", "#b42318")
 
     @admin.display(description="Trial")
     def trial_period(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+
         if not obj.trial_started_at and not obj.trial_until:
             return "-"
 
-        started = obj.trial_started_at.strftime("%d.%m.%Y") if obj.trial_started_at else "не указано"
-        until = obj.trial_until.strftime("%d.%m.%Y") if obj.trial_until else "не указано"
+        return f"{obj.trial_started_at or '-'} → {obj.trial_until or '-'}"
 
-        return f"{started} — {until}"
+    @admin.action(description="Синхронизировать доступ PortalAccess")
+    def sync_access(self, request, queryset):
+        count = 0
 
-    @admin.action(description="Выдать Trial на 14 дней")
+        for subscription in queryset:
+            sync_portal_access_from_subscription(subscription)
+            count += 1
+
+        self.message_user(
+            request,
+            f"Синхронизировано доступов: {count}",
+            level=messages.SUCCESS,
+        )
+
+    @admin.action(description="Включить Trial на 14 дней")
     def activate_trial_14_days(self, request, queryset):
-        now = timezone.now()
-        updated = queryset.update(
-            status=Subscription.Status.TRIAL,
-            provider=Subscription.Provider.MANUAL,
-            trial_started_at=now,
-            trial_until=now + timedelta(days=14),
-            paid_until=None,
-            canceled_at=None,
-            is_lifetime=False,
-            manual_reason="trial_14_days_admin",
-        )
+        count = 0
+
+        for subscription in queryset:
+            activate_trial(subscription, days=14)
+            count += 1
+
         self.message_user(
             request,
-            f"Trial на 14 дней выдан для подписок: {updated}.",
-            messages.SUCCESS,
+            f"Trial включен для подписок: {count}",
+            level=messages.SUCCESS,
         )
 
-    @admin.action(description="Выдать бессрочный Manual Pro")
+    @admin.action(description="Включить Manual Pro на 30 дней")
+    def activate_manual_pro_30_days(self, request, queryset):
+        count = 0
+        paid_until = timezone.now() + timedelta(days=30)
+
+        for subscription in queryset:
+            activate_manual_pro(
+                subscription,
+                paid_until=paid_until,
+                is_lifetime=False,
+                manual_reason="manual_30_days",
+            )
+            count += 1
+
+        self.message_user(
+            request,
+            f"Manual Pro на 30 дней включен для подписок: {count}",
+            level=messages.SUCCESS,
+        )
+
+    @admin.action(description="Включить бессрочный Manual Pro")
     def activate_lifetime_manual(self, request, queryset):
-        updated = queryset.update(
-            status=Subscription.Status.ACTIVE,
-            provider=Subscription.Provider.MANUAL,
-            is_lifetime=True,
-            started_at=timezone.now(),
-            paid_until=None,
-            trial_started_at=None,
-            trial_until=None,
-            canceled_at=None,
-            manual_reason="manual_lifetime_admin",
-        )
+        count = 0
+
+        for subscription in queryset:
+            activate_manual_pro(
+                subscription,
+                is_lifetime=True,
+                manual_reason="internal_company",
+            )
+            count += 1
+
         self.message_user(
             request,
-            f"Бессрочный Manual Pro выдан для подписок: {updated}.",
-            messages.SUCCESS,
+            f"Бессрочный Manual Pro включен для подписок: {count}",
+            level=messages.SUCCESS,
         )
 
-    @admin.action(description="Отменить подписки")
+    @admin.action(description="Отменить и перевести в Free")
     def cancel_subscriptions(self, request, queryset):
-        updated = queryset.update(
-            status=Subscription.Status.CANCELED,
-            canceled_at=timezone.now(),
-            is_lifetime=False,
-            auto_renew=False,
-        )
+        count = 0
+
+        for subscription in queryset:
+            cancel_subscription(subscription)
+            count += 1
+
         self.message_user(
             request,
-            f"Подписки отменены: {updated}.",
-            messages.WARNING,
+            f"Отменено подписок: {count}",
+            level=messages.SUCCESS,
         )
 
-    @admin.action(description="Пометить как истекшие")
-    def mark_as_expired(self, request, queryset):
-        updated = queryset.update(
-            status=Subscription.Status.EXPIRED,
-            is_lifetime=False,
-            auto_renew=False,
-        )
+    @admin.action(description="Пометить истекшими и перевести в Free")
+    def expire_subscriptions(self, request, queryset):
+        count = 0
+
+        for subscription in queryset:
+            expire_subscription(subscription)
+            count += 1
+
         self.message_user(
             request,
-            f"Подписки помечены как истекшие: {updated}.",
-            messages.WARNING,
+            f"Истекших подписок обработано: {count}",
+            level=messages.SUCCESS,
+        )
+
+    @admin.action(description="Заблокировать доступ")
+    def block_subscriptions(self, request, queryset):
+        count = 0
+
+        for subscription in queryset:
+            block_access(
+                portal=subscription.portal,
+                subscription=subscription,
+                reason="admin_blocked",
+            )
+            count += 1
+
+        self.message_user(
+            request,
+            f"Заблокировано подписок: {count}",
+            level=messages.WARNING,
         )
 
 
@@ -360,12 +433,10 @@ class PaymentAdmin(admin.ModelAdmin):
     )
     search_fields = (
         "order_id",
-        "provider_payment_id",
-        "provider_invoice_id",
         "portal__domain",
         "portal__member_id",
-        "plan__code",
-        "plan__name",
+        "provider_payment_id",
+        "provider_invoice_id",
         "customer_email",
         "description",
     )
@@ -436,7 +507,7 @@ class PaymentAdmin(admin.ModelAdmin):
             },
         ),
         (
-            "Данные Robokassa",
+            "Очищенные данные",
             {
                 "fields": (
                     "metadata",
@@ -466,35 +537,61 @@ class PaymentAdmin(admin.ModelAdmin):
         ),
     )
 
-    @admin.action(description="Пометить как оплаченные вручную")
+    @admin.action(description="Пометить как успешно оплаченные вручную")
     def mark_as_succeeded_manual(self, request, queryset):
-        updated = queryset.update(
-            status=Payment.Status.SUCCEEDED,
-            provider=Payment.Provider.MANUAL,
-            paid_at=timezone.now(),
-        )
+        count = 0
+        activated_count = 0
+        now = timezone.now()
+
+        for payment in queryset:
+            payment.status = Payment.Status.SUCCEEDED
+            payment.paid_at = payment.paid_at or now
+            payment.save(
+                update_fields=[
+                    "status",
+                    "paid_at",
+                    "updated_at",
+                ]
+            )
+            count += 1
+
+            if payment.subscription:
+                activate_paid_subscription(payment.subscription)
+                activated_count += 1
+
         self.message_user(
             request,
-            f"Платежи помечены как оплаченные вручную: {updated}.",
-            messages.SUCCESS,
+            (
+                f"Успешными отмечено платежей: {count}. "
+                f"Pro-доступ активирован по подпискам: {activated_count}."
+            ),
+            level=messages.SUCCESS,
         )
 
-    @admin.action(description="Отменить платежи")
+    @admin.action(description="Пометить как отмененные")
     def mark_as_canceled(self, request, queryset):
-        updated = queryset.update(status=Payment.Status.CANCELED)
-        self.message_user(
-            request,
-            f"Платежи отменены: {updated}.",
-            messages.WARNING,
+        updated = queryset.update(
+            status=Payment.Status.CANCELED,
+            updated_at=timezone.now(),
         )
 
-    @admin.action(description="Пометить платежи как ошибочные")
-    def mark_as_failed(self, request, queryset):
-        updated = queryset.update(status=Payment.Status.FAILED)
         self.message_user(
             request,
-            f"Платежи помечены как ошибочные: {updated}.",
-            messages.ERROR,
+            f"Отменено платежей: {updated}",
+            level=messages.SUCCESS,
+        )
+
+    @admin.action(description="Пометить как ошибочные")
+    def mark_as_failed(self, request, queryset):
+        updated = queryset.update(
+            status=Payment.Status.FAILED,
+            updated_at=timezone.now(),
+        )
+
+        self.message_user(
+            request,
+            f"Ошибочных платежей отмечено: {updated}",
+            level=messages.WARNING,
         )
 
 
@@ -505,11 +602,12 @@ class PaymentWebhookEventAdmin(admin.ModelAdmin):
         "provider",
         "event_type",
         "status",
-        "is_signature_valid",
         "payment",
         "portal",
+        "signature_status",
+        "idempotency_key",
+        "signature_fingerprint_display",
         "attempts_count",
-        "processed_at",
     )
     list_filter = (
         "provider",
@@ -518,22 +616,26 @@ class PaymentWebhookEventAdmin(admin.ModelAdmin):
         "is_signature_valid",
         "received_at",
         "processed_at",
-        "created_at",
     )
     search_fields = (
-        "idempotency_key",
+        "provider",
         "event_id",
         "event_type",
         "payment__order_id",
-        "payment__provider_payment_id",
         "portal__domain",
         "portal__member_id",
+        "idempotency_key",
+        "idempotency_key_hash",
+        "signature_hash",
         "error_message",
     )
     readonly_fields = (
         "created_at",
         "updated_at",
         "deleted_at",
+        "idempotency_key_fingerprint_display",
+        "signature_fingerprint_display",
+        "signature_status",
     )
     raw_id_fields = (
         "payment",
@@ -550,20 +652,22 @@ class PaymentWebhookEventAdmin(admin.ModelAdmin):
             {
                 "fields": (
                     "provider",
-                    "idempotency_key",
                     "event_id",
                     "event_type",
                     "status",
-                    "is_signature_valid",
+                    "payment",
+                    "portal",
                 )
             },
         ),
         (
-            "Связи",
+            "Безопасность",
             {
                 "fields": (
-                    "payment",
-                    "portal",
+                    "is_signature_valid",
+                    "signature_status",
+                    "idempotency_key_fingerprint_display",
+                    "signature_fingerprint_display",
                 )
             },
         ),
@@ -579,7 +683,7 @@ class PaymentWebhookEventAdmin(admin.ModelAdmin):
             },
         ),
         (
-            "Payload",
+            "Очищенный payload",
             {
                 "fields": (
                     "payload",
@@ -608,14 +712,37 @@ class PaymentWebhookEventAdmin(admin.ModelAdmin):
         ),
     )
 
+    @admin.display(description="Подпись")
+    def signature_status(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+
+        if obj.is_signature_valid:
+            return status_badge("Валидна", "#027a48")
+
+        return status_badge("Не проверена / неверна", "#b42318")
+
+    @admin.display(description="Idempotency fingerprint")
+    def idempotency_key_fingerprint_display(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+
+        return obj.idempotency_key_fingerprint or "-"
+
+    @admin.display(description="Signature fingerprint")
+    def signature_fingerprint_display(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+
+        return obj.signature_fingerprint or "-"
+
 
 @admin.register(PortalAccess)
 class PortalAccessAdmin(admin.ModelAdmin):
     list_display = (
         "portal",
         "access_level",
-        "pro_status",
-        "has_pro",
+        "has_pro_display",
         "is_lifetime",
         "valid_until",
         "source",
@@ -628,20 +755,17 @@ class PortalAccessAdmin(admin.ModelAdmin):
         "valid_until",
         "source",
         "last_checked_at",
-        "created_at",
     )
     search_fields = (
         "portal__domain",
         "portal__member_id",
         "source",
-        "plan__code",
-        "plan__name",
     )
     readonly_fields = (
-        "pro_status",
         "created_at",
         "updated_at",
         "deleted_at",
+        "is_pro_valid_display",
     )
     raw_id_fields = (
         "portal",
@@ -652,26 +776,33 @@ class PortalAccessAdmin(admin.ModelAdmin):
         "portal",
     )
     actions = (
-        "set_internal_pro",
-        "set_trial_access",
-        "set_free_access",
-        "block_access",
+        "sync_selected_access",
+        "set_selected_free",
+        "set_selected_blocked",
     )
 
     fieldsets = (
         (
-            "Портал и доступ",
+            "Портал",
             {
                 "fields": (
                     "portal",
                     "subscription",
                     "plan",
+                )
+            },
+        ),
+        (
+            "Доступ",
+            {
+                "fields": (
                     "access_level",
-                    "pro_status",
                     "has_pro",
                     "is_lifetime",
                     "valid_until",
                     "source",
+                    "is_pro_valid_display",
+                    "last_checked_at",
                 )
             },
         ),
@@ -681,18 +812,6 @@ class PortalAccessAdmin(admin.ModelAdmin):
                 "fields": (
                     "features",
                     "limits",
-                ),
-                "description": (
-                    "Pro сохраняет настройки и фильтры. "
-                    "Результаты отчета не сохраняются ни на Free, ни на Pro."
-                ),
-            },
-        ),
-        (
-            "Проверка",
-            {
-                "fields": (
-                    "last_checked_at",
                 )
             },
         ),
@@ -717,99 +836,68 @@ class PortalAccessAdmin(admin.ModelAdmin):
         ),
     )
 
-    @admin.display(description="Статус доступа")
-    def pro_status(self, obj):
-        if obj.is_pro_valid:
-            if obj.access_level == PortalAccess.AccessLevel.INTERNAL:
-                return format_html('<span style="color: #175cd3;">Внутренний Pro</span>')
+    @admin.display(description="Pro")
+    def has_pro_display(self, obj):
+        if not obj or not obj.pk:
+            return "-"
 
-            if obj.access_level == PortalAccess.AccessLevel.TRIAL:
-                return format_html('<span style="color: #175cd3;">Trial активен</span>')
+        return yes_no_badge(obj.has_pro)
 
-            return format_html('<span style="color: #027a48;">Pro активен</span>')
+    @admin.display(description="Pro-доступ действует")
+    def is_pro_valid_display(self, obj):
+        if not obj or not obj.pk:
+            return "-"
 
-        if obj.access_level == PortalAccess.AccessLevel.BLOCKED:
-            return format_html('<span style="color: #b42318;">Заблокирован</span>')
+        return yes_no_badge(obj.is_pro_valid)
 
-        return format_html('<span style="color: #475467;">Free</span>')
+    @admin.action(description="Синхронизировать из подписки")
+    def sync_selected_access(self, request, queryset):
+        count = 0
 
-    @admin.action(description="Выдать внутренний бессрочный Pro")
-    def set_internal_pro(self, request, queryset):
-        updated = queryset.update(
-            access_level=PortalAccess.AccessLevel.INTERNAL,
-            has_pro=True,
-            is_lifetime=True,
-            valid_until=None,
-            source="internal_company",
-            features={
-                "save_report_state": True,
-                "save_report_presets": True,
-                "save_report_results": False,
-            },
-            last_checked_at=timezone.now(),
-        )
+        for access in queryset:
+            if access.subscription:
+                sync_portal_access_from_subscription(access.subscription)
+            else:
+                set_free_access(access.portal)
+            count += 1
+
         self.message_user(
             request,
-            f"Внутренний бессрочный Pro выдан порталам: {updated}.",
-            messages.SUCCESS,
+            f"Синхронизировано доступов: {count}",
+            level=messages.SUCCESS,
         )
 
-    @admin.action(description="Выдать Trial-доступ на 14 дней")
-    def set_trial_access(self, request, queryset):
-        valid_until = timezone.now() + timedelta(days=14)
+    @admin.action(description="Перевести в Free")
+    def set_selected_free(self, request, queryset):
+        count = 0
 
-        updated = queryset.update(
-            access_level=PortalAccess.AccessLevel.TRIAL,
-            has_pro=True,
-            is_lifetime=False,
-            valid_until=valid_until,
-            source="trial_admin",
-            features={
-                "save_report_state": True,
-                "save_report_presets": True,
-                "save_report_results": False,
-            },
-            last_checked_at=timezone.now(),
-        )
+        for access in queryset:
+            set_free_access(
+                portal=access.portal,
+                subscription=access.subscription,
+            )
+            count += 1
+
         self.message_user(
             request,
-            f"Trial-доступ выдан порталам: {updated}.",
-            messages.SUCCESS,
-        )
-
-    @admin.action(description="Перевести на Free")
-    def set_free_access(self, request, queryset):
-        updated = queryset.update(
-            access_level=PortalAccess.AccessLevel.FREE,
-            has_pro=False,
-            is_lifetime=False,
-            valid_until=None,
-            source="free",
-            features={
-                "save_report_state": False,
-                "save_report_presets": False,
-                "save_report_results": False,
-            },
-            last_checked_at=timezone.now(),
-        )
-        self.message_user(
-            request,
-            f"Порталы переведены на Free: {updated}.",
-            messages.WARNING,
+            f"Переведено в Free: {count}",
+            level=messages.SUCCESS,
         )
 
     @admin.action(description="Заблокировать доступ")
-    def block_access(self, request, queryset):
-        updated = queryset.update(
-            access_level=PortalAccess.AccessLevel.BLOCKED,
-            has_pro=False,
-            is_lifetime=False,
-            valid_until=None,
-            source="admin_blocked",
-            last_checked_at=timezone.now(),
-        )
+    def set_selected_blocked(self, request, queryset):
+        count = 0
+
+        for access in queryset:
+            block_access(
+                portal=access.portal,
+                subscription=access.subscription,
+                reason="admin_blocked",
+            )
+            count += 1
+
         self.message_user(
             request,
-            f"Доступ заблокирован для порталов: {updated}.",
-            messages.ERROR,
+            f"Заблокировано доступов: {count}",
+            level=messages.WARNING,
         )

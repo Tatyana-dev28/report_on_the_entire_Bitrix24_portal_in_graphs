@@ -9,26 +9,25 @@ class Plan(ActiveBaseModel):
     """
     Тарифный план приложения.
 
-    Основные публичные тарифы:
+    Сейчас используем:
     - free
     - pro_monthly
-    - pro_yearly
+    - internal_pro
 
-    Также можно создать скрытый тариф, например internal_pro,
-    для вашей компании или тестовых порталов.
+    pro_yearly пока не используем.
+    Цену можно менять через админку в поле price.
     """
 
     class BillingPeriod(models.TextChoices):
         FREE = "free", "Бесплатно"
         MONTH = "month", "Месяц"
-        YEAR = "year", "Год"
 
     code = models.CharField(
         max_length=100,
         unique=True,
         db_index=True,
         verbose_name="Код тарифа",
-        help_text="Например: free, pro_monthly, pro_yearly, internal_pro.",
+        help_text="Например: free, pro_monthly, internal_pro.",
     )
     name = models.CharField(
         max_length=255,
@@ -44,6 +43,7 @@ class Plan(ActiveBaseModel):
         decimal_places=2,
         default=0,
         verbose_name="Цена",
+        help_text="Цена тарифа. Можно менять через админку.",
     )
     currency = models.CharField(
         max_length=10,
@@ -64,7 +64,7 @@ class Plan(ActiveBaseModel):
         null=True,
         blank=True,
         verbose_name="Длительность в месяцах",
-        help_text="Для pro_monthly = 1, для pro_yearly = 12. Для free можно оставить пустым.",
+        help_text="Для pro_monthly = 1. Для free можно оставить пустым.",
     )
 
     features = models.JSONField(
@@ -72,22 +72,23 @@ class Plan(ActiveBaseModel):
         blank=True,
         verbose_name="Функции тарифа",
         help_text=(
-            "Например: save_report_data, save_presets, "
-            "employee_details, export_excel, export_pdf."
+            "Для Free: save_report_state=false, save_report_presets=false, "
+            "save_report_results=false. Для Pro: save_report_state=true, "
+            "save_report_presets=true, save_report_results=false."
         ),
     )
     limits = models.JSONField(
         default=dict,
         blank=True,
         verbose_name="Лимиты тарифа",
-        help_text="Например: max_period_months, max_sources, max_presets.",
+        help_text="Например: max_presets, max_saved_states.",
     )
 
     is_public = models.BooleanField(
         default=True,
         db_index=True,
         verbose_name="Показывать пользователям",
-        help_text="Скрытые тарифы можно использовать для внутреннего Pro-доступа.",
+        help_text="internal_pro должен быть скрытым тарифом.",
     )
     is_default = models.BooleanField(
         default=False,
@@ -122,10 +123,9 @@ class Subscription(PublicBaseModel):
     """
     Подписка портала на тариф.
 
-    Создается автоматически:
-    - при установке приложения создается Free-подписка;
-    - после успешной оплаты Robokassa создается или обновляется Pro-подписка;
-    - через админку можно вручную выдать Manual Pro.
+    При установке приложения создается Free-подписка.
+    После оплаты Robokassa подписка становится active.
+    Trial и Manual Pro можно выдать через админку.
     """
 
     class Status(models.TextChoices):
@@ -175,21 +175,31 @@ class Subscription(PublicBaseModel):
         null=True,
         blank=True,
         db_index=True,
-        verbose_name="Дата начала",
+        verbose_name="Дата начала подписки",
     )
     paid_until = models.DateTimeField(
         null=True,
         blank=True,
         db_index=True,
         verbose_name="Оплачено до",
+        help_text="Для месячной Pro-подписки здесь дата окончания доступа.",
+    )
+
+    trial_started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="Пробный период с",
+        help_text="Можно вручную указать дату начала trial через админку.",
     )
     trial_until = models.DateTimeField(
         null=True,
         blank=True,
         db_index=True,
         verbose_name="Пробный период до",
-        help_text="Пока можно оставить пустым, если пробный период еще не утвержден.",
+        help_text="Можно вручную указать дату окончания trial через админку.",
     )
+
     canceled_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -200,7 +210,7 @@ class Subscription(PublicBaseModel):
         default=False,
         db_index=True,
         verbose_name="Бессрочная подписка",
-        help_text="Используется для ручного Pro-доступа через админку.",
+        help_text="Для внутреннего Manual Pro-доступа через админку.",
     )
 
     auto_renew = models.BooleanField(
@@ -221,7 +231,7 @@ class Subscription(PublicBaseModel):
         max_length=255,
         blank=True,
         verbose_name="Причина ручной выдачи",
-        help_text="Например: internal_company, partner, test, manager_access.",
+        help_text="Например: internal_company, test, manager_access, trial.",
     )
     admin_comment = models.TextField(
         blank=True,
@@ -241,9 +251,11 @@ class Subscription(PublicBaseModel):
         indexes = [
             models.Index(fields=["portal", "status"]),
             models.Index(fields=["portal", "paid_until"]),
+            models.Index(fields=["portal", "trial_until"]),
             models.Index(fields=["portal", "provider"]),
             models.Index(fields=["provider", "provider_subscription_id"]),
             models.Index(fields=["status", "paid_until"]),
+            models.Index(fields=["status", "trial_until"]),
             models.Index(fields=["is_lifetime"]),
         ]
 
@@ -267,12 +279,14 @@ class Subscription(PublicBaseModel):
         if self.status == self.Status.ACTIVE and self.is_lifetime:
             return True
 
-        if self.status in [self.Status.ACTIVE, self.Status.TRIAL]:
-            if self.paid_until and self.paid_until >= now:
-                return True
+        if self.status == self.Status.ACTIVE:
+            return bool(self.paid_until and self.paid_until >= now)
 
-            if self.trial_until and self.trial_until >= now:
-                return True
+        if self.status == self.Status.TRIAL:
+            if self.trial_started_at and self.trial_started_at > now:
+                return False
+
+            return bool(self.trial_until and self.trial_until >= now)
 
         return False
 
@@ -282,6 +296,8 @@ class Subscription(PublicBaseModel):
         Проверяет именно Pro-доступ.
 
         Free-подписка возвращает False.
+        Trial, active Pro и lifetime Manual Pro возвращают True,
+        если срок доступа действует.
         """
 
         if not self.is_currently_valid:
@@ -297,11 +313,8 @@ class Payment(PublicBaseModel):
     """
     Конкретный платеж.
 
-    Для обычного пользователя создается автоматически,
-    когда он выбирает Pro на месяц или Pro на год.
-
-    После успешного webhook от Robokassa по этому платежу
-    backend включает Pro-доступ порталу.
+    Создается автоматически, когда пользователь выбирает месячную Pro-подписку.
+    После успешного webhook от Robokassa backend включает Pro-доступ порталу.
     """
 
     class Provider(models.TextChoices):
@@ -448,7 +461,7 @@ class PaymentWebhookEvent(BaseModel):
     """
     Входящее событие от Robokassa.
 
-    Нужна отдельная таблица, чтобы:
+    Нужно, чтобы:
     - не обработать оплату дважды;
     - сохранить исходные данные webhook;
     - видеть ошибки обработки;
@@ -578,6 +591,10 @@ class PortalAccess(BaseModel):
     - какие функции доступны;
     - какие лимиты действуют;
     - до какой даты доступ.
+
+    Важно:
+    результаты отчета не сохраняются ни на Free, ни на Pro.
+    Pro сохраняет только настройки и фильтры.
     """
 
     class AccessLevel(models.TextChoices):
@@ -640,6 +657,7 @@ class PortalAccess(BaseModel):
         default=dict,
         blank=True,
         verbose_name="Доступные функции",
+        help_text="save_report_state/save_report_presets могут быть true, save_report_results всегда false.",
     )
     limits = models.JSONField(
         default=dict,

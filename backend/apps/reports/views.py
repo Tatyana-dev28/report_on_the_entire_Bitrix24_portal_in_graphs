@@ -5,6 +5,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 from apps.reports.catalog import METRIC_SECTIONS, METRICS, PERIOD_OPTIONS, REPORT_SOURCES
+from apps.reports.services.report_sessions import (
+    ReportPreviewSessionError,
+    create_report_preview_session,
+)
 
 
 def _json_error(message: str, status: int = 400, details: dict | None = None) -> JsonResponse:
@@ -38,7 +42,7 @@ def _parse_json_body(request) -> tuple[dict, JsonResponse | None]:
 
 
 @require_GET
-def report_catalog_view(request) -> JsonResponse:
+def report_catalog_view(request):
     return JsonResponse(
         {
             "ok": True,
@@ -53,48 +57,25 @@ def report_catalog_view(request) -> JsonResponse:
 
 @csrf_exempt
 @require_POST
-def report_preview_view(request) -> JsonResponse:
+def report_preview_view(request):
     payload, error_response = _parse_json_body(request)
 
     if error_response:
         return error_response
 
-    period = payload.get("period", "days")
-    date_range = payload.get("dateRange") or {}
-    selected_sources = payload.get("selectedSources") or []
-    selected_metric_ids = payload.get("selectedMetricIds") or []
-
-    if period not in {"hours", "days", "weeks", "months"}:
+    try:
+        preview = create_report_preview_session(request, payload)
+    except ReportPreviewSessionError as error:
         return _json_error(
-            "Некорректный период отчета.",
-            details={"allowed": ["hours", "days", "weeks", "months"]},
+            str(error),
+            status=error.status,
+            details=error.details,
         )
 
-    if not isinstance(date_range, dict):
-        return _json_error("Поле dateRange должно быть объектом.")
-
-    if not isinstance(selected_sources, list):
-        return _json_error("Поле selectedSources должно быть массивом.")
-
-    if not isinstance(selected_metric_ids, list):
-        return _json_error("Поле selectedMetricIds должно быть массивом.")
-
-    # Важно: это placeholder API. Здесь пока не считаем реальные значения и не возвращаем mock.
-    # Следующим этапом подключим Bitrix REST и временный cache/Redis для результата.
     return JsonResponse(
         {
             "ok": True,
-            "status": "not_implemented",
-            "message": "Расчет отчета через backend API еще не подключен.",
-            "filters": {
-                "period": period,
-                "dateRange": date_range,
-                "selectedSources": selected_sources,
-                "selectedMetricIds": selected_metric_ids,
-            },
-            "data": [],
-            "employees": [],
-            "details": [],
+            **preview,
         },
         json_dumps_params={"ensure_ascii": False},
     )

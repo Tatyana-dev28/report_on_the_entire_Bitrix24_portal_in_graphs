@@ -75,6 +75,10 @@ CORS_ALLOWED_HEADERS = [
     "x-requested-with",
 ]
 
+REPORT_SESSION_CACHE_TTL_SECONDS = int(
+    get_env("REPORT_SESSION_CACHE_TTL_SECONDS", default="7200")
+)
+
 # Application definition
 
 INSTALLED_APPS = [

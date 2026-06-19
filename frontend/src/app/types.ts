@@ -1,0 +1,195 @@
+import type { CSSProperties, RefObject } from 'react';
+import type { DateRange, MetricRow, Period, ReportPoint } from '../mockData';
+
+export type SelectOption<T extends string> = {
+  value: T;
+  label: string;
+};
+
+export type MockEmployee = {
+  id: string;
+  userId: number;
+  firstName: string;
+  lastName: string;
+  avatarUrl?: string;
+};
+
+export type TableRow =
+  | {
+      kind: 'section';
+      rowId: string;
+      sectionId: string;
+      label: string;
+    }
+  | {
+      kind: 'metric';
+      rowId: string;
+      sectionId: string;
+      metric: MetricRow;
+    }
+  | {
+      kind: 'employee';
+      rowId: string;
+      sectionId: string;
+      metric: MetricRow;
+      employee: MockEmployee;
+      employeeIndex: number;
+    }
+  | {
+      kind: 'chart';
+      rowId: string;
+      sectionId: string;
+      metric: MetricRow;
+    };
+
+export type ThresholdValues = {
+  upper: string;
+  lower: string;
+  mode?: 'manual' | 'recommended' | null;
+};
+
+export type RecommendedThresholdValues = {
+  upper: string;
+  average: string;
+  lower: string;
+};
+
+export type ChartDisplayMode = 'sum' | 'separate';
+
+export type ChartMetricMode = 'money' | 'count';
+
+export type ScheduleFilters = {
+  workdayStart: string;
+  workdayEnd: string;
+  weekendDayIds: number[];
+  calendarWeekStart: number;
+};
+
+export type ReportFilters = {
+  period: Period;
+  dateRange: DateRange;
+  selectedSources: string[];
+  chartDisplayMode: ChartDisplayMode;
+  metricMode: ChartMetricMode;
+  schedule: ScheduleFilters;
+  enabledSectionIds: Set<string>;
+};
+
+export type BitrixEntityType =
+  | 'deal'
+  | 'lead'
+  | 'invoice'
+  | 'quote'
+  | 'company'
+  | 'contact'
+  | 'task'
+  | 'activity'
+  | 'call'
+  | 'email'
+  | 'message'
+  | 'crm_form';
+
+export type DetailContext = {
+  metric: MetricRow;
+  point: ReportPoint;
+  value: number;
+  entityType: BitrixEntityType;
+  employee?: MockEmployee;
+};
+
+export type DetailRow = {
+  rowNumber: number;
+  entityId: number;
+  title: string;
+  responsibleId: number;
+  responsibleName: string;
+  createdAt: string;
+  createdAtSortValue: number;
+  entityType: BitrixEntityType;
+};
+
+export type DetailColumnKey = 'rowNumber' | 'entityId' | 'title' | 'responsibleName' | 'createdAt';
+
+export type DetailSort = {
+  key: DetailColumnKey;
+  direction: 'asc' | 'desc';
+};
+
+export type SerializableReportFilters = Omit<ReportFilters, 'enabledSectionIds'> & {
+  enabledSectionIds: string[];
+};
+
+export type SavedReportViewState = {
+  draftFilters: SerializableReportFilters;
+  appliedFilters: SerializableReportFilters;
+  enabledMetricIdsBySection: Record<string, string[]>;
+  sectionOrder: string[];
+  metricOrderBySection: Record<string, string[]>;
+  expandedSections: string[];
+  mainThreshold: ThresholdValues;
+  rowThresholds: Record<string, ThresholdValues>;
+};
+
+export type SavedReportViewOption = SelectOption<string> & {
+  isSystem?: boolean;
+  state?: SavedReportViewState;
+};
+
+export type AppSettings = {
+  reportBuilderUserIds: string[];
+  moneyViewerUserIds: string[];
+  viewSaverUserIds: string[];
+};
+
+export type ChartDraftSettings = {
+  selectedSources: string[];
+  chartDisplayMode: ChartDisplayMode;
+  metricMode: ChartMetricMode;
+  schedule: ScheduleFilters;
+};
+
+export type ChartDotPayloadProps = {
+  cx?: number | string;
+  cy?: number | string;
+  stroke?: string;
+  index?: number;
+};
+
+export type ActiveChartPoint = {
+  index: number;
+  x: number;
+  y: number;
+};
+
+export type ChartTooltipItem = {
+  label: string;
+  value: string;
+  color: string;
+};
+
+export type HoverChartDotProps = ChartDotPayloadProps & {
+  radius?: number;
+  onActivate: (point: ActiveChartPoint) => void;
+  onDeactivate: () => void;
+};
+
+export type ChartTooltipStyleArgs = {
+  point: ActiveChartPoint;
+  container: HTMLElement | null;
+};
+
+export type ChartTooltipProps = {
+  point: ActiveChartPoint;
+  title: string;
+  items: ChartTooltipItem[];
+  thresholdItems: Array<{
+    key: string;
+    label: string;
+    value: number;
+    color: string;
+  }>;
+  containerRef: RefObject<HTMLDivElement | null>;
+  valueFormatter: (value: number) => string;
+};
+
+export type StyleRecord = CSSProperties;

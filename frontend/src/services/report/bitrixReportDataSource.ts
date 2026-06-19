@@ -1,3 +1,9 @@
+import {
+  metricSections,
+  metrics,
+  periodOptions,
+  type ReportPoint,
+} from '../../mockData';
 import { callBitrixMethod } from '../bitrix/bitrixClient';
 import type {
   BitrixDealCategory,
@@ -5,10 +11,10 @@ import type {
   BitrixSmartProcessType,
   BitrixStatus,
 } from '../bitrix/bitrixTypes';
-import { mockReportDataSource } from './mockReportDataSource';
 import type {
   CrmSource,
   EmployeeMetricItem,
+  EmployeeMetricRequest,
   MetricDetailsRequest,
   MetricDetailItem,
   ReportDataSource,
@@ -31,6 +37,27 @@ const toArray = <T>(value: unknown): T[] => {
 
   return [];
 };
+
+const defaultCrmSources: CrmSource[] = [
+  {
+    id: 'lead-default',
+    type: 'lead',
+    entityTypeId: 1,
+    categoryId: null,
+    title: 'Воронка лидов',
+    sourceLabel: 'Лиды',
+    isAvailable: true,
+  },
+  {
+    id: 'invoice-default',
+    type: 'invoice',
+    entityTypeId: 31,
+    categoryId: null,
+    title: 'Счета',
+    sourceLabel: 'Счета',
+    isAvailable: true,
+  },
+];
 
 const normalizeDealCategory = (category: BitrixDealCategory): CrmSource => {
   const id = Number(category.ID ?? category.id ?? 0);
@@ -131,7 +158,6 @@ const loadSmartProcessStages = async (
 
 const loadInvoiceSources = async (): Promise<CrmSource[]> => {
   try {
-    // Заготовка: если направления счетов доступны через crm.category.list, используем их.
     const categoriesResponse = await callBitrixMethod('crm.category.list', { entityTypeId: 31 });
     const categories = toArray<BitrixSmartProcessCategory>(categoriesResponse);
 
@@ -170,7 +196,6 @@ export const bitrixReportDataSource: ReportDataSource = {
     ];
 
     try {
-      // Реальная загрузка всех воронок сделок портала.
       const dealCategoriesResponse = await callBitrixMethod('crm.category.list', { entityTypeId: 2 });
       const dealCategories = toArray<BitrixDealCategory>(dealCategoriesResponse);
 
@@ -184,8 +209,6 @@ export const bitrixReportDataSource: ReportDataSource = {
     }
 
     try {
-      // Здесь будет загрузка смарт-процессов портала.
-      // TODO: проверить на реальном портале Битрикс24, что crm.type.list возвращает все нужные типы.
       const smartTypesResponse = await callBitrixMethod('crm.type.list', {});
       const smartTypes = toArray<BitrixSmartProcessType>(smartTypesResponse);
 
@@ -196,7 +219,6 @@ export const bitrixReportDataSource: ReportDataSource = {
           continue;
         }
 
-        // Здесь будет загрузка направлений/воронок каждого смарт-процесса.
         const categoriesResponse = await callBitrixMethod('crm.category.list', { entityTypeId });
         const categories = toArray<BitrixSmartProcessCategory>(categoriesResponse);
 
@@ -222,7 +244,6 @@ export const bitrixReportDataSource: ReportDataSource = {
     sources.push(...(await loadInvoiceSources()));
 
     try {
-      // Заготовки стадий уже готовы для будущего расчета показателей.
       await Promise.allSettled([
         loadLeadStages(),
         ...sources
@@ -236,69 +257,42 @@ export const bitrixReportDataSource: ReportDataSource = {
       console.warn('[Bitrix data source] stages were not loaded', error);
     }
 
-    if (sources.length > 1) {
-      return sources;
-    }
-
-    console.warn('[Bitrix data source] CRM sources fallback to mock data');
-    return mockReportDataSource.loadCrmSources();
+    return sources;
   },
 
   async loadPeriods() {
-    return mockReportDataSource.loadPeriods();
+    return periodOptions;
   },
 
   async loadMetricSections() {
-    return mockReportDataSource.loadMetricSections();
+    return metricSections;
   },
 
   async loadMetrics() {
-    return mockReportDataSource.loadMetrics();
+    return metrics;
   },
 
-  async loadReportData(filters: ReportLoadFilters) {
-    try {
-      // Здесь будет загрузка лидов, сделок, счетов и смарт-процессов по фильтрам отчета.
-      // Здесь будет расчет показателей главного графика и строк таблицы.
-      await callBitrixMethod('crm.deal.list', {
-        select: ['ID', 'TITLE', 'OPPORTUNITY', 'DATE_CREATE', 'ASSIGNED_BY_ID'],
-        filter: {},
-        start: 0,
-      });
-    } catch (error) {
-      console.warn('[Bitrix data source] report data fallback to mock data', error);
-    }
-
-    return mockReportDataSource.loadReportData(filters);
-  },
-
-  async loadMetricDetails(_request: MetricDetailsRequest): Promise<MetricDetailItem[]> {
-    try {
-      // Здесь будет детализация сущностей Битрикс24 по клику на значение показателя.
-      await callBitrixMethod('crm.activity.list', { select: ['ID'], filter: {}, start: 0 });
-    } catch (error) {
-      console.warn('[Bitrix data source] metric details are not implemented yet', error);
-    }
-
+  async loadReportData(_filters: ReportLoadFilters): Promise<ReportPoint[]> {
+    // Mock-данные в рабочем Bitrix/backend-режиме больше не возвращаем.
+    // Реальный расчет подключим после backend API report session.
     return [];
   },
 
-  async loadEmployeesMetric(_request: MetricDetailsRequest): Promise<EmployeeMetricItem[]> {
-    try {
-      // Здесь будет загрузка сотрудников, значений по ним и аватарок.
-      await callBitrixMethod('user.get', { filter: { ACTIVE: true } });
-    } catch (error) {
-      console.warn('[Bitrix data source] employee metrics are not implemented yet', error);
-    }
+  async loadMetricDetails(_request: MetricDetailsRequest): Promise<MetricDetailItem[]> {
+    // Детализация будет подключена к backend API.
+    return [];
+  },
 
+  async loadEmployeesMetric(_request: EmployeeMetricRequest): Promise<EmployeeMetricItem[]> {
+    // Разбивка по сотрудникам будет подключена к backend API.
     return [];
   },
 
   getInitialCrmSources() {
-    return mockReportDataSource.getInitialCrmSources();
+    return defaultCrmSources;
   },
 
-  getInitialReportData(filters: ReportLoadFilters) {
-    return mockReportDataSource.getInitialReportData(filters);
+  getInitialReportData(_filters: ReportLoadFilters): ReportPoint[] {
+    return [];
   },
 };

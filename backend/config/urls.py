@@ -20,4 +20,5 @@ from django.urls import path, include
 urlpatterns = [
     path('admin/', admin.site.urls),
     path("bitrix/", include("apps.bitrix.urls")),
+    path("api/reports/", include("apps.reports.urls")),
 ]

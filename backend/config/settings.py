@@ -57,6 +57,24 @@ ALLOWED_HOSTS = get_list_env(
     default="127.0.0.1,localhost",
 )
 
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+CORS_ALLOWED_METHODS = [
+    "GET",
+    "POST",
+    "OPTIONS",
+]
+
+CORS_ALLOWED_HEADERS = [
+    "accept",
+    "content-type",
+    "authorization",
+    "x-requested-with",
+]
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -76,6 +94,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "config.middleware.CorsMiddleware",
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',

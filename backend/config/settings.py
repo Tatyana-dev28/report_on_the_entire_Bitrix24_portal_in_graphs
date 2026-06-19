@@ -131,12 +131,51 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+DATABASE_ENGINE = get_env("DATABASE_ENGINE", default="sqlite").lower()
+
+
+def get_int_env(name: str, default: int) -> int:
+    value = os.environ.get(name)
+
+    if value is None or value == "":
+        return default
+
+    try:
+        return int(value)
+    except ValueError as error:
+        raise ImproperlyConfigured(f"{name} must be an integer.") from error
+
+
+if DATABASE_ENGINE in ("mysql", "percona"):
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.mysql",
+            "NAME": get_env("MYSQL_DATABASE", required=True),
+            "USER": get_env("MYSQL_USER", required=True),
+            "PASSWORD": get_env("MYSQL_PASSWORD", required=True),
+            "HOST": get_env("MYSQL_HOST", default="127.0.0.1"),
+            "PORT": get_env("MYSQL_PORT", default="3306"),
+            "CONN_MAX_AGE": get_int_env("MYSQL_CONN_MAX_AGE", default=60),
+            "OPTIONS": {
+                "charset": "utf8mb4",
+                "init_command": (
+                    "SET sql_mode='STRICT_TRANS_TABLES', "
+                    "time_zone='+00:00'"
+                ),
+            },
+        }
     }
-}
+elif DATABASE_ENGINE == "sqlite":
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / get_env("SQLITE_DATABASE_NAME", default="db.sqlite3"),
+        }
+    }
+else:
+    raise ImproperlyConfigured(
+        "DATABASE_ENGINE must be one of: sqlite, mysql, percona."
+    )
 
 
 # Password validation

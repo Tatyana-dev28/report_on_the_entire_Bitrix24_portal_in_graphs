@@ -1,4 +1,4 @@
-﻿import { defaultDateRange, metricSections, type DateRange } from '../services/report/reportCatalog';
+import { defaultDateRange, metricSections, type DateRange } from '../services/report/reportCatalog';
 import type {
   AppSettings,
   ChartDisplayMode,
@@ -17,41 +17,41 @@ export const MIN_PERIOD_COLUMN_WIDTH = 36;
 export const MAX_PERIOD_COLUMN_WIDTH = 136;
 export const CHART_AXIS_WIDTH = 72;
 export const MONTH_LABELS = [
-  'РЇРЅРІР°СЂСЊ',
-  'Р¤РµРІСЂР°Р»СЊ',
-  'РњР°СЂС‚',
-  'РђРїСЂРµР»СЊ',
-  'РњР°Р№',
-  'РСЋРЅСЊ',
-  'РСЋР»СЊ',
-  'РђРІРіСѓСЃС‚',
-  'РЎРµРЅС‚СЏР±СЂСЊ',
-  'РћРєС‚СЏР±СЂСЊ',
-  'РќРѕСЏР±СЂСЊ',
-  'Р”РµРєР°Р±СЂСЊ',
+  'Январь',
+  'Февраль',
+  'Март',
+  'Апрель',
+  'Май',
+  'Июнь',
+  'Июль',
+  'Август',
+  'Сентябрь',
+  'Октябрь',
+  'Ноябрь',
+  'Декабрь',
 ];
 
 export const mockEmployees: MockEmployee[] = [
-  { id: 'employee-1', userId: 104, firstName: 'РђРЅРЅР°', lastName: 'РЎРѕРєРѕР»РѕРІР°' },
-  { id: 'employee-2', userId: 117, firstName: 'РР»СЊСЏ', lastName: 'РњРѕСЂРѕР·РѕРІ' },
-  { id: 'employee-3', userId: 126, firstName: 'РњР°СЂРёСЏ', lastName: 'РћСЂР»РѕРІР°' },
+  { id: 'employee-1', userId: 104, firstName: 'Анна', lastName: 'Соколова' },
+  { id: 'employee-2', userId: 117, firstName: 'Илья', lastName: 'Морозов' },
+  { id: 'employee-3', userId: 126, firstName: 'Мария', lastName: 'Орлова' },
 ];
 
 export const LAST_AVAILABLE_MONTH_INDEX = 2026 * 12 + 5;
 export const isProUser = false;
 export const buttonLabels = {
-  build: 'РџРѕСЃС‚СЂРѕРёС‚СЊ РѕС‚С‡РµС‚',
-  download: 'РЎРєР°С‡Р°С‚СЊ Excel',
+  build: 'Построить отчет',
+  download: 'Скачать Excel',
 };
 
 export const chartDisplayModeOptions: SelectOption<ChartDisplayMode>[] = [
-  { value: 'sum', label: 'РЎСѓРјРјРёСЂРѕРІР°С‚СЊ РїРѕРєР°Р·Р°С‚РµР»Рё РІ РѕРґРёРЅ РіСЂР°С„РёРє' },
-  { value: 'separate', label: 'Р’С‹РІРµСЃС‚Рё РІ РѕС‚РґРµР»СЊРЅС‹Рµ РіСЂР°С„РёРєРё' },
+  { value: 'sum', label: 'Суммировать показатели в один график' },
+  { value: 'separate', label: 'Вывести в отдельные графики' },
 ];
 
 export const chartMetricModeOptions: SelectOption<ChartMetricMode>[] = [
-  { value: 'money', label: 'РљРѕР»-РІРѕ РґРµРЅРµРі' },
-  { value: 'count', label: 'РљРѕР»-РІРѕ СЌР»РµРјРµРЅС‚РѕРІ' },
+  { value: 'money', label: 'Кол-во денег' },
+  { value: 'count', label: 'Кол-во элементов' },
 ];
 
 export const scheduleTimeOptions = Array.from({ length: 24 }, (_item, hour) =>
@@ -59,13 +59,13 @@ export const scheduleTimeOptions = Array.from({ length: 24 }, (_item, hour) =>
 );
 
 export const weekDayOptions = [
-  { id: 0, label: 'РџРЅ' },
-  { id: 1, label: 'Р’С‚' },
-  { id: 2, label: 'РЎСЂ' },
-  { id: 3, label: 'Р§С‚' },
-  { id: 4, label: 'РџС‚' },
-  { id: 5, label: 'РЎР±' },
-  { id: 6, label: 'Р’СЃ' },
+  { id: 0, label: 'Пн' },
+  { id: 1, label: 'Вт' },
+  { id: 2, label: 'Ср' },
+  { id: 3, label: 'Чт' },
+  { id: 4, label: 'Пт' },
+  { id: 5, label: 'Сб' },
+  { id: 6, label: 'Вс' },
 ];
 
 export const chartSeriesColors = ['#2274ff', '#34a853', '#ff9f0a', '#af52de', '#ff375f', '#00a7c7', '#6e6e73'];
@@ -78,11 +78,11 @@ export const defaultSchedule: ScheduleFilters = {
 };
 
 export const detailColumns: Array<{ key: DetailColumnKey; label: string; minWidth: number }> = [
-  { key: 'rowNumber', label: 'в„–', minWidth: 60 },
+  { key: 'rowNumber', label: '№', minWidth: 60 },
   { key: 'entityId', label: 'ID', minWidth: 90 },
-  { key: 'title', label: 'РќР°Р·РІР°РЅРёРµ', minWidth: 220 },
-  { key: 'responsibleName', label: 'РћС‚РІРµС‚СЃС‚РІРµРЅРЅС‹Р№', minWidth: 180 },
-  { key: 'createdAt', label: 'Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ', minWidth: 160 },
+  { key: 'title', label: 'Название', minWidth: 220 },
+  { key: 'responsibleName', label: 'Ответственный', minWidth: 180 },
+  { key: 'createdAt', label: 'Дата создания', minWidth: 160 },
 ];
 
 export const defaultDetailColumnWidths: Record<DetailColumnKey, number> = {
@@ -99,7 +99,7 @@ export const APP_SETTINGS_STORAGE_KEY = 'sapp24-app-settings';
 
 export const defaultSavedView: SavedReportViewOption = {
   value: 'default',
-  label: 'РћР±С‰РёР№ РѕС‚С‡РµС‚',
+  label: 'Общий отчет',
   isSystem: true,
 };
 
@@ -124,7 +124,7 @@ export const createDefaultSchedule = (): ScheduleFilters => ({
 export const createDefaultFilters = (): ReportFilters => ({
   period: 'days',
   dateRange: defaultDateRange,
-  selectedSources: ['Р’РѕСЂРѕРЅРєР° РїСЂРѕРґР°Р¶Рё'],
+  selectedSources: ['Воронка продажи'],
   chartDisplayMode: 'sum',
   metricMode: 'money',
   schedule: createDefaultSchedule(),

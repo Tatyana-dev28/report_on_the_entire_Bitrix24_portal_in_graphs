@@ -1,4 +1,4 @@
-﻿import {
+import {
   useEffect,
   useRef,
   useState,
@@ -248,16 +248,16 @@ export function BrandLogo() {
       href="https://sapp24.com/?utm_source=app-b24"
       target="_blank"
       rel="noreferrer"
-      aria-label="РћС‚РєСЂС‹С‚СЊ СЃР°Р№С‚ РЎРђРџРџ"
+      aria-label="Открыть сайт САПП"
     >
       {logoAvailable && (
         <img
           src="/sapp-logo.svg"
-          alt="РЎРђРџРџ"
+          alt="САПП"
           onError={() => setLogoAvailable(false)}
         />
       )}
-      {!logoAvailable && <span>РЎРђРџРџ</span>}
+      {!logoAvailable && <span>САПП</span>}
     </a>
   );
 }
@@ -505,7 +505,7 @@ export function ValueCellButton({
     >
       <span className="value-cell-badge">{valueLabel}</span>
       <span className="value-cell-corner-arrow" aria-hidden="true">
-        в†—
+        ↗
       </span>
       {tooltipStyle && <TooltipPortal label={valueLabel} style={tooltipStyle} />}
     </button>

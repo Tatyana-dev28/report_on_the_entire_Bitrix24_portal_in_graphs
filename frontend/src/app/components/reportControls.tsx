@@ -1,4 +1,4 @@
-import {
+﻿import {
   useEffect,
   useMemo,
   useRef,
@@ -34,7 +34,7 @@ import {
   type MetricRow,
   type Period,
   type ReportPoint,
-} from '../../mockData';
+} from '../../services/report/reportCatalog';
 import {
   LAST_AVAILABLE_MONTH_INDEX,
   MONTH_LABELS,
@@ -167,7 +167,7 @@ export function SavedViewsSelect({
       <button
         className="select-trigger"
         type="button"
-        aria-label="Сохраненные отображения отчета"
+        aria-label="РЎРѕС…СЂР°РЅРµРЅРЅС‹Рµ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ РѕС‚С‡РµС‚Р°"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
@@ -208,7 +208,7 @@ export function SavedViewsSelect({
                     <button
                       className="saved-view-more-button"
                       type="button"
-                      aria-label="Действия отображения"
+                      aria-label="Р”РµР№СЃС‚РІРёСЏ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ"
                       onClick={(event) => {
                         event.stopPropagation();
                         setActionsOpenFor((current) => (current === option.value ? null : option.value));
@@ -227,7 +227,7 @@ export function SavedViewsSelect({
                             onEdit(option.value);
                           }}
                         >
-                          Редактировать
+                          Р РµРґР°РєС‚РёСЂРѕРІР°С‚СЊ
                         </button>
                         <button
                           type="button"
@@ -238,7 +238,7 @@ export function SavedViewsSelect({
                             onDelete(option.value);
                           }}
                         >
-                          Удалить
+                          РЈРґР°Р»РёС‚СЊ
                         </button>
                       </div>
                     )}
@@ -256,7 +256,7 @@ export function SavedViewsSelect({
                 onSaveClick();
               }}
             >
-              <span>Сохранить текущее отображение отчета</span>
+              <span>РЎРѕС…СЂР°РЅРёС‚СЊ С‚РµРєСѓС‰РµРµ РѕС‚РѕР±СЂР°Р¶РµРЅРёРµ РѕС‚С‡РµС‚Р°</span>
             </button>
           </div>
         </FloatingPopover>
@@ -320,7 +320,7 @@ export function DateRangePicker({
       <button
         className="date-trigger"
         type="button"
-        aria-label="Выбор диапазона периода"
+        aria-label="Р’С‹Р±РѕСЂ РґРёР°РїР°Р·РѕРЅР° РїРµСЂРёРѕРґР°"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
@@ -338,10 +338,10 @@ export function DateRangePicker({
           expectedWidth={360}
           expectedHeight={150}
         >
-          <p>Период отчета</p>
+          <p>РџРµСЂРёРѕРґ РѕС‚С‡РµС‚Р°</p>
           <div className={`date-fields ${period === 'hours' ? 'single-field' : ''}`}>
             <label>
-              <span>{period === 'hours' ? 'Дата' : 'Дата начала'}</span>
+              <span>{period === 'hours' ? 'Р”Р°С‚Р°' : 'Р”Р°С‚Р° РЅР°С‡Р°Р»Р°'}</span>
               <input
                 type="date"
                 value={range.start}
@@ -354,7 +354,7 @@ export function DateRangePicker({
             </label>
             {period !== 'hours' && (
               <label>
-                <span>Дата окончания</span>
+                <span>Р”Р°С‚Р° РѕРєРѕРЅС‡Р°РЅРёСЏ</span>
                 <input
                   type="date"
                   value={range.end}
@@ -376,11 +376,11 @@ export function DateRangePicker({
           expectedHeight={260}
         >
           <div className="month-head">
-            <button type="button" aria-label="Предыдущий год" onClick={() => setVisibleYear((year) => year - 1)}>
+            <button type="button" aria-label="РџСЂРµРґС‹РґСѓС‰РёР№ РіРѕРґ" onClick={() => setVisibleYear((year) => year - 1)}>
               <ChevronDown size={16} />
             </button>
             <p>{visibleYear}</p>
-            <button type="button" aria-label="Следующий год" onClick={() => setVisibleYear((year) => year + 1)}>
+            <button type="button" aria-label="РЎР»РµРґСѓСЋС‰РёР№ РіРѕРґ" onClick={() => setVisibleYear((year) => year + 1)}>
               <ChevronDown size={16} />
             </button>
           </div>
@@ -423,10 +423,10 @@ export function MultiSelect({
   const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
   const label =
     values.length === options.length
-      ? 'Все источники'
+      ? 'Р’СЃРµ РёСЃС‚РѕС‡РЅРёРєРё'
       : values.length
         ? values.join(', ')
-        : 'Не выбрано';
+        : 'РќРµ РІС‹Р±СЂР°РЅРѕ';
 
   const toggleValue = (value: string) => {
     if (values.includes(value)) {
@@ -442,7 +442,7 @@ export function MultiSelect({
       <button
         className="select-trigger"
         type="button"
-        aria-label="Выбор источников отчета"
+        aria-label="Р’С‹Р±РѕСЂ РёСЃС‚РѕС‡РЅРёРєРѕРІ РѕС‚С‡РµС‚Р°"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
@@ -496,7 +496,7 @@ export function SectionMetricsMenu({
   return (
     <div className={`section-metrics-shell ${open ? 'is-open' : ''}`} ref={ref}>
       <TooltipButton
-        label="Настройка показателей раздела"
+        label="РќР°СЃС‚СЂРѕР№РєР° РїРѕРєР°Р·Р°С‚РµР»РµР№ СЂР°Р·РґРµР»Р°"
         onClick={() => setOpen((current) => !current)}
         className={`section-settings-button ${open ? 'active-pin' : ''}`}
       >
@@ -516,7 +516,7 @@ export function SectionMetricsMenu({
             <button
               className="row-menu-close"
               type="button"
-              aria-label="Закрыть настройку показателей"
+              aria-label="Р—Р°РєСЂС‹С‚СЊ РЅР°СЃС‚СЂРѕР№РєСѓ РїРѕРєР°Р·Р°С‚РµР»РµР№"
               onClick={() => setOpen(false)}
             >
               <X size={14} />
@@ -524,10 +524,10 @@ export function SectionMetricsMenu({
           </div>
           <div className="table-settings-actions section-metrics-actions">
             <button type="button" onClick={onSelectAll}>
-              Выбрать все
+              Р’С‹Р±СЂР°С‚СЊ РІСЃРµ
             </button>
             <button type="button" onClick={onReset}>
-              Сбросить
+              РЎР±СЂРѕСЃРёС‚СЊ
             </button>
           </div>
           <div className="settings-list section-metrics-list">
@@ -577,7 +577,7 @@ export function TableSettingsMenu({
     <div className={`menu-button-shell ${open ? 'is-open' : ''}`} ref={ref}>
       {trigger === 'icon' ? (
         <TooltipButton
-          label="Настройка таблицы"
+          label="РќР°СЃС‚СЂРѕР№РєР° С‚Р°Р±Р»РёС†С‹"
           onClick={() => setOpen((current) => !current)}
           className={open ? 'active-pin' : ''}
         >
@@ -591,7 +591,7 @@ export function TableSettingsMenu({
           onClick={() => setOpen((current) => !current)}
         >
           <Settings2 size={16} />
-          <span>Настройка таблицы</span>
+          <span>РќР°СЃС‚СЂРѕР№РєР° С‚Р°Р±Р»РёС†С‹</span>
         </button>
       )}
       {open && (
@@ -604,11 +604,11 @@ export function TableSettingsMenu({
           expectedHeight={620}
         >
           <div className="table-settings-head">
-            <p>Настройка таблицы</p>
+            <p>РќР°СЃС‚СЂРѕР№РєР° С‚Р°Р±Р»РёС†С‹</p>
             <button
               className="row-menu-close"
               type="button"
-              aria-label="Закрыть настройку таблицы"
+              aria-label="Р—Р°РєСЂС‹С‚СЊ РЅР°СЃС‚СЂРѕР№РєСѓ С‚Р°Р±Р»РёС†С‹"
               onClick={() => setOpen(false)}
             >
               <X size={14} />
@@ -616,10 +616,10 @@ export function TableSettingsMenu({
           </div>
           <div className="table-settings-actions">
             <button type="button" onClick={onSelectAll}>
-              Выбрать все
+              Р’С‹Р±СЂР°С‚СЊ РІСЃРµ
             </button>
             <button type="button" onClick={onReset}>
-              Сбросить
+              РЎР±СЂРѕСЃРёС‚СЊ
             </button>
           </div>
           <div className="settings-list">
@@ -705,7 +705,7 @@ export function ConfigureChartMenu({
         onClick={open ? () => setOpen(false) : openMenu}
       >
         <SlidersHorizontal size={16} />
-        <span>Настроить график</span>
+        <span>РќР°СЃС‚СЂРѕРёС‚СЊ РіСЂР°С„РёРє</span>
       </button>
       {open && (
         <FloatingPopover
@@ -717,11 +717,11 @@ export function ConfigureChartMenu({
           expectedHeight={560}
         >
           <div className="configure-chart-head">
-            <p>Настроить график</p>
+            <p>РќР°СЃС‚СЂРѕРёС‚СЊ РіСЂР°С„РёРє</p>
             <button
               className="row-menu-close"
               type="button"
-              aria-label="Закрыть настройки графика"
+              aria-label="Р—Р°РєСЂС‹С‚СЊ РЅР°СЃС‚СЂРѕР№РєРё РіСЂР°С„РёРєР°"
               onClick={() => setOpen(false)}
             >
               <X size={14} />
@@ -748,7 +748,7 @@ export function ConfigureChartMenu({
                     chartDisplayMode,
                   }))
                 }
-                ariaLabel="Режим отображения CRM-разделов"
+                ariaLabel="Р РµР¶РёРј РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ CRM-СЂР°Р·РґРµР»РѕРІ"
                 className="chart-mode-select"
               />
             )}
@@ -761,7 +761,7 @@ export function ConfigureChartMenu({
                   metricMode,
                 }))
               }
-              ariaLabel="Что считаем"
+              ariaLabel="Р§С‚Рѕ СЃС‡РёС‚Р°РµРј"
               className="chart-mode-select"
             />
             <ThresholdMenu
@@ -781,7 +781,7 @@ export function ConfigureChartMenu({
             />
           </div>
           <button className="configure-chart-apply blue-button" type="button" onClick={applySettings}>
-            Применить
+            РџСЂРёРјРµРЅРёС‚СЊ
           </button>
         </FloatingPopover>
       )}
@@ -817,16 +817,16 @@ export function ThresholdEditor({
   return (
     <div className="threshold-editor">
       <div className="threshold-popover-head">
-        <p>Пороговые значения</p>
+        <p>РџРѕСЂРѕРіРѕРІС‹Рµ Р·РЅР°С‡РµРЅРёСЏ</p>
         <button className="popover-reset-button compact-reset-button" type="button" onClick={resetValues}>
-          Сбросить
+          РЎР±СЂРѕСЃРёС‚СЊ
         </button>
       </div>
       <div className="threshold-editor-grid">
         <div className="threshold-column">
-          <p>Ручные значения</p>
+          <p>Р СѓС‡РЅС‹Рµ Р·РЅР°С‡РµРЅРёСЏ</p>
           <label className="threshold-field compact-threshold-field">
-            <span>Верхнее значение</span>
+            <span>Р’РµСЂС…РЅРµРµ Р·РЅР°С‡РµРЅРёРµ</span>
             <input
               type="number"
               value={manualUpper}
@@ -835,7 +835,7 @@ export function ThresholdEditor({
             />
           </label>
           <label className="threshold-field compact-threshold-field">
-            <span>Нижнее значение</span>
+            <span>РќРёР¶РЅРµРµ Р·РЅР°С‡РµРЅРёРµ</span>
             <input
               type="number"
               value={manualLower}
@@ -844,7 +844,7 @@ export function ThresholdEditor({
             />
           </label>
           <label className="threshold-field compact-threshold-field">
-            <span>Среднее значение</span>
+            <span>РЎСЂРµРґРЅРµРµ Р·РЅР°С‡РµРЅРёРµ</span>
             <input value={manualAverage === null ? '' : manualAverage} readOnly />
           </label>
           <button
@@ -856,21 +856,21 @@ export function ThresholdEditor({
               onClose();
             }}
           >
-            Применить
+            РџСЂРёРјРµРЅРёС‚СЊ
           </button>
         </div>
         <div className="threshold-column">
-          <p>Рекомендованные значения</p>
+          <p>Р РµРєРѕРјРµРЅРґРѕРІР°РЅРЅС‹Рµ Р·РЅР°С‡РµРЅРёСЏ</p>
           <label className="threshold-field compact-threshold-field">
-            <span>Рекомендованное верхнее значение</span>
+            <span>Р РµРєРѕРјРµРЅРґРѕРІР°РЅРЅРѕРµ РІРµСЂС…РЅРµРµ Р·РЅР°С‡РµРЅРёРµ</span>
             <input value={recommended.upper} readOnly />
           </label>
           <label className="threshold-field compact-threshold-field">
-            <span>Рекомендованное нижнее значение</span>
+            <span>Р РµРєРѕРјРµРЅРґРѕРІР°РЅРЅРѕРµ РЅРёР¶РЅРµРµ Р·РЅР°С‡РµРЅРёРµ</span>
             <input value={recommended.lower} readOnly />
           </label>
           <label className="threshold-field compact-threshold-field">
-            <span>Рекомендованное среднее значение</span>
+            <span>Р РµРєРѕРјРµРЅРґРѕРІР°РЅРЅРѕРµ СЃСЂРµРґРЅРµРµ Р·РЅР°С‡РµРЅРёРµ</span>
             <input value={recommended.average} readOnly />
           </label>
           <button
@@ -882,7 +882,7 @@ export function ThresholdEditor({
               onClose();
             }}
           >
-            Применить
+            РџСЂРёРјРµРЅРёС‚СЊ
           </button>
         </div>
       </div>
@@ -914,7 +914,7 @@ export function ThresholdMenu({
         onClick={() => setOpen((current) => !current)}
       >
         <SlidersHorizontal size={17} />
-        <span>Пороговые значения</span>
+        <span>РџРѕСЂРѕРіРѕРІС‹Рµ Р·РЅР°С‡РµРЅРёСЏ</span>
         <ChevronDown size={16} />
       </button>
       {open && (
@@ -977,7 +977,7 @@ export function ScheduleMenu({
         onClick={() => setOpen((current) => !current)}
       >
         <CalendarClock size={17} />
-        <span>Расписание</span>
+        <span>Р Р°СЃРїРёСЃР°РЅРёРµ</span>
         <ChevronDown size={16} />
       </button>
       {open && (
@@ -989,10 +989,10 @@ export function ScheduleMenu({
           expectedWidth={320}
           expectedHeight={430}
         >
-          <p>Расписание</p>
+          <p>Р Р°СЃРїРёСЃР°РЅРёРµ</p>
           <div className="schedule-form">
             <label className="schedule-field">
-              <span>Начало рабочего дня</span>
+              <span>РќР°С‡Р°Р»Рѕ СЂР°Р±РѕС‡РµРіРѕ РґРЅСЏ</span>
               <select
                 value={schedule.workdayStart}
                 onChange={(event) =>
@@ -1011,7 +1011,7 @@ export function ScheduleMenu({
               </select>
             </label>
             <label className="schedule-field">
-              <span>Конец рабочего дня</span>
+              <span>РљРѕРЅРµС† СЂР°Р±РѕС‡РµРіРѕ РґРЅСЏ</span>
               <select
                 value={schedule.workdayEnd}
                 onChange={(event) =>
@@ -1030,7 +1030,7 @@ export function ScheduleMenu({
               </select>
             </label>
             <div className="schedule-field">
-              <span>Выходные дни</span>
+              <span>Р’С‹С…РѕРґРЅС‹Рµ РґРЅРё</span>
               <div className="schedule-day-grid">
                 {weekDayOptions.map((day) => {
                   const selected = schedule.weekendDayIds.includes(day.id);
@@ -1050,7 +1050,7 @@ export function ScheduleMenu({
               </div>
             </div>
             <div className="schedule-field">
-              <span>Первый день недели</span>
+              <span>РџРµСЂРІС‹Р№ РґРµРЅСЊ РЅРµРґРµР»Рё</span>
               <div className="schedule-day-grid">
                 {weekDayOptions.map((day) => {
                   const selected = schedule.calendarWeekStart === day.id;
@@ -1079,7 +1079,7 @@ export function ScheduleMenu({
               type="button"
               onClick={() => updateSchedule(createDefaultSchedule())}
             >
-              Сбросить
+              РЎР±СЂРѕСЃРёС‚СЊ
             </button>
           </div>
         </FloatingPopover>
@@ -1102,7 +1102,7 @@ export function RowThresholdMenu({
   return (
     <div className={`row-threshold-shell ${open ? 'is-open' : ''}`} ref={ref}>
       <TooltipButton
-        label="Пороговые значения"
+        label="РџРѕСЂРѕРіРѕРІС‹Рµ Р·РЅР°С‡РµРЅРёСЏ"
         className={`row-action-button ${open ? 'active-pin' : ''}`}
         onClick={() => setOpen((current) => !current)}
       >
@@ -1110,27 +1110,27 @@ export function RowThresholdMenu({
       </TooltipButton>
       {open && (
         <div className="settings-popover row-threshold-popover">
-          <p>Пороговые значения</p>
+          <p>РџРѕСЂРѕРіРѕРІС‹Рµ Р·РЅР°С‡РµРЅРёСЏ</p>
           <label className="threshold-field">
-            <span>Верхнее значение</span>
+            <span>Р’РµСЂС…РЅРµРµ Р·РЅР°С‡РµРЅРёРµ</span>
             <input
               type="number"
               value={value.upper}
               onChange={(event) => onChange({ ...value, upper: event.target.value })}
-              placeholder="Например, 80"
+              placeholder="РќР°РїСЂРёРјРµСЂ, 80"
             />
           </label>
           <label className="threshold-field">
-            <span>Нижнее значение</span>
+            <span>РќРёР¶РЅРµРµ Р·РЅР°С‡РµРЅРёРµ</span>
             <input
               type="number"
               value={value.lower}
               onChange={(event) => onChange({ ...value, lower: event.target.value })}
-              placeholder="Например, 30"
+              placeholder="РќР°РїСЂРёРјРµСЂ, 30"
             />
           </label>
           <label className="threshold-field">
-            <span>Среднее значение</span>
+            <span>РЎСЂРµРґРЅРµРµ Р·РЅР°С‡РµРЅРёРµ</span>
             <input value={average === null ? '' : average} readOnly />
           </label>
           <button
@@ -1138,7 +1138,7 @@ export function RowThresholdMenu({
             type="button"
             onClick={() => onChange({ upper: '', lower: '' })}
           >
-            Сбросить
+            РЎР±СЂРѕСЃРёС‚СЊ
           </button>
         </div>
       )}
@@ -1178,7 +1178,7 @@ export function RowActionsMenu({
       <button
         className="more-menu-button"
         type="button"
-        aria-label="Действия показателя"
+        aria-label="Р”РµР№СЃС‚РІРёСЏ РїРѕРєР°Р·Р°С‚РµР»СЏ"
         aria-expanded={open}
         onClick={openActions}
       >
@@ -1196,11 +1196,11 @@ export function RowActionsMenu({
           {mode === 'actions' ? (
             <div className="row-actions-list">
               <div className="row-actions-menu-head">
-                <p>Действия</p>
+                <p>Р”РµР№СЃС‚РІРёСЏ</p>
                 <button
                   className="row-menu-close"
                   type="button"
-                  aria-label="Закрыть меню"
+                  aria-label="Р—Р°РєСЂС‹С‚СЊ РјРµРЅСЋ"
                   onClick={() => setOpen(false)}
                 >
                   <X size={14} />
@@ -1214,7 +1214,7 @@ export function RowActionsMenu({
                   setOpen(false);
                 }}
               >
-                <span>{employeesOpen ? 'Скрыть сотрудников' : 'Показать сотрудников'}</span>
+                <span>{employeesOpen ? 'РЎРєСЂС‹С‚СЊ СЃРѕС‚СЂСѓРґРЅРёРєРѕРІ' : 'РџРѕРєР°Р·Р°С‚СЊ СЃРѕС‚СЂСѓРґРЅРёРєРѕРІ'}</span>
                 {employeesOpen && <Check size={14} />}
               </button>
               <button
@@ -1225,7 +1225,7 @@ export function RowActionsMenu({
                   setOpen(false);
                 }}
               >
-                <span>{chartOpen ? 'Скрыть график' : 'Показать график'}</span>
+                <span>{chartOpen ? 'РЎРєСЂС‹С‚СЊ РіСЂР°С„РёРє' : 'РџРѕРєР°Р·Р°С‚СЊ РіСЂР°С„РёРє'}</span>
                 {chartOpen && <Check size={14} />}
               </button>
               <button
@@ -1233,19 +1233,19 @@ export function RowActionsMenu({
                 type="button"
                 onClick={() => setMode('thresholds')}
               >
-                <span>Пороговые значения</span>
+                <span>РџРѕСЂРѕРіРѕРІС‹Рµ Р·РЅР°С‡РµРЅРёСЏ</span>
               </button>
             </div>
           ) : (
             <div className="row-threshold-fields">
               <div className="row-popover-head">
                 <button type="button" onClick={() => setMode('actions')}>
-                  Назад
+                  РќР°Р·Р°Рґ
                 </button>
                 <button
                   className="row-menu-close"
                   type="button"
-                  aria-label="Закрыть меню"
+                  aria-label="Р—Р°РєСЂС‹С‚СЊ РјРµРЅСЋ"
                   onClick={() => setOpen(false)}
                 >
                   <X size={14} />
@@ -1387,4 +1387,5 @@ export function RowMetricChart({
     </div>
   );
 }
+
 

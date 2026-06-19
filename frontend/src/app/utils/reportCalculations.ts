@@ -1,4 +1,4 @@
-import { formatMoney, metrics, type MetricRow, type Period, type ReportPoint } from '../../mockData';
+﻿import { formatMoney, metrics, type MetricRow, type Period, type ReportPoint } from '../../services/report/reportCatalog';
 import type { ChartMetricMode, MockEmployee, ScheduleFilters } from '../types';
 
 export function buildTrend(values: number[]) {
@@ -117,23 +117,23 @@ export const getChartSeriesValue = (
   const normalizedSource = source.toLowerCase();
 
   const isLeadSource =
-    source === 'Воронка лидов' ||
-    source === 'Лиды' ||
-    normalizedSource.includes('лид');
+    source === 'Р’РѕСЂРѕРЅРєР° Р»РёРґРѕРІ' ||
+    source === 'Р›РёРґС‹' ||
+    normalizedSource.includes('Р»РёРґ');
 
   const isDealSource =
-    source === 'Воронка продажи' ||
-    normalizedSource.includes('сдел') ||
-    normalizedSource.includes('продаж');
+    source === 'Р’РѕСЂРѕРЅРєР° РїСЂРѕРґР°Р¶Рё' ||
+    normalizedSource.includes('СЃРґРµР»') ||
+    normalizedSource.includes('РїСЂРѕРґР°Р¶');
 
   const isProductionSource =
-    source === 'Воронка производство' ||
-    normalizedSource.includes('производ');
+    source === 'Р’РѕСЂРѕРЅРєР° РїСЂРѕРёР·РІРѕРґСЃС‚РІРѕ' ||
+    normalizedSource.includes('РїСЂРѕРёР·РІРѕРґ');
 
   const isInvoiceSource =
-    source === 'Счета' ||
-    normalizedSource.includes('счет') ||
-    normalizedSource.includes('счёт');
+    source === 'РЎС‡РµС‚Р°' ||
+    normalizedSource.includes('СЃС‡РµС‚') ||
+    normalizedSource.includes('СЃС‡С‘С‚');
 
   if (metricMode === 'count') {
     if (isLeadSource) {
@@ -153,11 +153,11 @@ export const getChartSeriesValue = (
     }
 
     switch (source) {
-      case 'Смарт-процесс заявки':
+      case 'РЎРјР°СЂС‚-РїСЂРѕС†РµСЃСЃ Р·Р°СЏРІРєРё':
         return values.crm_forms;
-      case 'Смарт-процесс производство':
+      case 'РЎРјР°СЂС‚-РїСЂРѕС†РµСЃСЃ РїСЂРѕРёР·РІРѕРґСЃС‚РІРѕ':
         return values.activities_created + values.production_work;
-      case 'Смарт-процесс доставка':
+      case 'РЎРјР°СЂС‚-РїСЂРѕС†РµСЃСЃ РґРѕСЃС‚Р°РІРєР°':
         return values.tasks_done + values.activities_done;
       default:
         return values.deals_created;
@@ -181,11 +181,11 @@ export const getChartSeriesValue = (
   }
 
   switch (source) {
-    case 'Смарт-процесс заявки':
+    case 'РЎРјР°СЂС‚-РїСЂРѕС†РµСЃСЃ Р·Р°СЏРІРєРё':
       return values.crm_forms * 42000;
-    case 'Смарт-процесс производство':
+    case 'РЎРјР°СЂС‚-РїСЂРѕС†РµСЃСЃ РїСЂРѕРёР·РІРѕРґСЃС‚РІРѕ':
       return (values.activities_created + values.production_work) * 36000;
-    case 'Смарт-процесс доставка':
+    case 'РЎРјР°СЂС‚-РїСЂРѕС†РµСЃСЃ РґРѕСЃС‚Р°РІРєР°':
       return (values.tasks_done + values.activities_done) * 18000;
     default:
       return values.deals_won_sum;
@@ -208,11 +208,11 @@ export const formatMainAxisTick = (value: number | string, metricMode: ChartMetr
   }
 
   if (metricMode === 'money') {
-    return `${Math.round(numericValue / 1000)} тыс.`;
+    return `${Math.round(numericValue / 1000)} С‚С‹СЃ.`;
   }
 
   if (Math.abs(numericValue) >= 1000) {
-    return `${Math.round(numericValue / 100) / 10} тыс.`;
+    return `${Math.round(numericValue / 100) / 10} С‚С‹СЃ.`;
   }
 
   return numberFormatter.format(Math.round(numericValue));

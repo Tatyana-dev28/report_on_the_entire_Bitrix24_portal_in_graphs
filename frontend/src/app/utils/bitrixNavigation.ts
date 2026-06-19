@@ -1,4 +1,4 @@
-import type { MetricRow } from '../../mockData';
+﻿import type { MetricRow } from '../../services/report/reportCatalog';
 import type { BitrixEntityType } from '../types';
 
 type BX24Api = {
@@ -9,33 +9,33 @@ type BX24Api = {
 };
 
 export const bitrixEntityLabels: Record<BitrixEntityType, string> = {
-  deal: 'сделки',
-  lead: 'лиды',
-  invoice: 'счета',
-  quote: 'предложения',
-  company: 'компании',
-  contact: 'контакты',
-  task: 'задачи',
-  activity: 'дела',
-  call: 'звонки',
-  email: 'письма',
-  message: 'сообщения',
-  crm_form: 'CRM формы',
+  deal: 'СЃРґРµР»РєРё',
+  lead: 'Р»РёРґС‹',
+  invoice: 'СЃС‡РµС‚Р°',
+  quote: 'РїСЂРµРґР»РѕР¶РµРЅРёСЏ',
+  company: 'РєРѕРјРїР°РЅРёРё',
+  contact: 'РєРѕРЅС‚Р°РєС‚С‹',
+  task: 'Р·Р°РґР°С‡Рё',
+  activity: 'РґРµР»Р°',
+  call: 'Р·РІРѕРЅРєРё',
+  email: 'РїРёСЃСЊРјР°',
+  message: 'СЃРѕРѕР±С‰РµРЅРёСЏ',
+  crm_form: 'CRM С„РѕСЂРјС‹',
 };
 
 export const bitrixEntityTitleRoots: Record<BitrixEntityType, string> = {
-  deal: 'Сделка',
-  lead: 'Лид',
-  invoice: 'Счет',
-  quote: 'Предложение',
-  company: 'Компания',
-  contact: 'Контакт',
-  task: 'Задача',
-  activity: 'Дело',
-  call: 'Звонок',
-  email: 'Письмо',
-  message: 'Сообщение',
-  crm_form: 'CRM форма',
+  deal: 'РЎРґРµР»РєР°',
+  lead: 'Р›РёРґ',
+  invoice: 'РЎС‡РµС‚',
+  quote: 'РџСЂРµРґР»РѕР¶РµРЅРёРµ',
+  company: 'РљРѕРјРїР°РЅРёСЏ',
+  contact: 'РљРѕРЅС‚Р°РєС‚',
+  task: 'Р—Р°РґР°С‡Р°',
+  activity: 'Р”РµР»Рѕ',
+  call: 'Р—РІРѕРЅРѕРє',
+  email: 'РџРёСЃСЊРјРѕ',
+  message: 'РЎРѕРѕР±С‰РµРЅРёРµ',
+  crm_form: 'CRM С„РѕСЂРјР°',
 };
 
 const getBitrixEntityPath = (entityType: BitrixEntityType, id: string | number) => {

@@ -1,9 +1,9 @@
-import {
+﻿import {
   metricSections,
   metrics,
   periodOptions,
   type ReportPoint,
-} from '../../mockData';
+} from './reportCatalog';
 import { callBitrixMethod } from '../bitrix/bitrixClient';
 import type {
   BitrixDealCategory,
@@ -44,8 +44,8 @@ const defaultCrmSources: CrmSource[] = [
     type: 'lead',
     entityTypeId: 1,
     categoryId: null,
-    title: 'Воронка лидов',
-    sourceLabel: 'Лиды',
+    title: 'Р’РѕСЂРѕРЅРєР° Р»РёРґРѕРІ',
+    sourceLabel: 'Р›РёРґС‹',
     isAvailable: true,
   },
   {
@@ -53,18 +53,18 @@ const defaultCrmSources: CrmSource[] = [
     type: 'invoice',
     entityTypeId: 31,
     categoryId: null,
-    title: 'Счета',
-    sourceLabel: 'Счета',
+    title: 'РЎС‡РµС‚Р°',
+    sourceLabel: 'РЎС‡РµС‚Р°',
     isAvailable: true,
   },
 ];
 
 const normalizeDealCategory = (category: BitrixDealCategory): CrmSource => {
   const id = Number(category.ID ?? category.id ?? 0);
-  const rawTitle = category.NAME ?? category.name ?? (id === 0 ? 'Продажи' : `Воронка ${id}`);
-  const title = rawTitle.toLowerCase().includes('воронка')
+  const rawTitle = category.NAME ?? category.name ?? (id === 0 ? 'РџСЂРѕРґР°Р¶Рё' : `Р’РѕСЂРѕРЅРєР° ${id}`);
+  const title = rawTitle.toLowerCase().includes('РІРѕСЂРѕРЅРєР°')
     ? rawTitle
-    : `Воронка сделки: ${rawTitle}`;
+    : `Р’РѕСЂРѕРЅРєР° СЃРґРµР»РєРё: ${rawTitle}`;
 
   return {
     id: `deal-${id}`,
@@ -79,8 +79,8 @@ const normalizeDealCategory = (category: BitrixDealCategory): CrmSource => {
 
 const normalizeInvoiceCategory = (category: BitrixSmartProcessCategory): CrmSource => {
   const categoryId = Number(category.id ?? 0);
-  const rawTitle = category.name ?? 'Счета';
-  const title = rawTitle === 'Счета' ? rawTitle : `Счета: ${rawTitle}`;
+  const rawTitle = category.name ?? 'РЎС‡РµС‚Р°';
+  const title = rawTitle === 'РЎС‡РµС‚Р°' ? rawTitle : `РЎС‡РµС‚Р°: ${rawTitle}`;
 
   return {
     id: `invoice-${categoryId}`,
@@ -99,8 +99,8 @@ const normalizeSmartProcessCategory = (
 ): CrmSource => {
   const entityTypeId = Number(type.entityTypeId ?? category.entityTypeId);
   const categoryId = Number(category.id ?? 0);
-  const typeTitle = type.title ?? type.name ?? `Смарт-процесс ${entityTypeId}`;
-  const categoryTitle = category.name ?? 'Основное направление';
+  const typeTitle = type.title ?? type.name ?? `РЎРјР°СЂС‚-РїСЂРѕС†РµСЃСЃ ${entityTypeId}`;
+  const categoryTitle = category.name ?? 'РћСЃРЅРѕРІРЅРѕРµ РЅР°РїСЂР°РІР»РµРЅРёРµ';
   const title = `${typeTitle}: ${categoryTitle}`;
 
   return {
@@ -135,7 +135,7 @@ const getSmartProcessStageEntityId = (
   _entityTypeId: number,
   _categoryId: number | null | undefined,
 ) => {
-  // TODO: проверить на реальном портале Битрикс24 формат ENTITY_ID стадий смарт-процессов.
+  // TODO: РїСЂРѕРІРµСЂРёС‚СЊ РЅР° СЂРµР°Р»СЊРЅРѕРј РїРѕСЂС‚Р°Р»Рµ Р‘РёС‚СЂРёРєСЃ24 С„РѕСЂРјР°С‚ ENTITY_ID СЃС‚Р°РґРёР№ СЃРјР°СЂС‚-РїСЂРѕС†РµСЃСЃРѕРІ.
   return null;
 };
 
@@ -174,8 +174,8 @@ const loadInvoiceSources = async (): Promise<CrmSource[]> => {
       type: 'invoice',
       entityTypeId: 31,
       categoryId: null,
-      title: 'Счета',
-      sourceLabel: 'Счета',
+      title: 'РЎС‡РµС‚Р°',
+      sourceLabel: 'РЎС‡РµС‚Р°',
       isAvailable: true,
     },
   ];
@@ -189,8 +189,8 @@ export const bitrixReportDataSource: ReportDataSource = {
         type: 'lead',
         entityTypeId: 1,
         categoryId: null,
-        title: 'Воронка лидов',
-        sourceLabel: 'Лиды',
+        title: 'Р’РѕСЂРѕРЅРєР° Р»РёРґРѕРІ',
+        sourceLabel: 'Р›РёРґС‹',
         isAvailable: true,
       },
     ];
@@ -202,7 +202,7 @@ export const bitrixReportDataSource: ReportDataSource = {
       if (dealCategories.length) {
         sources.push(...dealCategories.map(normalizeDealCategory));
       } else {
-        sources.push(normalizeDealCategory({ id: 0, name: 'Продажи' }));
+        sources.push(normalizeDealCategory({ id: 0, name: 'РџСЂРѕРґР°Р¶Рё' }));
       }
     } catch (error) {
       console.warn('[Bitrix data source] deal categories were not loaded', error);
@@ -228,8 +228,8 @@ export const bitrixReportDataSource: ReportDataSource = {
             type: 'smartProcess',
             entityTypeId,
             categoryId: 0,
-            title: type.title ?? type.name ?? `Смарт-процесс ${entityTypeId}`,
-            sourceLabel: type.title ?? type.name ?? `Смарт-процесс ${entityTypeId}`,
+            title: type.title ?? type.name ?? `РЎРјР°СЂС‚-РїСЂРѕС†РµСЃСЃ ${entityTypeId}`,
+            sourceLabel: type.title ?? type.name ?? `РЎРјР°СЂС‚-РїСЂРѕС†РµСЃСЃ ${entityTypeId}`,
             isAvailable: true,
           });
           continue;
@@ -273,18 +273,18 @@ export const bitrixReportDataSource: ReportDataSource = {
   },
 
   async loadReportData(_filters: ReportLoadFilters): Promise<ReportPoint[]> {
-    // Mock-данные в рабочем Bitrix/backend-режиме больше не возвращаем.
-    // Реальный расчет подключим после backend API report session.
+    // Mock-РґР°РЅРЅС‹Рµ РІ СЂР°Р±РѕС‡РµРј Bitrix/backend-СЂРµР¶РёРјРµ Р±РѕР»СЊС€Рµ РЅРµ РІРѕР·РІСЂР°С‰Р°РµРј.
+    // Р РµР°Р»СЊРЅС‹Р№ СЂР°СЃС‡РµС‚ РїРѕРґРєР»СЋС‡РёРј РїРѕСЃР»Рµ backend API report session.
     return [];
   },
 
   async loadMetricDetails(_request: MetricDetailsRequest): Promise<MetricDetailItem[]> {
-    // Детализация будет подключена к backend API.
+    // Р”РµС‚Р°Р»РёР·Р°С†РёСЏ Р±СѓРґРµС‚ РїРѕРґРєР»СЋС‡РµРЅР° Рє backend API.
     return [];
   },
 
   async loadEmployeesMetric(_request: EmployeeMetricRequest): Promise<EmployeeMetricItem[]> {
-    // Разбивка по сотрудникам будет подключена к backend API.
+    // Р Р°Р·Р±РёРІРєР° РїРѕ СЃРѕС‚СЂСѓРґРЅРёРєР°Рј Р±СѓРґРµС‚ РїРѕРґРєР»СЋС‡РµРЅР° Рє backend API.
     return [];
   },
 
@@ -296,3 +296,4 @@ export const bitrixReportDataSource: ReportDataSource = {
     return [];
   },
 };
+

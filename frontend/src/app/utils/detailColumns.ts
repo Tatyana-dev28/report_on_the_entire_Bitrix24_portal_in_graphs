@@ -1,4 +1,4 @@
-import {
+﻿import {
   defaultDetailColumnWidths,
   detailColumnMinWidthSum,
   detailColumnMinWidths,
@@ -104,3 +104,4 @@ export const resizeDetailColumnWidths = (
     [receiver]: baseWidths[receiver] + applied,
   };
 };
+

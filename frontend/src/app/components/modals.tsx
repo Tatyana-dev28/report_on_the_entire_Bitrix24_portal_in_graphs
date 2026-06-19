@@ -1,4 +1,4 @@
-import {
+﻿import {
   useEffect,
   useMemo,
   useRef,
@@ -7,7 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { ChevronDown, Crown, X } from 'lucide-react';
-import { formatMetricValue } from '../../mockData';
+import { formatMetricValue } from '../../services/report/reportCatalog';
 import { DETAIL_COLUMN_STORAGE_KEY, detailColumnMinWidthSum, detailColumns, mockEmployees } from '../constants';
 import type { AppSettings, DetailColumnKey, DetailContext, DetailSort } from '../types';
 import { TooltipButton, useOutsideClose } from './common';
@@ -21,7 +21,7 @@ export function SaveViewModal({
   onValueChange,
   onClose,
   onSave,
-  title = 'Сохранить отображение',
+  title = 'РЎРѕС…СЂР°РЅРёС‚СЊ РѕС‚РѕР±СЂР°Р¶РµРЅРёРµ',
 }: {
   value: string;
   onValueChange: (value: string) => void;
@@ -42,25 +42,25 @@ export function SaveViewModal({
       >
         <div className="modal-head">
           <p id="save-view-title">{title}</p>
-          <button className="icon-button" type="button" aria-label="Закрыть окно" onClick={onClose}>
+          <button className="icon-button" type="button" aria-label="Р—Р°РєСЂС‹С‚СЊ РѕРєРЅРѕ" onClick={onClose}>
             <X size={18} />
           </button>
         </div>
         <label className="field-label">
-          <span>Название</span>
+          <span>РќР°Р·РІР°РЅРёРµ</span>
           <input
             value={value}
             onChange={(event) => onValueChange(event.target.value)}
-            placeholder="Например, отчет продаж"
+            placeholder="РќР°РїСЂРёРјРµСЂ, РѕС‚С‡РµС‚ РїСЂРѕРґР°Р¶"
             autoFocus
           />
         </label>
         <div className="modal-actions">
           <button className="secondary-button" type="button" onClick={onClose}>
-            Отмена
+            РћС‚РјРµРЅР°
           </button>
           <button className="primary-button" type="button" onClick={onSave}>
-            Сохранить
+            РЎРѕС…СЂР°РЅРёС‚СЊ
           </button>
         </div>
       </div>
@@ -81,18 +81,18 @@ export function ConfirmDeleteViewModal({
     <div className="modal-layer" role="presentation">
       <div className="modal-panel compact-modal-panel" role="dialog" aria-modal="true" ref={panelRef}>
         <div className="modal-head">
-          <p>Удалить отображение</p>
-          <button className="icon-button" type="button" aria-label="Закрыть окно" onClick={onCancel}>
+          <p>РЈРґР°Р»РёС‚СЊ РѕС‚РѕР±СЂР°Р¶РµРЅРёРµ</p>
+          <button className="icon-button" type="button" aria-label="Р—Р°РєСЂС‹С‚СЊ РѕРєРЅРѕ" onClick={onCancel}>
             <X size={18} />
           </button>
         </div>
-        <p className="modal-text">Точно удалить отображение отчета?</p>
+        <p className="modal-text">РўРѕС‡РЅРѕ СѓРґР°Р»РёС‚СЊ РѕС‚РѕР±СЂР°Р¶РµРЅРёРµ РѕС‚С‡РµС‚Р°?</p>
         <div className="modal-actions">
           <button className="secondary-button" type="button" onClick={onCancel}>
-            Отмена
+            РћС‚РјРµРЅР°
           </button>
           <button className="danger-button" type="button" onClick={onConfirm}>
-            Удалить
+            РЈРґР°Р»РёС‚СЊ
           </button>
         </div>
       </div>
@@ -113,18 +113,18 @@ export function FreeSaveLimitModal({
     <div className="modal-layer" role="presentation">
       <div className="modal-panel compact-modal-panel" role="dialog" aria-modal="true" ref={panelRef}>
         <div className="modal-head">
-          <p>Ограничение бесплатной версии</p>
-          <button className="icon-button" type="button" aria-label="Закрыть окно" onClick={onClose}>
+          <p>РћРіСЂР°РЅРёС‡РµРЅРёРµ Р±РµСЃРїР»Р°С‚РЅРѕР№ РІРµСЂСЃРёРё</p>
+          <button className="icon-button" type="button" aria-label="Р—Р°РєСЂС‹С‚СЊ РѕРєРЅРѕ" onClick={onClose}>
             <X size={18} />
           </button>
         </div>
-        <p className="modal-text">В бесплатной версии возможно сохранить только одно отображение отчета.</p>
+        <p className="modal-text">Р’ Р±РµСЃРїР»Р°С‚РЅРѕР№ РІРµСЂСЃРёРё РІРѕР·РјРѕР¶РЅРѕ СЃРѕС…СЂР°РЅРёС‚СЊ С‚РѕР»СЊРєРѕ РѕРґРЅРѕ РѕС‚РѕР±СЂР°Р¶РµРЅРёРµ РѕС‚С‡РµС‚Р°.</p>
         <div className="modal-actions">
           <button className="secondary-button" type="button" onClick={onClose}>
-            Отмена
+            РћС‚РјРµРЅР°
           </button>
           <button className="primary-button" type="button" onClick={onOpenPro}>
-            Активировать ПРО версию
+            РђРєС‚РёРІРёСЂРѕРІР°С‚СЊ РџР Рћ РІРµСЂСЃРёСЋ
           </button>
         </div>
       </div>
@@ -145,17 +145,17 @@ export function ProVersionModal({ onClose }: { onClose: () => void }) {
         ref={panelRef}
       >
         <div className="modal-head">
-          <p id="pro-modal-title">ПРО версия</p>
-          <button className="icon-button" type="button" aria-label="Закрыть окно" onClick={onClose}>
+          <p id="pro-modal-title">РџР Рћ РІРµСЂСЃРёСЏ</p>
+          <button className="icon-button" type="button" aria-label="Р—Р°РєСЂС‹С‚СЊ РѕРєРЅРѕ" onClick={onClose}>
             <X size={18} />
           </button>
         </div>
         <div className="pro-modal-body">
-          <p>Здесь будет описание тарифа, возможностей и подключение оплаты.</p>
-          <p>ПРО версия позволяет:</p>
+          <p>Р—РґРµСЃСЊ Р±СѓРґРµС‚ РѕРїРёСЃР°РЅРёРµ С‚Р°СЂРёС„Р°, РІРѕР·РјРѕР¶РЅРѕСЃС‚РµР№ Рё РїРѕРґРєР»СЋС‡РµРЅРёРµ РѕРїР»Р°С‚С‹.</p>
+          <p>РџР Рћ РІРµСЂСЃРёСЏ РїРѕР·РІРѕР»СЏРµС‚:</p>
           <ol>
-            <li>Сохранять множество вариантов отображений отчета.</li>
-            <li>Дать права сотрудникам к различным показателям отчета.</li>
+            <li>РЎРѕС…СЂР°РЅСЏС‚СЊ РјРЅРѕР¶РµСЃС‚РІРѕ РІР°СЂРёР°РЅС‚РѕРІ РѕС‚РѕР±СЂР°Р¶РµРЅРёР№ РѕС‚С‡РµС‚Р°.</li>
+            <li>Р”Р°С‚СЊ РїСЂР°РІР° СЃРѕС‚СЂСѓРґРЅРёРєР°Рј Рє СЂР°Р·Р»РёС‡РЅС‹Рј РїРѕРєР°Р·Р°С‚РµР»СЏРј РѕС‚С‡РµС‚Р°.</li>
           </ol>
         </div>
       </div>
@@ -170,202 +170,202 @@ export function InstructionModal({ onClose }: { onClose: () => void }) {
     <div className="modal-layer instruction-modal-layer" role="presentation">
       <div className="modal-panel instruction-modal-panel" role="dialog" aria-modal="true" ref={panelRef}>
         <div className="modal-head">
-          <p>Инструкция</p>
-          <button className="icon-button" type="button" aria-label="Закрыть окно" onClick={onClose}>
+          <p>РРЅСЃС‚СЂСѓРєС†РёСЏ</p>
+          <button className="icon-button" type="button" aria-label="Р—Р°РєСЂС‹С‚СЊ РѕРєРЅРѕ" onClick={onClose}>
             <X size={18} />
           </button>
         </div>
         <div className="instruction-content">
-          <nav className="instruction-nav" aria-label="Разделы инструкции">
-            <a href="#instruction-about">Что делает приложение</a>
-            <a href="#instruction-build">Как построить отчет</a>
-            <a href="#instruction-crm">Почему у всех разные воронки</a>
-            <a href="#instruction-chart">Как читать график</a>
-            <a href="#instruction-thresholds">Пороговые значения</a>
-            <a href="#instruction-table">Как пользоваться таблицей</a>
-            <a href="#instruction-settings">Настройка таблицы</a>
-            <a href="#instruction-views">Сохраненные отображения</a>
-            <a href="#instruction-export">Excel и PDF</a>
-            <a href="#instruction-pro">ПРО версия</a>
-            <a href="#instruction-faq">Частые вопросы</a>
+          <nav className="instruction-nav" aria-label="Р Р°Р·РґРµР»С‹ РёРЅСЃС‚СЂСѓРєС†РёРё">
+            <a href="#instruction-about">Р§С‚Рѕ РґРµР»Р°РµС‚ РїСЂРёР»РѕР¶РµРЅРёРµ</a>
+            <a href="#instruction-build">РљР°Рє РїРѕСЃС‚СЂРѕРёС‚СЊ РѕС‚С‡РµС‚</a>
+            <a href="#instruction-crm">РџРѕС‡РµРјСѓ Сѓ РІСЃРµС… СЂР°Р·РЅС‹Рµ РІРѕСЂРѕРЅРєРё</a>
+            <a href="#instruction-chart">РљР°Рє С‡РёС‚Р°С‚СЊ РіСЂР°С„РёРє</a>
+            <a href="#instruction-thresholds">РџРѕСЂРѕРіРѕРІС‹Рµ Р·РЅР°С‡РµРЅРёСЏ</a>
+            <a href="#instruction-table">РљР°Рє РїРѕР»СЊР·РѕРІР°С‚СЊСЃСЏ С‚Р°Р±Р»РёС†РµР№</a>
+            <a href="#instruction-settings">РќР°СЃС‚СЂРѕР№РєР° С‚Р°Р±Р»РёС†С‹</a>
+            <a href="#instruction-views">РЎРѕС…СЂР°РЅРµРЅРЅС‹Рµ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ</a>
+            <a href="#instruction-export">Excel Рё PDF</a>
+            <a href="#instruction-pro">РџР Рћ РІРµСЂСЃРёСЏ</a>
+            <a href="#instruction-faq">Р§Р°СЃС‚С‹Рµ РІРѕРїСЂРѕСЃС‹</a>
           </nav>
 
           <section className="instruction-section" id="instruction-about">
-            <h2>Что делает приложение</h2>
+            <h2>Р§С‚Рѕ РґРµР»Р°РµС‚ РїСЂРёР»РѕР¶РµРЅРёРµ</h2>
             <p>
-              Приложение помогает смотреть показатели Битрикс24 в графиках и таблицах. Вы выбираете период,
-              CRM-разделы и нужный вид расчета, а приложение показывает динамику по датам.
+              РџСЂРёР»РѕР¶РµРЅРёРµ РїРѕРјРѕРіР°РµС‚ СЃРјРѕС‚СЂРµС‚СЊ РїРѕРєР°Р·Р°С‚РµР»Рё Р‘РёС‚СЂРёРєСЃ24 РІ РіСЂР°С„РёРєР°С… Рё С‚Р°Р±Р»РёС†Р°С…. Р’С‹ РІС‹Р±РёСЂР°РµС‚Рµ РїРµСЂРёРѕРґ,
+              CRM-СЂР°Р·РґРµР»С‹ Рё РЅСѓР¶РЅС‹Р№ РІРёРґ СЂР°СЃС‡РµС‚Р°, Р° РїСЂРёР»РѕР¶РµРЅРёРµ РїРѕРєР°Р·С‹РІР°РµС‚ РґРёРЅР°РјРёРєСѓ РїРѕ РґР°С‚Р°Рј.
             </p>
             <p>
-              Отчет можно скачать в Excel или PDF. Также можно сохранить удобные варианты отображения отчета,
-              чтобы быстро возвращаться к ним позже.
+              РћС‚С‡РµС‚ РјРѕР¶РЅРѕ СЃРєР°С‡Р°С‚СЊ РІ Excel РёР»Рё PDF. РўР°РєР¶Рµ РјРѕР¶РЅРѕ СЃРѕС…СЂР°РЅРёС‚СЊ СѓРґРѕР±РЅС‹Рµ РІР°СЂРёР°РЅС‚С‹ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ РѕС‚С‡РµС‚Р°,
+              С‡С‚РѕР±С‹ Р±С‹СЃС‚СЂРѕ РІРѕР·РІСЂР°С‰Р°С‚СЊСЃСЏ Рє РЅРёРј РїРѕР·Р¶Рµ.
             </p>
             <div className="instruction-demo demo-toolbar">
-              <span className="demo-select">Общий отчет</span>
-              <span className="demo-button demo-blue">Построить отчет</span>
-              <span className="demo-button demo-green">Скачать Excel</span>
-              <span className="demo-button demo-purple">Скачать PDF</span>
+              <span className="demo-select">РћР±С‰РёР№ РѕС‚С‡РµС‚</span>
+              <span className="demo-button demo-blue">РџРѕСЃС‚СЂРѕРёС‚СЊ РѕС‚С‡РµС‚</span>
+              <span className="demo-button demo-green">РЎРєР°С‡Р°С‚СЊ Excel</span>
+              <span className="demo-button demo-purple">РЎРєР°С‡Р°С‚СЊ PDF</span>
             </div>
           </section>
 
           <section className="instruction-section" id="instruction-build">
-            <h2>Как построить отчет</h2>
+            <h2>РљР°Рє РїРѕСЃС‚СЂРѕРёС‚СЊ РѕС‚С‡РµС‚</h2>
             <ol>
-              <li>Выберите период в верхней панели.</li>
-              <li>Нажмите кнопку <b>Настроить график</b>.</li>
-              <li>Выберите нужные воронки, лиды, счета или смарт-процессы.</li>
-              <li>Выберите, что считать: деньги или количество.</li>
-              <li>Нажмите <b>Применить</b>.</li>
-              <li>Нажмите <b>Построить отчет</b>.</li>
+              <li>Р’С‹Р±РµСЂРёС‚Рµ РїРµСЂРёРѕРґ РІ РІРµСЂС…РЅРµР№ РїР°РЅРµР»Рё.</li>
+              <li>РќР°Р¶РјРёС‚Рµ РєРЅРѕРїРєСѓ <b>РќР°СЃС‚СЂРѕРёС‚СЊ РіСЂР°С„РёРє</b>.</li>
+              <li>Р’С‹Р±РµСЂРёС‚Рµ РЅСѓР¶РЅС‹Рµ РІРѕСЂРѕРЅРєРё, Р»РёРґС‹, СЃС‡РµС‚Р° РёР»Рё СЃРјР°СЂС‚-РїСЂРѕС†РµСЃСЃС‹.</li>
+              <li>Р’С‹Р±РµСЂРёС‚Рµ, С‡С‚Рѕ СЃС‡РёС‚Р°С‚СЊ: РґРµРЅСЊРіРё РёР»Рё РєРѕР»РёС‡РµСЃС‚РІРѕ.</li>
+              <li>РќР°Р¶РјРёС‚Рµ <b>РџСЂРёРјРµРЅРёС‚СЊ</b>.</li>
+              <li>РќР°Р¶РјРёС‚Рµ <b>РџРѕСЃС‚СЂРѕРёС‚СЊ РѕС‚С‡РµС‚</b>.</li>
             </ol>
             <div className="instruction-demo demo-card">
-              <span className="demo-button demo-soft">Настроить график</span>
-              <span className="demo-select">Воронка продажи</span>
-              <span className="demo-select">Кол-во денег</span>
-              <span className="demo-button demo-blue">Применить</span>
+              <span className="demo-button demo-soft">РќР°СЃС‚СЂРѕРёС‚СЊ РіСЂР°С„РёРє</span>
+              <span className="demo-select">Р’РѕСЂРѕРЅРєР° РїСЂРѕРґР°Р¶Рё</span>
+              <span className="demo-select">РљРѕР»-РІРѕ РґРµРЅРµРі</span>
+              <span className="demo-button demo-blue">РџСЂРёРјРµРЅРёС‚СЊ</span>
             </div>
           </section>
 
           <section className="instruction-section" id="instruction-crm">
-            <h2>Почему у всех разные воронки</h2>
+            <h2>РџРѕС‡РµРјСѓ Сѓ РІСЃРµС… СЂР°Р·РЅС‹Рµ РІРѕСЂРѕРЅРєРё</h2>
             <p>
-              Приложение берет разделы CRM из вашего портала Битрикс24. Поэтому названия могут отличаться от
-              примеров в инструкции. У одного портала может быть воронка <b>Продажи</b>, у другого — <b>Производство</b>.
+              РџСЂРёР»РѕР¶РµРЅРёРµ Р±РµСЂРµС‚ СЂР°Р·РґРµР»С‹ CRM РёР· РІР°С€РµРіРѕ РїРѕСЂС‚Р°Р»Р° Р‘РёС‚СЂРёРєСЃ24. РџРѕСЌС‚РѕРјСѓ РЅР°Р·РІР°РЅРёСЏ РјРѕРіСѓС‚ РѕС‚Р»РёС‡Р°С‚СЊСЃСЏ РѕС‚
+              РїСЂРёРјРµСЂРѕРІ РІ РёРЅСЃС‚СЂСѓРєС†РёРё. РЈ РѕРґРЅРѕРіРѕ РїРѕСЂС‚Р°Р»Р° РјРѕР¶РµС‚ Р±С‹С‚СЊ РІРѕСЂРѕРЅРєР° <b>РџСЂРѕРґР°Р¶Рё</b>, Сѓ РґСЂСѓРіРѕРіРѕ вЂ” <b>РџСЂРѕРёР·РІРѕРґСЃС‚РІРѕ</b>.
             </p>
             <p>
-              Лиды и смарт-процессы тоже могут называться по-разному. Это нормально: выбирайте те разделы,
-              которые нужны именно вашему отчету.
+              Р›РёРґС‹ Рё СЃРјР°СЂС‚-РїСЂРѕС†РµСЃСЃС‹ С‚РѕР¶Рµ РјРѕРіСѓС‚ РЅР°Р·С‹РІР°С‚СЊСЃСЏ РїРѕ-СЂР°Р·РЅРѕРјСѓ. Р­С‚Рѕ РЅРѕСЂРјР°Р»СЊРЅРѕ: РІС‹Р±РёСЂР°Р№С‚Рµ С‚Рµ СЂР°Р·РґРµР»С‹,
+              РєРѕС‚РѕСЂС‹Рµ РЅСѓР¶РЅС‹ РёРјРµРЅРЅРѕ РІР°С€РµРјСѓ РѕС‚С‡РµС‚Сѓ.
             </p>
           </section>
 
           <section className="instruction-section" id="instruction-chart">
-            <h2>Как читать главный график</h2>
+            <h2>РљР°Рє С‡РёС‚Р°С‚СЊ РіР»Р°РІРЅС‹Р№ РіСЂР°С„РёРє</h2>
             <p>
-              Точки на графике показывают значения по датам или периодам. Наведите курсор на точку, чтобы увидеть
-              подсказку с датой и суммой. Линия тренда помогает понять, растут показатели или снижаются.
+              РўРѕС‡РєРё РЅР° РіСЂР°С„РёРєРµ РїРѕРєР°Р·С‹РІР°СЋС‚ Р·РЅР°С‡РµРЅРёСЏ РїРѕ РґР°С‚Р°Рј РёР»Рё РїРµСЂРёРѕРґР°Рј. РќР°РІРµРґРёС‚Рµ РєСѓСЂСЃРѕСЂ РЅР° С‚РѕС‡РєСѓ, С‡С‚РѕР±С‹ СѓРІРёРґРµС‚СЊ
+              РїРѕРґСЃРєР°Р·РєСѓ СЃ РґР°С‚РѕР№ Рё СЃСѓРјРјРѕР№. Р›РёРЅРёСЏ С‚СЂРµРЅРґР° РїРѕРјРѕРіР°РµС‚ РїРѕРЅСЏС‚СЊ, СЂР°СЃС‚СѓС‚ РїРѕРєР°Р·Р°С‚РµР»Рё РёР»Рё СЃРЅРёР¶Р°СЋС‚СЃСЏ.
             </p>
             <div className="instruction-demo demo-chart">
               <span className="demo-chart-line" />
               <span className="demo-dot demo-dot-one" />
               <span className="demo-dot demo-dot-two" />
               <span className="demo-dot demo-dot-three" />
-              <span className="demo-tooltip">15 мая · 840 000 ₽</span>
+              <span className="demo-tooltip">15 РјР°СЏ В· 840 000 в‚Ѕ</span>
             </div>
           </section>
 
           <section className="instruction-section" id="instruction-thresholds">
-            <h2>Пороговые значения</h2>
+            <h2>РџРѕСЂРѕРіРѕРІС‹Рµ Р·РЅР°С‡РµРЅРёСЏ</h2>
             <p>
-              Верхнее значение показывает хороший результат. Нижнее значение помогает быстро увидеть слабые места.
-              Среднее значение находится между ними. Значения можно ввести вручную или применить рекомендованные.
+              Р’РµСЂС…РЅРµРµ Р·РЅР°С‡РµРЅРёРµ РїРѕРєР°Р·С‹РІР°РµС‚ С…РѕСЂРѕС€РёР№ СЂРµР·СѓР»СЊС‚Р°С‚. РќРёР¶РЅРµРµ Р·РЅР°С‡РµРЅРёРµ РїРѕРјРѕРіР°РµС‚ Р±С‹СЃС‚СЂРѕ СѓРІРёРґРµС‚СЊ СЃР»Р°Р±С‹Рµ РјРµСЃС‚Р°.
+              РЎСЂРµРґРЅРµРµ Р·РЅР°С‡РµРЅРёРµ РЅР°С…РѕРґРёС‚СЃСЏ РјРµР¶РґСѓ РЅРёРјРё. Р—РЅР°С‡РµРЅРёСЏ РјРѕР¶РЅРѕ РІРІРµСЃС‚Рё РІСЂСѓС‡РЅСѓСЋ РёР»Рё РїСЂРёРјРµРЅРёС‚СЊ СЂРµРєРѕРјРµРЅРґРѕРІР°РЅРЅС‹Рµ.
             </p>
             <p>
-              Рекомендованные значения считаются автоматически по данным текущего графика или строки таблицы.
+              Р РµРєРѕРјРµРЅРґРѕРІР°РЅРЅС‹Рµ Р·РЅР°С‡РµРЅРёСЏ СЃС‡РёС‚Р°СЋС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё РїРѕ РґР°РЅРЅС‹Рј С‚РµРєСѓС‰РµРіРѕ РіСЂР°С„РёРєР° РёР»Рё СЃС‚СЂРѕРєРё С‚Р°Р±Р»РёС†С‹.
             </p>
             <div className="instruction-demo demo-thresholds">
               <div>
-                <span>Ручные значения</span>
-                <i>Верхнее значение</i>
-                <i>Нижнее значение</i>
-                <i>Среднее значение</i>
-                <b>Применить</b>
+                <span>Р СѓС‡РЅС‹Рµ Р·РЅР°С‡РµРЅРёСЏ</span>
+                <i>Р’РµСЂС…РЅРµРµ Р·РЅР°С‡РµРЅРёРµ</i>
+                <i>РќРёР¶РЅРµРµ Р·РЅР°С‡РµРЅРёРµ</i>
+                <i>РЎСЂРµРґРЅРµРµ Р·РЅР°С‡РµРЅРёРµ</i>
+                <b>РџСЂРёРјРµРЅРёС‚СЊ</b>
               </div>
               <div>
-                <span>Рекомендованные</span>
-                <i>Рекомендованное верхнее</i>
-                <i>Рекомендованное нижнее</i>
-                <i>Рекомендованное среднее</i>
-                <b className="demo-green-text">Применить</b>
+                <span>Р РµРєРѕРјРµРЅРґРѕРІР°РЅРЅС‹Рµ</span>
+                <i>Р РµРєРѕРјРµРЅРґРѕРІР°РЅРЅРѕРµ РІРµСЂС…РЅРµРµ</i>
+                <i>Р РµРєРѕРјРµРЅРґРѕРІР°РЅРЅРѕРµ РЅРёР¶РЅРµРµ</i>
+                <i>Р РµРєРѕРјРµРЅРґРѕРІР°РЅРЅРѕРµ СЃСЂРµРґРЅРµРµ</i>
+                <b className="demo-green-text">РџСЂРёРјРµРЅРёС‚СЊ</b>
               </div>
             </div>
           </section>
 
           <section className="instruction-section" id="instruction-table">
-            <h2>Как пользоваться таблицей</h2>
+            <h2>РљР°Рє РїРѕР»СЊР·РѕРІР°С‚СЊСЃСЏ С‚Р°Р±Р»РёС†РµР№</h2>
             <p>
-              Слева находится список показателей, справа — значения по датам. Через меню с тремя точками можно
-              показать сотрудников, раскрыть график строки или настроить пороги.
+              РЎР»РµРІР° РЅР°С…РѕРґРёС‚СЃСЏ СЃРїРёСЃРѕРє РїРѕРєР°Р·Р°С‚РµР»РµР№, СЃРїСЂР°РІР° вЂ” Р·РЅР°С‡РµРЅРёСЏ РїРѕ РґР°С‚Р°Рј. Р§РµСЂРµР· РјРµРЅСЋ СЃ С‚СЂРµРјСЏ С‚РѕС‡РєР°РјРё РјРѕР¶РЅРѕ
+              РїРѕРєР°Р·Р°С‚СЊ СЃРѕС‚СЂСѓРґРЅРёРєРѕРІ, СЂР°СЃРєСЂС‹С‚СЊ РіСЂР°С„РёРє СЃС‚СЂРѕРєРё РёР»Рё РЅР°СЃС‚СЂРѕРёС‚СЊ РїРѕСЂРѕРіРё.
             </p>
             <p>
-              Нажмите на цифру, чтобы открыть детализацию. Если значение обрезано, наведите курсор — появится
-              подсказка с полным значением.
+              РќР°Р¶РјРёС‚Рµ РЅР° С†РёС„СЂСѓ, С‡С‚РѕР±С‹ РѕС‚РєСЂС‹С‚СЊ РґРµС‚Р°Р»РёР·Р°С†РёСЋ. Р•СЃР»Рё Р·РЅР°С‡РµРЅРёРµ РѕР±СЂРµР·Р°РЅРѕ, РЅР°РІРµРґРёС‚Рµ РєСѓСЂСЃРѕСЂ вЂ” РїРѕСЏРІРёС‚СЃСЏ
+              РїРѕРґСЃРєР°Р·РєР° СЃ РїРѕР»РЅС‹Рј Р·РЅР°С‡РµРЅРёРµРј.
             </p>
             <div className="instruction-demo demo-table-row">
-              <span>Сумма успешных сделок</span>
-              <b>812 000 ₽</b>
-              <b>940 000 ₽</b>
-              <button type="button" aria-label="Меню строки">⋮</button>
+              <span>РЎСѓРјРјР° СѓСЃРїРµС€РЅС‹С… СЃРґРµР»РѕРє</span>
+              <b>812 000 в‚Ѕ</b>
+              <b>940 000 в‚Ѕ</b>
+              <button type="button" aria-label="РњРµРЅСЋ СЃС‚СЂРѕРєРё">в‹®</button>
             </div>
           </section>
 
           <section className="instruction-section" id="instruction-settings">
-            <h2>Настройка таблицы</h2>
+            <h2>РќР°СЃС‚СЂРѕР№РєР° С‚Р°Р±Р»РёС†С‹</h2>
             <p>
-              В настройке таблицы можно скрыть лишние разделы. В настройке показателей раздела можно оставить
-              только нужные строки. Скрытые показатели не попадут в Excel.
+              Р’ РЅР°СЃС‚СЂРѕР№РєРµ С‚Р°Р±Р»РёС†С‹ РјРѕР¶РЅРѕ СЃРєСЂС‹С‚СЊ Р»РёС€РЅРёРµ СЂР°Р·РґРµР»С‹. Р’ РЅР°СЃС‚СЂРѕР№РєРµ РїРѕРєР°Р·Р°С‚РµР»РµР№ СЂР°Р·РґРµР»Р° РјРѕР¶РЅРѕ РѕСЃС‚Р°РІРёС‚СЊ
+              С‚РѕР»СЊРєРѕ РЅСѓР¶РЅС‹Рµ СЃС‚СЂРѕРєРё. РЎРєСЂС‹С‚С‹Рµ РїРѕРєР°Р·Р°С‚РµР»Рё РЅРµ РїРѕРїР°РґСѓС‚ РІ Excel.
             </p>
             <p>
-              Кнопка <b>Выбрать все</b> включает все пункты. Кнопка <b>Сбросить</b> очищает выбор.
+              РљРЅРѕРїРєР° <b>Р’С‹Р±СЂР°С‚СЊ РІСЃРµ</b> РІРєР»СЋС‡Р°РµС‚ РІСЃРµ РїСѓРЅРєС‚С‹. РљРЅРѕРїРєР° <b>РЎР±СЂРѕСЃРёС‚СЊ</b> РѕС‡РёС‰Р°РµС‚ РІС‹Р±РѕСЂ.
             </p>
             <div className="instruction-demo demo-card">
-              <span className="demo-button demo-soft">Настройка таблицы</span>
-              <span className="demo-pill">Выбрать все</span>
-              <span className="demo-pill">Сбросить</span>
-              <span className="demo-check">✓ Сделки</span>
-              <span className="demo-check">✓ Лиды</span>
+              <span className="demo-button demo-soft">РќР°СЃС‚СЂРѕР№РєР° С‚Р°Р±Р»РёС†С‹</span>
+              <span className="demo-pill">Р’С‹Р±СЂР°С‚СЊ РІСЃРµ</span>
+              <span className="demo-pill">РЎР±СЂРѕСЃРёС‚СЊ</span>
+              <span className="demo-check">вњ“ РЎРґРµР»РєРё</span>
+              <span className="demo-check">вњ“ Р›РёРґС‹</span>
             </div>
           </section>
 
           <section className="instruction-section" id="instruction-views">
-            <h2>Сохраненные отображения</h2>
+            <h2>РЎРѕС…СЂР°РЅРµРЅРЅС‹Рµ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ</h2>
             <p>
-              Если вы часто смотрите отчет в одном и том же виде, сохраните отображение. В бесплатной версии можно
-              сохранить одно отображение. В ПРО версии можно сохранять много вариантов.
+              Р•СЃР»Рё РІС‹ С‡Р°СЃС‚Рѕ СЃРјРѕС‚СЂРёС‚Рµ РѕС‚С‡РµС‚ РІ РѕРґРЅРѕРј Рё С‚РѕРј Р¶Рµ РІРёРґРµ, СЃРѕС…СЂР°РЅРёС‚Рµ РѕС‚РѕР±СЂР°Р¶РµРЅРёРµ. Р’ Р±РµСЃРїР»Р°С‚РЅРѕР№ РІРµСЂСЃРёРё РјРѕР¶РЅРѕ
+              СЃРѕС…СЂР°РЅРёС‚СЊ РѕРґРЅРѕ РѕС‚РѕР±СЂР°Р¶РµРЅРёРµ. Р’ РџР Рћ РІРµСЂСЃРёРё РјРѕР¶РЅРѕ СЃРѕС…СЂР°РЅСЏС‚СЊ РјРЅРѕРіРѕ РІР°СЂРёР°РЅС‚РѕРІ.
             </p>
             <p>
-              Чтобы переименовать или удалить отображение, откройте поле <b>Общий отчет</b> и нажмите три точки
-              рядом с сохраненным названием.
+              Р§С‚РѕР±С‹ РїРµСЂРµРёРјРµРЅРѕРІР°С‚СЊ РёР»Рё СѓРґР°Р»РёС‚СЊ РѕС‚РѕР±СЂР°Р¶РµРЅРёРµ, РѕС‚РєСЂРѕР№С‚Рµ РїРѕР»Рµ <b>РћР±С‰РёР№ РѕС‚С‡РµС‚</b> Рё РЅР°Р¶РјРёС‚Рµ С‚СЂРё С‚РѕС‡РєРё
+              СЂСЏРґРѕРј СЃ СЃРѕС…СЂР°РЅРµРЅРЅС‹Рј РЅР°Р·РІР°РЅРёРµРј.
             </p>
             <div className="instruction-demo demo-card">
-              <span className="demo-select">Общий отчет</span>
-              <span className="demo-select">Продажи за месяц · ⋮</span>
-              <span className="demo-menu-item">Редактировать</span>
-              <span className="demo-menu-item">Удалить</span>
+              <span className="demo-select">РћР±С‰РёР№ РѕС‚С‡РµС‚</span>
+              <span className="demo-select">РџСЂРѕРґР°Р¶Рё Р·Р° РјРµСЃСЏС† В· в‹®</span>
+              <span className="demo-menu-item">Р РµРґР°РєС‚РёСЂРѕРІР°С‚СЊ</span>
+              <span className="demo-menu-item">РЈРґР°Р»РёС‚СЊ</span>
             </div>
           </section>
 
           <section className="instruction-section" id="instruction-export">
-            <h2>Excel и PDF</h2>
+            <h2>Excel Рё PDF</h2>
             <p>
-              Excel выгружает таблицу с видимыми разделами и показателями. Если вы скрыли раздел или показатель,
-              он не попадет в файл.
+              Excel РІС‹РіСЂСѓР¶Р°РµС‚ С‚Р°Р±Р»РёС†Сѓ СЃ РІРёРґРёРјС‹РјРё СЂР°Р·РґРµР»Р°РјРё Рё РїРѕРєР°Р·Р°С‚РµР»СЏРјРё. Р•СЃР»Рё РІС‹ СЃРєСЂС‹Р»Рё СЂР°Р·РґРµР» РёР»Рё РїРѕРєР°Р·Р°С‚РµР»СЊ,
+              РѕРЅ РЅРµ РїРѕРїР°РґРµС‚ РІ С„Р°Р№Р».
             </p>
             <p>
-              PDF выгружает визуальный отчет: верхнюю панель, главный график и таблицу. Если таблица большая,
-              PDF должен включить ее полностью.
+              PDF РІС‹РіСЂСѓР¶Р°РµС‚ РІРёР·СѓР°Р»СЊРЅС‹Р№ РѕС‚С‡РµС‚: РІРµСЂС…РЅСЋСЋ РїР°РЅРµР»СЊ, РіР»Р°РІРЅС‹Р№ РіСЂР°С„РёРє Рё С‚Р°Р±Р»РёС†Сѓ. Р•СЃР»Рё С‚Р°Р±Р»РёС†Р° Р±РѕР»СЊС€Р°СЏ,
+              PDF РґРѕР»Р¶РµРЅ РІРєР»СЋС‡РёС‚СЊ РµРµ РїРѕР»РЅРѕСЃС‚СЊСЋ.
             </p>
           </section>
 
           <section className="instruction-section" id="instruction-pro">
-            <h2>ПРО версия</h2>
+            <h2>РџР Рћ РІРµСЂСЃРёСЏ</h2>
             <p>
-              ПРО версия позволит сохранять много вариантов отображений отчета. Позже здесь появятся права
-              сотрудников на разные показатели и дополнительные настройки доступа.
+              РџР Рћ РІРµСЂСЃРёСЏ РїРѕР·РІРѕР»РёС‚ СЃРѕС…СЂР°РЅСЏС‚СЊ РјРЅРѕРіРѕ РІР°СЂРёР°РЅС‚РѕРІ РѕС‚РѕР±СЂР°Р¶РµРЅРёР№ РѕС‚С‡РµС‚Р°. РџРѕР·Р¶Рµ Р·РґРµСЃСЊ РїРѕСЏРІСЏС‚СЃСЏ РїСЂР°РІР°
+              СЃРѕС‚СЂСѓРґРЅРёРєРѕРІ РЅР° СЂР°Р·РЅС‹Рµ РїРѕРєР°Р·Р°С‚РµР»Рё Рё РґРѕРїРѕР»РЅРёС‚РµР»СЊРЅС‹Рµ РЅР°СЃС‚СЂРѕР№РєРё РґРѕСЃС‚СѓРїР°.
             </p>
           </section>
 
           <section className="instruction-section" id="instruction-faq">
-            <h2>Частые вопросы</h2>
-            <h3>Почему я не вижу нужную воронку?</h3>
-            <p>Проверьте, есть ли эта воронка в вашем Битрикс24 и доступна ли она вашему пользователю.</p>
-            <h3>Почему названия отличаются от инструкции?</h3>
-            <p>Инструкция показывает примеры. В вашем портале воронки, лиды и смарт-процессы могут называться иначе.</p>
-            <h3>Почему отчет пустой?</h3>
-            <p>Сначала выберите настройки и нажмите <b>Построить отчет</b>. Также проверьте выбранный период.</p>
-            <h3>Как скачать отчет?</h3>
-            <p>Нажмите <b>Скачать Excel</b> для таблицы или <b>Скачать PDF</b> для визуального отчета.</p>
-            <h3>Как открыть детализацию?</h3>
-            <p>Нажмите на любую цифру в таблице. Откроется окно со списком элементов.</p>
+            <h2>Р§Р°СЃС‚С‹Рµ РІРѕРїСЂРѕСЃС‹</h2>
+            <h3>РџРѕС‡РµРјСѓ СЏ РЅРµ РІРёР¶Сѓ РЅСѓР¶РЅСѓСЋ РІРѕСЂРѕРЅРєСѓ?</h3>
+            <p>РџСЂРѕРІРµСЂСЊС‚Рµ, РµСЃС‚СЊ Р»Рё СЌС‚Р° РІРѕСЂРѕРЅРєР° РІ РІР°С€РµРј Р‘РёС‚СЂРёРєСЃ24 Рё РґРѕСЃС‚СѓРїРЅР° Р»Рё РѕРЅР° РІР°С€РµРјСѓ РїРѕР»СЊР·РѕРІР°С‚РµР»СЋ.</p>
+            <h3>РџРѕС‡РµРјСѓ РЅР°Р·РІР°РЅРёСЏ РѕС‚Р»РёС‡Р°СЋС‚СЃСЏ РѕС‚ РёРЅСЃС‚СЂСѓРєС†РёРё?</h3>
+            <p>РРЅСЃС‚СЂСѓРєС†РёСЏ РїРѕРєР°Р·С‹РІР°РµС‚ РїСЂРёРјРµСЂС‹. Р’ РІР°С€РµРј РїРѕСЂС‚Р°Р»Рµ РІРѕСЂРѕРЅРєРё, Р»РёРґС‹ Рё СЃРјР°СЂС‚-РїСЂРѕС†РµСЃСЃС‹ РјРѕРіСѓС‚ РЅР°Р·С‹РІР°С‚СЊСЃСЏ РёРЅР°С‡Рµ.</p>
+            <h3>РџРѕС‡РµРјСѓ РѕС‚С‡РµС‚ РїСѓСЃС‚РѕР№?</h3>
+            <p>РЎРЅР°С‡Р°Р»Р° РІС‹Р±РµСЂРёС‚Рµ РЅР°СЃС‚СЂРѕР№РєРё Рё РЅР°Р¶РјРёС‚Рµ <b>РџРѕСЃС‚СЂРѕРёС‚СЊ РѕС‚С‡РµС‚</b>. РўР°РєР¶Рµ РїСЂРѕРІРµСЂСЊС‚Рµ РІС‹Р±СЂР°РЅРЅС‹Р№ РїРµСЂРёРѕРґ.</p>
+            <h3>РљР°Рє СЃРєР°С‡Р°С‚СЊ РѕС‚С‡РµС‚?</h3>
+            <p>РќР°Р¶РјРёС‚Рµ <b>РЎРєР°С‡Р°С‚СЊ Excel</b> РґР»СЏ С‚Р°Р±Р»РёС†С‹ РёР»Рё <b>РЎРєР°С‡Р°С‚СЊ PDF</b> РґР»СЏ РІРёР·СѓР°Р»СЊРЅРѕРіРѕ РѕС‚С‡РµС‚Р°.</p>
+            <h3>РљР°Рє РѕС‚РєСЂС‹С‚СЊ РґРµС‚Р°Р»РёР·Р°С†РёСЋ?</h3>
+            <p>РќР°Р¶РјРёС‚Рµ РЅР° Р»СЋР±СѓСЋ С†РёС„СЂСѓ РІ С‚Р°Р±Р»РёС†Рµ. РћС‚РєСЂРѕРµС‚СЃСЏ РѕРєРЅРѕ СЃРѕ СЃРїРёСЃРєРѕРј СЌР»РµРјРµРЅС‚РѕРІ.</p>
           </section>
         </div>
       </div>
@@ -387,7 +387,7 @@ export function EmployeeMultiSelect({
   const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false));
   const selectedEmployees = mockEmployees.filter((employee) => selectedIds.includes(employee.id));
   const normalizedQuery = query.trim().toLowerCase();
-  // TODO: заменить mockEmployees на загрузку активных сотрудников портала через Bitrix24 user.get.
+  // TODO: Р·Р°РјРµРЅРёС‚СЊ mockEmployees РЅР° Р·Р°РіСЂСѓР·РєСѓ Р°РєС‚РёРІРЅС‹С… СЃРѕС‚СЂСѓРґРЅРёРєРѕРІ РїРѕСЂС‚Р°Р»Р° С‡РµСЂРµР· Bitrix24 user.get.
   const filteredEmployees = mockEmployees.filter((employee) => {
     if (!normalizedQuery) {
       return true;
@@ -425,7 +425,7 @@ export function EmployeeMultiSelect({
               </span>
             ))
           ) : (
-            <span className="employee-placeholder">Не выбрано</span>
+            <span className="employee-placeholder">РќРµ РІС‹Р±СЂР°РЅРѕ</span>
           )}
         </span>
         <ChevronDown size={16} />
@@ -436,9 +436,9 @@ export function EmployeeMultiSelect({
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Поиск сотрудника"
+              placeholder="РџРѕРёСЃРє СЃРѕС‚СЂСѓРґРЅРёРєР°"
             />
-            <button className="row-menu-close" type="button" aria-label="Закрыть список" onClick={() => setOpen(false)}>
+            <button className="row-menu-close" type="button" aria-label="Р—Р°РєСЂС‹С‚СЊ СЃРїРёСЃРѕРє" onClick={() => setOpen(false)}>
               <X size={14} />
             </button>
           </div>
@@ -490,42 +490,42 @@ export function AppSettingsModal({
       <div className="modal-panel app-settings-modal-panel" role="dialog" aria-modal="true" ref={panelRef}>
         <div className="modal-head">
           <div>
-            <p>Настройки приложения</p>
-            <span>Настраивать приложение может только администратор портала.</span>
+            <p>РќР°СЃС‚СЂРѕР№РєРё РїСЂРёР»РѕР¶РµРЅРёСЏ</p>
+            <span>РќР°СЃС‚СЂР°РёРІР°С‚СЊ РїСЂРёР»РѕР¶РµРЅРёРµ РјРѕР¶РµС‚ С‚РѕР»СЊРєРѕ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ РїРѕСЂС‚Р°Р»Р°.</span>
           </div>
-          <button className="icon-button" type="button" aria-label="Закрыть окно" onClick={onClose}>
+          <button className="icon-button" type="button" aria-label="Р—Р°РєСЂС‹С‚СЊ РѕРєРЅРѕ" onClick={onClose}>
             <X size={18} />
           </button>
         </div>
         <p className="modal-text">
-          Настройки возможны при активной подписке{' '}
+          РќР°СЃС‚СЂРѕР№РєРё РІРѕР·РјРѕР¶РЅС‹ РїСЂРё Р°РєС‚РёРІРЅРѕР№ РїРѕРґРїРёСЃРєРµ{' '}
           <button className="pro-inline-link" type="button" onClick={onOpenPro}>
-            ПРО версии
+            РџР Рћ РІРµСЂСЃРёРё
           </button>.
         </p>
         <div className="app-settings-fields">
           <EmployeeMultiSelect
-            label="Сотрудники, которым разрешено строить отчеты:"
+            label="РЎРѕС‚СЂСѓРґРЅРёРєРё, РєРѕС‚РѕСЂС‹Рј СЂР°Р·СЂРµС€РµРЅРѕ СЃС‚СЂРѕРёС‚СЊ РѕС‚С‡РµС‚С‹:"
             selectedIds={draftSettings.reportBuilderUserIds}
             onChange={(values) => updateField('reportBuilderUserIds', values)}
           />
           <EmployeeMultiSelect
-            label="Сотрудники, которым разрешено видеть показатели с деньгами:"
+            label="РЎРѕС‚СЂСѓРґРЅРёРєРё, РєРѕС‚РѕСЂС‹Рј СЂР°Р·СЂРµС€РµРЅРѕ РІРёРґРµС‚СЊ РїРѕРєР°Р·Р°С‚РµР»Рё СЃ РґРµРЅСЊРіР°РјРё:"
             selectedIds={draftSettings.moneyViewerUserIds}
             onChange={(values) => updateField('moneyViewerUserIds', values)}
           />
           <EmployeeMultiSelect
-            label="Сотрудники, которым разрешено сохранять отображения отчета:"
+            label="РЎРѕС‚СЂСѓРґРЅРёРєРё, РєРѕС‚РѕСЂС‹Рј СЂР°Р·СЂРµС€РµРЅРѕ СЃРѕС…СЂР°РЅСЏС‚СЊ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ РѕС‚С‡РµС‚Р°:"
             selectedIds={draftSettings.viewSaverUserIds}
             onChange={(values) => updateField('viewSaverUserIds', values)}
           />
         </div>
         <div className="modal-actions">
           <button className="secondary-button" type="button" onClick={onClose}>
-            Отмена
+            РћС‚РјРµРЅР°
           </button>
           <button className="primary-button" type="button" onClick={() => onSave(draftSettings)}>
-            Сохранить
+            РЎРѕС…СЂР°РЅРёС‚СЊ
           </button>
         </div>
       </div>
@@ -625,7 +625,7 @@ export function DetailModal({
     try {
       window.localStorage.setItem(DETAIL_COLUMN_STORAGE_KEY, JSON.stringify(columnWidths));
     } catch {
-      // localStorage может быть недоступен в приватном режиме, resize при этом должен работать.
+      // localStorage РјРѕР¶РµС‚ Р±С‹С‚СЊ РЅРµРґРѕСЃС‚СѓРїРµРЅ РІ РїСЂРёРІР°С‚РЅРѕРј СЂРµР¶РёРјРµ, resize РїСЂРё СЌС‚РѕРј РґРѕР»Р¶РµРЅ СЂР°Р±РѕС‚Р°С‚СЊ.
     }
   }, [columnWidths, detailTableViewportWidth]);
 
@@ -698,13 +698,13 @@ export function DetailModal({
       <section className="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title">
         <div className="detail-head">
           <div>
-            <p id="detail-title">Детализация: {context.metric.label}</p>
+            <p id="detail-title">Р”РµС‚Р°Р»РёР·Р°С†РёСЏ: {context.metric.label}</p>
             <span>
-              {context.point.label} · {formatMetricValue(context.value, context.metric.type)} · {bitrixEntityLabels[context.entityType]}
-              {context.employee ? ` · ${context.employee.firstName} ${context.employee.lastName}` : ''}
+              {context.point.label} В· {formatMetricValue(context.value, context.metric.type)} В· {bitrixEntityLabels[context.entityType]}
+              {context.employee ? ` В· ${context.employee.firstName} ${context.employee.lastName}` : ''}
             </span>
           </div>
-          <button className="icon-button" type="button" aria-label="Закрыть детализацию" onClick={onClose}>
+          <button className="icon-button" type="button" aria-label="Р—Р°РєСЂС‹С‚СЊ РґРµС‚Р°Р»РёР·Р°С†РёСЋ" onClick={onClose}>
             <X size={18} />
           </button>
         </div>
@@ -721,12 +721,12 @@ export function DetailModal({
               >
                 <span>{column.label}</span>
                 {sort.key === column.key && (
-                  <span className="sort-indicator">{sort.direction === 'asc' ? '↑' : '↓'}</span>
+                  <span className="sort-indicator">{sort.direction === 'asc' ? 'в†‘' : 'в†“'}</span>
                 )}
                 <span
                   className="column-resizer"
                   role="separator"
-                  aria-label={`Изменить ширину: ${column.label}`}
+                  aria-label={`РР·РјРµРЅРёС‚СЊ С€РёСЂРёРЅСѓ: ${column.label}`}
                   onPointerDown={(event) => startColumnResize(column, event)}
                 />
               </button>
@@ -767,3 +767,4 @@ export function DetailModal({
     </div>
   );
 }
+

@@ -1,4 +1,4 @@
-import type { DateRange, MetricRow, MetricSection, Period, ReportPoint } from '../../mockData';
+﻿import type { DateRange, MetricRow, MetricSection, Period, ReportPoint } from './reportCatalog';
 
 export type CrmSourceType = 'lead' | 'deal' | 'smartProcess' | 'invoice';
 
@@ -57,3 +57,4 @@ export type ReportDataSource = {
   getInitialCrmSources: () => CrmSource[];
   getInitialReportData: (filters: ReportLoadFilters) => ReportPoint[];
 };
+

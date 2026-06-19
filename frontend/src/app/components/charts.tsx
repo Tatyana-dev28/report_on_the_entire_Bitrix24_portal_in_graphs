@@ -1,4 +1,4 @@
-import type { CSSProperties, RefObject } from 'react';
+﻿import type { CSSProperties, RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import type { ActiveChartPoint, ChartTooltipItem, HoverChartDotProps } from '../types';
 import { clamp } from './common';
@@ -120,5 +120,6 @@ export function HoverChartDot({
     </g>
   );
 }
+
 
 

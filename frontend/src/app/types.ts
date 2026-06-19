@@ -1,5 +1,5 @@
-import type { CSSProperties, RefObject } from 'react';
-import type { DateRange, MetricRow, Period, ReportPoint } from '../mockData';
+﻿import type { CSSProperties, RefObject } from 'react';
+import type { DateRange, MetricRow, Period, ReportPoint } from '../services/report/reportCatalog';
 
 export type SelectOption<T extends string> = {
   value: T;
@@ -193,3 +193,5 @@ export type ChartTooltipProps = {
 };
 
 export type StyleRecord = CSSProperties;
+
+

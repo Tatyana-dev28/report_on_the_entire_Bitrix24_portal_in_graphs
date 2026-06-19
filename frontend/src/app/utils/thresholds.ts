@@ -1,4 +1,4 @@
-import type { MetricRow } from '../../mockData';
+﻿import type { MetricRow } from '../../services/report/reportCatalog';
 import type { ChartMetricMode, RecommendedThresholdValues, ThresholdValues } from '../types';
 
 export function parseThreshold(value: string) {
@@ -63,14 +63,14 @@ export const getThresholdLineLabel = (
   const recommended = threshold?.mode === 'recommended';
 
   if (key === 'upper') {
-    return recommended ? 'Р РµРєРѕРјРµРЅРґРѕРІР°РЅРЅРѕРµ РІРµСЂС…РЅРµРµ Р·РЅР°С‡РµРЅРёРµ' : 'Р’РµСЂС…РЅРµРµ Р·РЅР°С‡РµРЅРёРµ';
+    return recommended ? 'Р В Р ВµР С”Р С•Р СР ВµР Р…Р Т‘Р С•Р Р†Р В°Р Р…Р Р…Р С•Р Вµ Р Р†Р ВµРЎР‚РЎвЂ¦Р Р…Р ВµР Вµ Р В·Р Р…Р В°РЎвЂЎР ВµР Р…Р С‘Р Вµ' : 'Р вЂ™Р ВµРЎР‚РЎвЂ¦Р Р…Р ВµР Вµ Р В·Р Р…Р В°РЎвЂЎР ВµР Р…Р С‘Р Вµ';
   }
 
   if (key === 'average') {
-    return recommended ? 'Р РµРєРѕРјРµРЅРґРѕРІР°РЅРЅРѕРµ СЃСЂРµРґРЅРµРµ Р·РЅР°С‡РµРЅРёРµ' : 'РЎСЂРµРґРЅРµРµ Р·РЅР°С‡РµРЅРёРµ';
+    return recommended ? 'Р В Р ВµР С”Р С•Р СР ВµР Р…Р Т‘Р С•Р Р†Р В°Р Р…Р Р…Р С•Р Вµ РЎРѓРЎР‚Р ВµР Т‘Р Р…Р ВµР Вµ Р В·Р Р…Р В°РЎвЂЎР ВµР Р…Р С‘Р Вµ' : 'Р РЋРЎР‚Р ВµР Т‘Р Р…Р ВµР Вµ Р В·Р Р…Р В°РЎвЂЎР ВµР Р…Р С‘Р Вµ';
   }
 
-  return recommended ? 'Р РµРєРѕРјРµРЅРґРѕРІР°РЅРЅРѕРµ РЅРёР¶РЅРµРµ Р·РЅР°С‡РµРЅРёРµ' : 'РќРёР¶РЅРµРµ Р·РЅР°С‡РµРЅРёРµ';
+  return recommended ? 'Р В Р ВµР С”Р С•Р СР ВµР Р…Р Т‘Р С•Р Р†Р В°Р Р…Р Р…Р С•Р Вµ Р Р…Р С‘Р В¶Р Р…Р ВµР Вµ Р В·Р Р…Р В°РЎвЂЎР ВµР Р…Р С‘Р Вµ' : 'Р СњР С‘Р В¶Р Р…Р ВµР Вµ Р В·Р Р…Р В°РЎвЂЎР ВµР Р…Р С‘Р Вµ';
 };
 
 export const thresholdLineColors = {

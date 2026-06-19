@@ -1,4 +1,4 @@
-import { formatMetricValue } from '../../mockData';
+﻿import { formatMetricValue } from '../../services/report/reportCatalog';
 import { mockEmployees } from '../constants';
 import type { DetailColumnKey, DetailContext, DetailRow } from '../types';
 import { bitrixEntityTitleRoots } from './bitrixNavigation';
@@ -51,4 +51,5 @@ export const compareDetailValues = (a: DetailRow, b: DetailRow, key: DetailColum
 };
 
 export const formatDetailContextSummary = (context: DetailContext, entityLabel: string) =>
-  `${context.point.label} В· ${formatMetricValue(context.value, context.metric.type)} В· ${entityLabel}`;
+  `${context.point.label} Р’В· ${formatMetricValue(context.value, context.metric.type)} Р’В· ${entityLabel}`;
+

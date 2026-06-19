@@ -1,4 +1,4 @@
-import { getMonthDateRange, type DateRange, type Period } from '../../mockData';
+﻿import { getMonthDateRange, type DateRange, type Period } from '../../services/report/reportCatalog';
 
 export const toDateInputValue = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -76,3 +76,4 @@ export const constrainRangeForPeriod = (period: Period, range: DateRange): DateR
     end,
   };
 };
+

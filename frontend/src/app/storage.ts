@@ -1,4 +1,4 @@
-import {
+﻿import {
   APP_SETTINGS_STORAGE_KEY,
   DETAIL_COLUMN_STORAGE_KEY,
   SAVED_VIEWS_STORAGE_KEY,
@@ -71,3 +71,4 @@ export const loadDetailColumnWidths = () => {
     return defaultDetailColumnWidths;
   }
 };
+

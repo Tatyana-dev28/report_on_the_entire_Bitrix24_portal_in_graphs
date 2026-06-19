@@ -1,4 +1,4 @@
-import {
+﻿import {
   useCallback,
   useEffect,
   useMemo,
@@ -57,7 +57,7 @@ import {
   type MetricRow,
   type Period,
   type ReportPoint,
-} from './mockData';
+} from './services/report/reportCatalog';
 import { reportDataSource } from './services/report/reportDataSource';
 import type { CrmSource, ReportLoadFilters } from './services/report/reportTypes';
 import {
@@ -374,7 +374,7 @@ function App() {
     () =>
       appliedFilters.selectedSources.length
         ? appliedFilters.selectedSources
-        : ['Воронка продажи'],
+        : ['Р’РѕСЂРѕРЅРєР° РїСЂРѕРґР°Р¶Рё'],
     [appliedFilters.selectedSources],
   );
   const isSeparateChart = selectedChartSources.length > 1 && appliedFilters.chartDisplayMode === 'separate';
@@ -389,7 +389,7 @@ function App() {
         : [
             {
               key: 'indicator',
-              label: selectedChartSources.length > 1 ? 'Сумма' : selectedChartSources[0],
+              label: selectedChartSources.length > 1 ? 'РЎСѓРјРјР°' : selectedChartSources[0],
               color: '#2274ff',
             },
           ],
@@ -418,7 +418,7 @@ function App() {
   );
   const mainRecommendedThreshold = useMemo(
     () =>
-      // В режиме отдельных линий рекомендации считаются по объединенному массиву всех линий.
+      // Р’ СЂРµР¶РёРјРµ РѕС‚РґРµР»СЊРЅС‹С… Р»РёРЅРёР№ СЂРµРєРѕРјРµРЅРґР°С†РёРё СЃС‡РёС‚Р°СЋС‚СЃСЏ РїРѕ РѕР±СЉРµРґРёРЅРµРЅРЅРѕРјСѓ РјР°СЃСЃРёРІСѓ РІСЃРµС… Р»РёРЅРёР№.
       calculateRecommendedThresholds(mainThresholdRecommendationValues, appliedFilters.metricMode),
     [appliedFilters.metricMode, mainThresholdRecommendationValues],
   );
@@ -1272,7 +1272,7 @@ function App() {
   const saveAppSettings = useCallback((settings: AppSettings) => {
     setAppSettings(settings);
     window.localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
-    setNotification('Настройки приложения сохранены');
+    setNotification('РќР°СЃС‚СЂРѕР№РєРё РїСЂРёР»РѕР¶РµРЅРёСЏ СЃРѕС…СЂР°РЅРµРЅС‹');
     setIsAppSettingsOpen(false);
   }, []);
 
@@ -1294,7 +1294,7 @@ function App() {
           : view,
       );
       saveViews(nextViews);
-      setNotification('Название отображения изменено');
+      setNotification('РќР°Р·РІР°РЅРёРµ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ РёР·РјРµРЅРµРЅРѕ');
       setEditingViewId(null);
       setNewViewName('');
       setIsSaveOpen(false);
@@ -1320,7 +1320,7 @@ function App() {
     ];
     saveViews(nextViews);
     setSelectedView(value);
-    setNotification('Отображение сохранено');
+    setNotification('РћС‚РѕР±СЂР°Р¶РµРЅРёРµ СЃРѕС…СЂР°РЅРµРЅРѕ');
     setNewViewName('');
     setIsSaveOpen(false);
   };
@@ -1336,13 +1336,13 @@ function App() {
 
   const exportExcel = useCallback(async () => {
     const workbook = new ExcelJS.Workbook();
-    workbook.creator = 'САПП';
+    workbook.creator = 'РЎРђРџРџ';
     workbook.created = new Date();
-    const worksheet = workbook.addWorksheet('Отчет', {
+    const worksheet = workbook.addWorksheet('РћС‚С‡РµС‚', {
       views: [{ state: 'frozen', xSplit: 1, ySplit: 2 }],
     });
-    const header = ['Показатели', ...reportData.map((point) => point.label)];
-    const periodLabel = `${periodOptions.find((option) => option.value === appliedFilters.period)?.label ?? 'Период'}: ${formatRangeLabel(appliedFilters.period, appliedFilters.dateRange)}`;
+    const header = ['РџРѕРєР°Р·Р°С‚РµР»Рё', ...reportData.map((point) => point.label)];
+    const periodLabel = `${periodOptions.find((option) => option.value === appliedFilters.period)?.label ?? 'РџРµСЂРёРѕРґ'}: ${formatRangeLabel(appliedFilters.period, appliedFilters.dateRange)}`;
 
     worksheet.addRow([periodLabel]);
     worksheet.mergeCells(1, 1, 1, header.length);
@@ -1464,7 +1464,7 @@ function App() {
       element.style.width = `${Math.max(expandedWidth, element.scrollWidth)}px`;
       element.style.maxWidth = 'none';
 
-      // PDF сейчас намеренно остается визуальным снимком. Текстовый режим можно добавить отдельной опцией позже.
+      // PDF СЃРµР№С‡Р°СЃ РЅР°РјРµСЂРµРЅРЅРѕ РѕСЃС‚Р°РµС‚СЃСЏ РІРёР·СѓР°Р»СЊРЅС‹Рј СЃРЅРёРјРєРѕРј. РўРµРєСЃС‚РѕРІС‹Р№ СЂРµР¶РёРј РјРѕР¶РЅРѕ РґРѕР±Р°РІРёС‚СЊ РѕС‚РґРµР»СЊРЅРѕР№ РѕРїС†РёРµР№ РїРѕР·Р¶Рµ.
       await new Promise<void>((resolve) => {
         window.requestAnimationFrame(() => resolve());
       });
@@ -1553,7 +1553,7 @@ function App() {
               options={periodOptions}
               value={draftFilters.period}
               onChange={handlePeriodChange}
-              ariaLabel="Фильтр периода"
+              ariaLabel="Р¤РёР»СЊС‚СЂ РїРµСЂРёРѕРґР°"
               className="period-select"
             />
             <DateRangePicker
@@ -1570,31 +1570,31 @@ function App() {
               onReset={resetTableSettings}
             />
             <TooltipButton
-              label="Настроить приложение"
+              label="РќР°СЃС‚СЂРѕРёС‚СЊ РїСЂРёР»РѕР¶РµРЅРёРµ"
               onClick={() => setIsAppSettingsOpen(true)}
             >
               <Cog size={18} />
             </TooltipButton>
             <TooltipButton
-              label="Инструкция"
+              label="РРЅСЃС‚СЂСѓРєС†РёСЏ"
               onClick={() => setIsInstructionOpen(true)}
             >
               <BookOpen size={18} />
             </TooltipButton>
             <TooltipButton
-              label="Помощь"
+              label="РџРѕРјРѕС‰СЊ"
               onClick={() => window.open('https://sapp24.com/apps/help/', '_blank', 'noreferrer')}
             >
               <LifeBuoy size={18} />
             </TooltipButton>
             <TooltipButton
-              label="Активировать ПРО версию чтобы сохранять разные отображения отчета"
+              label="РђРєС‚РёРІРёСЂРѕРІР°С‚СЊ РџР Рћ РІРµСЂСЃРёСЋ С‡С‚РѕР±С‹ СЃРѕС…СЂР°РЅСЏС‚СЊ СЂР°Р·РЅС‹Рµ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ РѕС‚С‡РµС‚Р°"
               onClick={() => setIsProOpen(true)}
             >
               <Crown size={18} />
             </TooltipButton>
             <TooltipButton
-              label="Построить отчет"
+              label="РџРѕСЃС‚СЂРѕРёС‚СЊ РѕС‚С‡РµС‚"
               onClick={buildReport}
               className="build-report-icon-button"
             >
@@ -1606,7 +1606,7 @@ function App() {
             </button>
             <button className="action-button purple-button" type="button" onClick={exportPdf}>
               <FileText size={17} />
-              <span>Скачать PDF</span>
+              <span>РЎРєР°С‡Р°С‚СЊ PDF</span>
             </button>
           </div>
         </header>
@@ -1617,10 +1617,10 @@ function App() {
           <div className="fixed-column">
             <div className="left-pane chart-left">
               <div className="section-title-row">
-                <p>Главный график</p>
+                <p>Р“Р»Р°РІРЅС‹Р№ РіСЂР°С„РёРє</p>
                 <div className="section-title-actions">
                   <TooltipButton
-                    label="Закрепить график при прокрутке"
+                    label="Р—Р°РєСЂРµРїРёС‚СЊ РіСЂР°С„РёРє РїСЂРё РїСЂРѕРєСЂСѓС‚РєРµ"
                     onClick={() => setIsPinned((current) => !current)}
                     ariaPressed={isPinned}
                     className={isPinned ? 'active-pin' : ''}
@@ -1655,7 +1655,7 @@ function App() {
               </div>
             </div>
 
-            <div className="indicator-left">Показатели</div>
+            <div className="indicator-left">РџРѕРєР°Р·Р°С‚РµР»Рё</div>
             <div className="scrollbar-left-spacer" />
           </div>
 
@@ -1733,7 +1733,7 @@ function App() {
                         <Line
                           type="linear"
                           dataKey="trend"
-                          name="Линия тренда"
+                          name="Р›РёРЅРёСЏ С‚СЂРµРЅРґР°"
                           stroke="#2274ff"
                           strokeOpacity={0.28}
                           strokeWidth={2}
@@ -1776,9 +1776,9 @@ function App() {
                   )}
                 </div>
               </div>
-              <div className="chart-zoom-controls" aria-label="Масштаб графика">
+              <div className="chart-zoom-controls" aria-label="РњР°СЃС€С‚Р°Р± РіСЂР°С„РёРєР°">
                 <TooltipButton
-                  label="Увеличить масштаб графика"
+                  label="РЈРІРµР»РёС‡РёС‚СЊ РјР°СЃС€С‚Р°Р± РіСЂР°С„РёРєР°"
                   onClick={() =>
                     setPeriodColumnWidth((current) =>
                       Math.min(MAX_PERIOD_COLUMN_WIDTH, current + 8),
@@ -1789,7 +1789,7 @@ function App() {
                   <Plus size={16} />
                 </TooltipButton>
                 <TooltipButton
-                  label="Уменьшить масштаб графика"
+                  label="РЈРјРµРЅСЊС€РёС‚СЊ РјР°СЃС€С‚Р°Р± РіСЂР°С„РёРєР°"
                   onClick={() =>
                     setPeriodColumnWidth((current) =>
                       Math.max(MIN_PERIOD_COLUMN_WIDTH, current - 8),
@@ -1824,7 +1824,7 @@ function App() {
             </div>
           </div>
 
-          <div className="report-table" ref={tableContentRef} role="table" aria-label="Значения показателей">
+          <div className="report-table" ref={tableContentRef} role="table" aria-label="Р—РЅР°С‡РµРЅРёСЏ РїРѕРєР°Р·Р°С‚РµР»РµР№">
             {tableRows.map((row) => {
               const rowClassName = [
                 'report-table-row',
@@ -1861,7 +1861,7 @@ function App() {
                         className="drag-handle-button"
                         type="button"
                         draggable
-                        aria-label="Перетащить раздел"
+                        aria-label="РџРµСЂРµС‚Р°С‰РёС‚СЊ СЂР°Р·РґРµР»"
                         onDragStart={(event) => handleSectionDragStart(row.sectionId, event)}
                         onDragEnd={() => {
                           draggedSectionRef.current = null;
@@ -1953,7 +1953,7 @@ function App() {
                 return (
                   <div className={rowClassName} key={row.rowId} role="row" data-row-id={row.rowId}>
                     <div className={leftCellClassName} role="rowheader">
-                      График: {row.metric.label}
+                      Р“СЂР°С„РёРє: {row.metric.label}
                     </div>
                     <div className="table-right-cell" role="cell">
                       <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
@@ -1992,7 +1992,7 @@ function App() {
                       className="drag-handle-button"
                       type="button"
                       draggable
-                      aria-label="Перетащить строку"
+                      aria-label="РџРµСЂРµС‚Р°С‰РёС‚СЊ СЃС‚СЂРѕРєСѓ"
                       onDragStart={(event) => handleMetricDragStart(row.sectionId, row.metric.id, event)}
                       onDragEnd={() => {
                         draggedMetricRef.current = null;
@@ -2036,7 +2036,7 @@ function App() {
             {tableRows.length === 0 && (
               <div className="report-table-row is-empty-row" role="row">
                 <div className="table-left-cell empty-left-cell" role="rowheader">
-                  Разделы не выбраны
+                  Р Р°Р·РґРµР»С‹ РЅРµ РІС‹Р±СЂР°РЅС‹
                 </div>
                 <div className="table-right-cell" role="cell">
                   <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
@@ -2054,7 +2054,7 @@ function App() {
             <button
               className="scroll-button scroll-back-button"
               type="button"
-              aria-label="Прокрутить влево"
+              aria-label="РџСЂРѕРєСЂСѓС‚РёС‚СЊ РІР»РµРІРѕ"
               onClick={() => handleScrollButtonClick(-1)}
               onPointerDown={(event) => handleScrollButtonPointerDown(-1, event)}
               onPointerUp={handleScrollButtonPointerUp}
@@ -2069,7 +2069,7 @@ function App() {
           <button
             className={`scroll-button scroll-forward-button ${canScrollForward ? '' : 'is-disabled'}`}
             type="button"
-            aria-label="Прокрутить вправо"
+            aria-label="РџСЂРѕРєСЂСѓС‚РёС‚СЊ РІРїСЂР°РІРѕ"
             onClick={() => handleScrollButtonClick(1)}
             onPointerDown={(event) => handleScrollButtonPointerDown(1, event)}
             onPointerUp={handleScrollButtonPointerUp}
@@ -2093,7 +2093,7 @@ function App() {
             setNewViewName('');
           }}
           onSave={saveCurrentView}
-          title={editingViewId ? 'Редактировать отображение' : 'Сохранить отображение'}
+          title={editingViewId ? 'Р РµРґР°РєС‚РёСЂРѕРІР°С‚СЊ РѕС‚РѕР±СЂР°Р¶РµРЅРёРµ' : 'РЎРѕС…СЂР°РЅРёС‚СЊ РѕС‚РѕР±СЂР°Р¶РµРЅРёРµ'}
         />
       )}
 
@@ -2145,3 +2145,4 @@ function App() {
 }
 
 export default App;
+

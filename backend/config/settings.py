@@ -241,3 +241,9 @@ else:
     raise ImproperlyConfigured(
         "CACHE_BACKEND must be one of: locmem, redis."
     )
+
+
+BITRIX_CLIENT_ID = get_env("BITRIX_CLIENT_ID", default="")
+BITRIX_CLIENT_SECRET = get_env("BITRIX_CLIENT_SECRET", default="")
+BITRIX_REST_TIMEOUT_SECONDS = get_int_env("BITRIX_REST_TIMEOUT_SECONDS", default=30)
+BITRIX_REST_MAX_LIST_PAGES = get_int_env("BITRIX_REST_MAX_LIST_PAGES", default=200)

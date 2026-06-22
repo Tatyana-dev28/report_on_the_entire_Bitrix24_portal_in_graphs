@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import transaction
 from django.utils import timezone
 
 from apps.bitrix.models import BitrixPortal, PortalUser
@@ -20,6 +19,7 @@ from apps.reports.services.filters import (
     parse_report_datetime,
     result_size_bytes,
 )
+from apps.reports.services.exceptions import ReportPreviewSessionError
 
 
 @dataclass(frozen=True)
@@ -40,7 +40,6 @@ class ReportBuilder:
         self.data_provider = data_provider or get_report_data_provider()
         self.cache_repository = cache_repository or ReportCacheRepository()
 
-    @transaction.atomic
     def build_preview(self, *, filters: dict, context: ReportBuildContext) -> dict:
         filters_hash = make_filters_hash(filters)
         ttl_seconds = int(getattr(settings, "REPORT_SESSION_CACHE_TTL_SECONDS", 7200))
@@ -63,19 +62,39 @@ class ReportBuilder:
             expires_at=expires_at,
             metadata={
                 "source": "api.reports.preview",
-                "calculation": "empty_until_bitrix_rest_is_connected",
+                "calculation": "provider_pending",
             },
         )
 
-        provider_result = self.data_provider.build_preview(
-            filters=filters,
-            context=ReportDataProviderContext(
-                portal=context.portal,
-                user=context.user,
-                bitrix_user_id=context.bitrix_user_id,
-                user_name=context.user_name,
-            ),
-        )
+        try:
+            provider_result = self.data_provider.build_preview(
+                filters=filters,
+                context=ReportDataProviderContext(
+                    portal=context.portal,
+                    user=context.user,
+                    bitrix_user_id=context.bitrix_user_id,
+                    user_name=context.user_name,
+                ),
+            )
+        except Exception as error:
+            self._mark_failed(
+                context=context,
+                session=session,
+                filters=filters,
+                filters_hash=filters_hash,
+                started_at=now,
+                error=error,
+            )
+            raise ReportPreviewSessionError(
+                "Не удалось построить отчет по данным Bitrix24.",
+                status=getattr(error, "status", 502),
+                details={
+                    "sessionKey": str(session.session_key),
+                    "filtersHash": filters_hash,
+                    "message": str(error),
+                },
+            ) from error
+
         cache_key = self.cache_repository.make_preview_cache_key(
             portal_id=context.portal.id,
             session_key=str(session.session_key),
@@ -94,10 +113,16 @@ class ReportBuilder:
 
         session.cache_key = cache_key
         session.result_size_bytes = result_size_bytes(result_payload)
+        session.metadata = {
+            **session.metadata,
+            "calculation": provider_result.status,
+            "provider": result_payload["meta"].get("provider", "unknown"),
+        }
         session.save(
             update_fields=[
                 "cache_key",
                 "result_size_bytes",
+                "metadata",
                 "updated_at",
             ],
         )
@@ -124,6 +149,44 @@ class ReportBuilder:
             "message": result_payload["meta"]["message"],
         }
 
+    def _mark_failed(
+        self,
+        *,
+        context: ReportBuildContext,
+        session: ReportSession,
+        filters: dict,
+        filters_hash: str,
+        started_at,
+        error: Exception,
+    ) -> None:
+        error_message = str(error)
+        session.status = ReportSession.Status.ERROR
+        session.error_message = error_message
+        session.metadata = {
+            **session.metadata,
+            "calculation": "failed",
+            "provider": "bitrix",
+        }
+        session.save(
+            update_fields=[
+                "status",
+                "error_message",
+                "metadata",
+                "updated_at",
+            ],
+        )
+
+        self._create_report_build(
+            context=context,
+            session=session,
+            filters=filters,
+            filters_hash=filters_hash,
+            cache_key="",
+            started_at=started_at,
+            status=ReportBuild.Status.FAILED,
+            error_message=error_message,
+        )
+
     def _create_report_build(
         self,
         *,
@@ -133,6 +196,8 @@ class ReportBuilder:
         filters_hash: str,
         cache_key: str,
         started_at,
+        status: str = ReportBuild.Status.SUCCESS,
+        error_message: str = "",
     ) -> ReportBuild:
         date_range = filters.get("dateRange") or {}
         date_from = parse_report_datetime(date_range.get("from"))
@@ -154,7 +219,8 @@ class ReportBuilder:
             },
             filters_hash=filters_hash,
             cache_key=cache_key,
-            status=ReportBuild.Status.SUCCESS,
+            status=status,
+            error_message=error_message,
             started_at=started_at,
             finished_at=timezone.now(),
         )

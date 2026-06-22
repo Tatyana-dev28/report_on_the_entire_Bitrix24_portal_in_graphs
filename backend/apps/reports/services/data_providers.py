@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from django.conf import settings
 from typing import Protocol
 
 from apps.bitrix.models import BitrixPortal, PortalUser
@@ -59,4 +60,16 @@ class EmptyReportDataProvider:
 
 
 def get_report_data_provider() -> ReportDataProvider:
-    return EmptyReportDataProvider()
+    provider_name = getattr(settings, "REPORT_DATA_PROVIDER", "bitrix").lower()
+
+    if provider_name == "empty":
+        return EmptyReportDataProvider()
+
+    if provider_name == "bitrix":
+        from apps.reports.services.bitrix_report_data_provider import BitrixReportDataProvider
+
+        return BitrixReportDataProvider()
+
+    raise ValueError(
+        "REPORT_DATA_PROVIDER must be one of: bitrix, empty."
+    )

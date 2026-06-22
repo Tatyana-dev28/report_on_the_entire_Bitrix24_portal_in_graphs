@@ -15,6 +15,10 @@ from apps.reports.services.calculators.smart_process_calculator import (
     apply_smart_process_metrics,
     load_smart_process_rows,
 )
+from apps.reports.services.calculators.telephony_calculator import (
+    apply_call_metrics,
+    load_call_rows,
+)
 from apps.reports.services.data_providers import (
     ReportDataProviderContext,
     ReportDataResult,
@@ -22,7 +26,7 @@ from apps.reports.services.data_providers import (
 from apps.reports.services.exceptions import ReportPreviewSessionError
 
 
-SUPPORTED_SOURCE_TYPES = {"deal", "lead", "invoice", "smartProcess"}
+SUPPORTED_SOURCE_TYPES = {"deal", "lead", "invoice", "smartProcess", "telephony"}
 DEFAULT_REPORT_MESSAGE = "Отчет построен по данным Bitrix24."
 
 
@@ -128,6 +132,12 @@ class BitrixReportDataProvider:
                 rows_by_source[source["id"]] = self._load_smart_processes(
                     client=client,
                     source=source,
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+            elif source_type == "telephony":
+                rows_by_source[source["id"]] = self._load_calls(
+                    client=client,
                     date_from=date_from,
                     date_to=date_to,
                 )
@@ -312,6 +322,20 @@ class BitrixReportDataProvider:
             bitrix_datetime=_bitrix_datetime,
         )
 
+    def _load_calls(
+        self,
+        *,
+        client,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> list[dict]:
+        return load_call_rows(
+            client=client,
+            date_from=date_from,
+            date_to=date_to,
+            bitrix_datetime=_bitrix_datetime,
+        )
+
 
 def build_report_points(*, buckets: list[PeriodBucket], rows_by_source: dict[str, list[dict]]) -> list[dict]:
     metric_ids = [metric["id"] for metric in METRICS]
@@ -453,6 +477,14 @@ def _build_bucket_values(
         if _row_in_bucket(row, bucket)
     ]
 
+    call_rows = [
+        row
+        for source_id, rows in rows_by_source.items()
+        if source_id.startswith("telephony-")
+        for row in rows
+        if _row_in_bucket(row, bucket)
+    ]
+
     won_deals = [row for row in deal_rows if _is_won_stage(row.get("STAGE_ID"))]
     lost_deals = [row for row in deal_rows if _is_lost_stage(row.get("STAGE_ID"))]
 
@@ -484,6 +516,7 @@ def _build_bucket_values(
     values["invoices_conversion"] = _conversion(values["invoices_won"], values["invoices_created"])
 
     apply_smart_process_metrics(values, smart_process_rows)
+    apply_call_metrics(values, call_rows)
 
     values["sales_won"] = values["deals_won"]
     values["sales_lost"] = values["deals_lost"]

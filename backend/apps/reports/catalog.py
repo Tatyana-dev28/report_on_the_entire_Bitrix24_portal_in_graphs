@@ -43,6 +43,15 @@ REPORT_SOURCES = [
         "sourceLabel": "Счета",
         "isAvailable": True,
     },
+    {
+        "id": "telephony-default",
+        "type": "telephony",
+        "entityTypeId": None,
+        "categoryId": None,
+        "title": "Телефония",
+        "sourceLabel": "Телефония",
+        "isAvailable": True,
+    },
 ]
 
 
@@ -76,8 +85,10 @@ METRICS = [
     {"id": "companies_new", "label": "Новых компаний", "type": "number", "base": 19},
     {"id": "contacts_new", "label": "Новых контактов", "type": "number", "base": 48},
 
+    {"id": "calls_total", "label": "Всего звонков", "type": "number", "base": 118},
     {"id": "calls_in", "label": "Входящих звонков", "type": "number", "base": 66},
     {"id": "calls_out", "label": "Исходящих звонков", "type": "number", "base": 52},
+    {"id": "calls_out_success", "label": "Успешных исходящих звонков", "type": "number", "base": 31},
     {"id": "calls_missed", "label": "Пропущенных звонков", "type": "number", "base": 9},
 
     {"id": "messages_new", "label": "Новых сообщений", "type": "number", "base": 81},
@@ -155,28 +166,93 @@ METRIC_SECTIONS = [
     {
         "id": "quotes",
         "label": "Предложения",
-        "metricIds": ["quotes_created", "quotes_accepted", "quotes_declined", "quotes_conversion"],
+        "metricIds": [
+            "quotes_created",
+            "quotes_accepted",
+            "quotes_declined",
+            "quotes_conversion",
+        ],
     },
-    {"id": "companies", "label": "Компании и контакты", "metricIds": ["companies_new", "contacts_new"]},
-    {"id": "calls", "label": "Звонки", "metricIds": ["calls_in", "calls_out", "calls_missed"]},
-    {"id": "messages", "label": "Сообщения", "metricIds": ["messages_new", "messages_total"]},
-    {"id": "email", "label": "Письма", "metricIds": ["email_in", "email_out"]},
-    {"id": "crm_forms", "label": "CRM формы", "metricIds": ["crm_forms"]},
-    {"id": "tasks", "label": "Задачи", "metricIds": ["tasks_created", "tasks_done", "tasks_overdue"]},
+    {
+        "id": "companies",
+        "label": "Компании и контакты",
+        "metricIds": [
+            "companies_new",
+            "contacts_new",
+        ],
+    },
+    {
+        "id": "calls",
+        "label": "Звонки",
+        "metricIds": [
+            "calls_total",
+            "calls_in",
+            "calls_out",
+            "calls_out_success",
+            "calls_missed",
+        ],
+    },
+    {
+        "id": "messages",
+        "label": "Сообщения",
+        "metricIds": [
+            "messages_new",
+            "messages_total",
+        ],
+    },
+    {
+        "id": "email",
+        "label": "Письма",
+        "metricIds": [
+            "email_in",
+            "email_out",
+        ],
+    },
+    {
+        "id": "crm_forms",
+        "label": "CRM формы",
+        "metricIds": [
+            "crm_forms",
+        ],
+    },
+    {
+        "id": "tasks",
+        "label": "Задачи",
+        "metricIds": [
+            "tasks_created",
+            "tasks_done",
+            "tasks_overdue",
+        ],
+    },
     {
         "id": "activities",
         "label": "Дела",
-        "metricIds": ["activities_created", "activities_done", "activities_undone"],
+        "metricIds": [
+            "activities_created",
+            "activities_done",
+            "activities_undone",
+        ],
     },
     {
         "id": "lead_funnel",
         "label": "Воронка лидов",
-        "metricIds": ["lead_new", "lead_work", "lead_qualified", "lead_bad_stage"],
+        "metricIds": [
+            "lead_new",
+            "lead_work",
+            "lead_qualified",
+            "lead_bad_stage",
+        ],
     },
     {
         "id": "sales_funnel",
         "label": "Воронка продажи",
-        "metricIds": ["sales_new", "sales_talk", "sales_invoice", "sales_won", "sales_lost"],
+        "metricIds": [
+            "sales_new",
+            "sales_talk",
+            "sales_invoice",
+            "sales_won",
+            "sales_lost",
+        ],
     },
     {
         "id": "production_funnel",

@@ -333,6 +333,68 @@ class FakeSmartProcessBitrixRestClient:
         ]
 
 
+class FakeTelephonyBitrixRestClient:
+    def __init__(self, portal):
+        self.portal = portal
+
+    def call_list(self, method, params=None, *, max_pages=None):
+        if method != "voximplant.statistic.get":
+            return []
+
+        return [
+            {
+                "ID": "400",
+                "CALL_ID": "call-400",
+                "CALL_START_DATE": "2026-05-01T09:00:00+03:00",
+                "CALL_TYPE": "1",
+                "CALL_DURATION": "25",
+                "CALL_FAILED_CODE": "200",
+                "PORTAL_USER_ID": "42",
+                "PHONE_NUMBER": "+79990000001",
+            },
+            {
+                "ID": "401",
+                "CALL_ID": "call-401",
+                "CALL_START_DATE": "2026-05-01T10:00:00+03:00",
+                "CALL_TYPE": "1",
+                "CALL_DURATION": "8",
+                "CALL_FAILED_CODE": "200",
+                "PORTAL_USER_ID": "42",
+                "PHONE_NUMBER": "+79990000002",
+            },
+            {
+                "ID": "402",
+                "CALL_ID": "call-402",
+                "CALL_START_DATE": "2026-05-01T11:00:00+03:00",
+                "CALL_TYPE": "2",
+                "CALL_DURATION": "44",
+                "CALL_FAILED_CODE": "200",
+                "PORTAL_USER_ID": "42",
+                "PHONE_NUMBER": "+79990000003",
+            },
+            {
+                "ID": "403",
+                "CALL_ID": "call-403",
+                "CALL_START_DATE": "2026-05-01T12:00:00+03:00",
+                "CALL_TYPE": "2",
+                "CALL_DURATION": "0",
+                "CALL_FAILED_CODE": "304",
+                "PORTAL_USER_ID": "42",
+                "PHONE_NUMBER": "+79990000004",
+            },
+            {
+                "ID": "404",
+                "CALL_ID": "call-404",
+                "CALL_START_DATE": "2026-05-02T09:00:00+03:00",
+                "CALL_TYPE": "3",
+                "CALL_DURATION": "30",
+                "CALL_FAILED_CODE": "200",
+                "PORTAL_USER_ID": "42",
+                "PHONE_NUMBER": "+79990000005",
+            },
+        ]
+
+
 class FakeCatalogBitrixRestClient:
     def __init__(self, portal):
         self.portal = portal
@@ -620,3 +682,50 @@ class BitrixReportDataProviderTests(TestCase):
         self.assertEqual(second_day["smart_process_failed"], 1)
         self.assertEqual(second_day["smart_process_failed_sum"], 500)
         self.assertEqual(second_day["smart_process_conversion"], 0)
+
+    def test_provider_builds_telephony_metrics(self):
+        provider = BitrixReportDataProvider(rest_client_factory=FakeTelephonyBitrixRestClient)
+
+        result = provider.build_preview(
+            filters={
+                "period": "days",
+                "dateRange": {"from": "2026-05-01", "to": "2026-05-02"},
+                "selectedSources": ["Телефония"],
+                "selectedMetricIds": [
+                    "calls_total",
+                    "calls_in",
+                    "calls_out",
+                    "calls_out_success",
+                    "calls_missed",
+                ],
+                "metricMode": "count",
+                "chartDisplayMode": "sum",
+            },
+            context=ReportDataProviderContext(
+                portal=self.portal,
+                user=None,
+                bitrix_user_id="42",
+                user_name="",
+            ),
+        )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.metadata["loadedSources"], ["Телефония"])
+        self.assertEqual(result.metadata["unsupportedSources"], [])
+        self.assertEqual(len(result.data), 2)
+
+        first_day = result.data[0]["values"]
+
+        self.assertEqual(first_day["calls_total"], 4)
+        self.assertEqual(first_day["calls_out"], 2)
+        self.assertEqual(first_day["calls_out_success"], 1)
+        self.assertEqual(first_day["calls_in"], 2)
+        self.assertEqual(first_day["calls_missed"], 1)
+
+        second_day = result.data[1]["values"]
+
+        self.assertEqual(second_day["calls_total"], 1)
+        self.assertEqual(second_day["calls_out"], 0)
+        self.assertEqual(second_day["calls_out_success"], 0)
+        self.assertEqual(second_day["calls_in"], 1)
+        self.assertEqual(second_day["calls_missed"], 0)

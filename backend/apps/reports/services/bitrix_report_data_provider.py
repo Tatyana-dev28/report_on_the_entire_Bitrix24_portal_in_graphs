@@ -36,6 +36,7 @@ from apps.reports.services.data_providers import (
     ReportDataProviderContext,
     ReportDataResult,
 )
+from apps.reports.services.employee_breakdown import build_employee_breakdown
 from apps.reports.services.exceptions import ReportPreviewSessionError
 
 
@@ -92,6 +93,14 @@ class BitrixReportDataProvider:
             rows_by_source=rows_by_source,
         )
 
+        employees, details = build_employee_breakdown(
+            rows_by_source=rows_by_source,
+            metric_catalog=METRICS,
+            date_from=date_from,
+            date_to=date_to,
+            build_bucket_values=_build_bucket_values,
+        )
+
         unsupported_sources = [
             source["sourceLabel"]
             for source in selected_sources
@@ -100,8 +109,8 @@ class BitrixReportDataProvider:
 
         return ReportDataResult(
             data=data,
-            employees=[],
-            details=[],
+            employees=employees,
+            details=details,
             status="ready",
             message=DEFAULT_REPORT_MESSAGE,
             metadata={

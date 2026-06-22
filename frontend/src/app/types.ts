@@ -1,5 +1,6 @@
 ﻿import type { CSSProperties, RefObject } from 'react';
 import type { DateRange, MetricRow, Period, ReportPoint } from '../services/report/reportCatalog';
+import type { EmployeeMetricItem } from '../services/report/reportTypes';
 
 export type SelectOption<T extends string> = {
   value: T;
@@ -12,7 +13,10 @@ export type MockEmployee = {
   firstName: string;
   lastName: string;
   avatarUrl?: string;
+  values?: Record<string, number>;
 };
+
+export type ReportEmployee = MockEmployee & EmployeeMetricItem;
 
 export type TableRow =
   | {
@@ -32,7 +36,7 @@ export type TableRow =
       rowId: string;
       sectionId: string;
       metric: MetricRow;
-      employee: MockEmployee;
+      employee: ReportEmployee;
       employeeIndex: number;
     }
   | {
@@ -94,7 +98,7 @@ export type DetailContext = {
   point: ReportPoint;
   value: number;
   entityType: BitrixEntityType;
-  employee?: MockEmployee;
+  employee?: ReportEmployee;
 };
 
 export type DetailRow = {

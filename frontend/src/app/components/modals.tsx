@@ -9,7 +9,7 @@ import {
 import { ChevronDown, Crown, X } from 'lucide-react';
 import { formatMetricValue } from '../../services/report/reportCatalog';
 import { DETAIL_COLUMN_STORAGE_KEY, detailColumnMinWidthSum, detailColumns, mockEmployees } from '../constants';
-import type { AppSettings, DetailColumnKey, DetailContext, DetailSort } from '../types';
+import type { AppSettings, DetailColumnKey, DetailContext, DetailRow, DetailSort } from '../types';
 import { TooltipButton, useOutsideClose } from './common';
 import { bitrixEntityLabels, openBitrixEntity, openBitrixUser } from '../utils/bitrixNavigation';
 import { normalizeDetailColumnWidths, resizeDetailColumnWidths, sumDetailColumnWidths } from '../utils/detailColumns';
@@ -535,9 +535,11 @@ export function AppSettingsModal({
 
 export function DetailModal({
   context,
+  rows: backendRows,
   onClose,
 }: {
   context: DetailContext;
+  rows?: DetailRow[];
   onClose: () => void;
 }) {
   const [sort, setSort] = useState<DetailSort>({ key: 'rowNumber', direction: 'asc' });
@@ -552,7 +554,10 @@ export function DetailModal({
   } | null>(null);
   const detailTableWrapRef = useRef<HTMLDivElement>(null);
   const [detailTableViewportWidth, setDetailTableViewportWidth] = useState(0);
-  const rows = useMemo(() => buildMockDetailRows(context), [context]);
+  const rows = useMemo(
+    () => (backendRows?.length ? backendRows : buildMockDetailRows(context)),
+    [backendRows, context],
+  );
   const sortedRows = useMemo(() => {
     const nextRows = [...rows].sort((a, b) => compareDetailValues(a, b, sort.key));
 

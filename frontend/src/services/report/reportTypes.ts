@@ -1,6 +1,14 @@
 ﻿import type { DateRange, MetricRow, MetricSection, Period, ReportPoint } from './reportCatalog';
 
-export type CrmSourceType = 'lead' | 'deal' | 'smartProcess' | 'invoice';
+export type CrmSourceType =
+  | 'lead'
+  | 'deal'
+  | 'smartProcess'
+  | 'invoice'
+  | 'telephony'
+  | 'activity'
+  | 'quote'
+  | 'other';
 
 export type CrmSource = {
   id: string;
@@ -16,6 +24,7 @@ export type ReportLoadFilters = {
   period: Period;
   dateRange: DateRange;
   selectedSources: string[];
+  selectedMetricIds?: string[];
   metricMode?: 'money' | 'count';
   chartDisplayMode?: 'sum' | 'separate';
 };
@@ -32,6 +41,12 @@ export type EmployeeMetricRequest = {
 
 export type MetricDetailItem = {
   id: string | number;
+  employeeId?: string;
+  employeeName?: string;
+  metricId?: string;
+  metricLabel?: string;
+  metricType?: MetricRow['type'];
+  value?: number;
   title: string;
   responsibleName?: string;
   createdAt?: string;
@@ -40,10 +55,17 @@ export type MetricDetailItem = {
 
 export type EmployeeMetricItem = {
   id: string;
-  userId: number;
+  userId?: number;
   name: string;
   avatarUrl?: string;
-  value: number;
+  value?: number;
+  values?: Record<string, number>;
+};
+
+export type ReportPreviewPayload = {
+  data: ReportPoint[];
+  employees: EmployeeMetricItem[];
+  details: MetricDetailItem[];
 };
 
 export type ReportDataSource = {
@@ -52,6 +74,7 @@ export type ReportDataSource = {
   loadMetricSections: () => Promise<MetricSection[]>;
   loadMetrics: () => Promise<MetricRow[]>;
   loadReportData: (filters: ReportLoadFilters) => Promise<ReportPoint[]>;
+  loadReportPreview: (filters: ReportLoadFilters) => Promise<ReportPreviewPayload>;
   loadMetricDetails: (request: MetricDetailsRequest) => Promise<MetricDetailItem[]>;
   loadEmployeesMetric: (request: EmployeeMetricRequest) => Promise<EmployeeMetricItem[]>;
   getInitialCrmSources: () => CrmSource[];

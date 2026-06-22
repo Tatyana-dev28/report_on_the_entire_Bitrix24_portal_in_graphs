@@ -17,6 +17,9 @@ export type ReportCatalogResponse = {
 export type ReportPreviewResponse = {
     ok: boolean;
     status?: string;
+    sessionKey?: string;
+    filtersHash?: string;
+    message?: string;
     filters?: ReportLoadFilters;
     data: ReportPoint[];
     employees: EmployeeMetricItem[];
@@ -86,6 +89,16 @@ const getErrorMessage = (payload: unknown, fallback: string) => {
     const record = payload as Record<string, unknown>;
 
     if (typeof record.error === 'string') {
+        const details = record.details;
+
+        if (details && typeof details === 'object') {
+            const detailsRecord = details as Record<string, unknown>;
+
+            if (typeof detailsRecord.message === 'string') {
+                return `${record.error} ${detailsRecord.message}`;
+            }
+        }
+
         return record.error;
     }
 

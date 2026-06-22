@@ -74,6 +74,14 @@ export const mockReportDataSource: ReportDataSource = {
     return buildReportData(filters.period, filters.dateRange);
   },
 
+  async loadReportPreview(filters: ReportLoadFilters) {
+    return {
+      data: buildReportData(filters.period, filters.dateRange),
+      employees: [],
+      details: [],
+    };
+  },
+
   async loadMetricDetails(_request: MetricDetailsRequest): Promise<MetricDetailItem[]> {
     return [];
   },

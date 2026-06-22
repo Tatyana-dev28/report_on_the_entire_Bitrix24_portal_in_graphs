@@ -62,6 +62,16 @@ export const bitrixReportDataSource: ReportDataSource = {
     return preview.data;
   },
 
+  async loadReportPreview(filters: ReportLoadFilters) {
+    const preview = await loadReportPreview(filters);
+
+    return {
+      data: preview.data,
+      employees: preview.employees ?? [],
+      details: preview.details ?? [],
+    };
+  },
+
   async loadMetricDetails(_request: MetricDetailsRequest): Promise<MetricDetailItem[]> {
     // Детализация будет подключена после появления backend report session/details API.
     return [];
@@ -80,4 +90,3 @@ export const bitrixReportDataSource: ReportDataSource = {
     return [];
   },
 };
-

@@ -50,16 +50,16 @@ import { jsPDF } from 'jspdf';
 import {
   formatMetricValue,
   formatRangeLabel,
-  metricSections,
-  metrics,
-  periodOptions,
+  metricSections as defaultMetricSections,
+  metrics as defaultMetrics,
+  periodOptions as defaultPeriodOptions,
   type DateRange,
   type MetricRow,
   type Period,
   type ReportPoint,
 } from './services/report/reportCatalog';
 import { reportDataSource } from './services/report/reportDataSource';
-import type { CrmSource, ReportLoadFilters } from './services/report/reportTypes';
+import type { CrmSource, MetricDetailItem, ReportLoadFilters } from './services/report/reportTypes';
 import {
   APP_SETTINGS_STORAGE_KEY,
   CHART_AXIS_WIDTH,
@@ -102,8 +102,10 @@ import type {
   ChartTooltipItem,
   DetailColumnKey,
   DetailContext,
+  DetailRow,
   DetailSort,
   MockEmployee,
+  ReportEmployee,
   RecommendedThresholdValues,
   ReportFilters,
   SavedReportViewState,
@@ -131,7 +133,6 @@ import {
   resizeDetailColumnWidths,
   sumDetailColumnWidths,
 } from './app/utils/detailColumns';
-import { buildMockDetailRows, compareDetailValues } from './app/utils/detailRows';
 import {
   applyScheduleToReportData,
   buildTrend,
@@ -182,11 +183,94 @@ import {
   TableSettingsMenu,
 } from './app/components/reportControls';
 
+const splitEmployeeName = (name: string) => {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+
+  return {
+    firstName: parts[0] || 'Сотрудник',
+    lastName: parts.slice(1).join(' '),
+  };
+};
+
+const toReportEmployee = (employee: { id: string; userId?: number; name: string; avatarUrl?: string; values?: Record<string, number> }): ReportEmployee => {
+  const { firstName, lastName } = splitEmployeeName(employee.name);
+  const userId = employee.userId ?? Number(employee.id);
+
+  return {
+    ...employee,
+    userId: Number.isFinite(userId) ? userId : 0,
+    firstName,
+    lastName,
+  };
+};
+
+const backendDetailDateFormatter = new Intl.DateTimeFormat('ru-RU', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+const detailIdToNumber = (id: string | number, fallback: number) => {
+  if (typeof id === 'number' && Number.isFinite(id)) {
+    return id;
+  }
+
+  const numeric = Number(id);
+
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return numeric;
+  }
+
+  return 900000 + fallback;
+};
+
+const buildBackendDetailRows = (
+  details: MetricDetailItem[],
+  context: DetailContext,
+): DetailRow[] =>
+  details
+    .filter((detail) => {
+      if (detail.metricId && detail.metricId !== context.metric.id) {
+        return false;
+      }
+
+      if (context.employee && detail.employeeId && detail.employeeId !== context.employee.id) {
+        return false;
+      }
+
+      return true;
+    })
+    .map((detail, index) => {
+      const createdAtDate = detail.createdAt ? new Date(detail.createdAt) : new Date(context.point.key);
+      const createdAtSortValue = Number.isFinite(createdAtDate.getTime())
+        ? createdAtDate.getTime()
+        : index;
+      const responsibleId = Number(detail.employeeId ?? context.employee?.id ?? 0);
+
+      return {
+        rowNumber: index + 1,
+        entityId: detailIdToNumber(detail.id, index + 1),
+        title: detail.title || detail.metricLabel || context.metric.label,
+        responsibleId: Number.isFinite(responsibleId) ? responsibleId : 0,
+        responsibleName: detail.responsibleName || detail.employeeName || context.employee?.name || '',
+        createdAt: Number.isFinite(createdAtDate.getTime())
+          ? backendDetailDateFormatter.format(createdAtDate)
+          : context.point.label,
+        createdAtSortValue,
+        entityType: context.entityType,
+      };
+    });
+
 function App() {
   const [savedViews, setSavedViews] = useState<SavedReportViewOption[]>(() => loadSavedViews());
   const [selectedView, setSelectedView] = useState('default');
   const [draftFilters, setDraftFilters] = useState<ReportFilters>(() => createDefaultFilters());
   const [appliedFilters, setAppliedFilters] = useState<ReportFilters>(() => createDefaultFilters());
+  const [periodOptions, setPeriodOptions] = useState(defaultPeriodOptions);
+  const [metricSections, setMetricSections] = useState(defaultMetricSections);
+  const [metrics, setMetrics] = useState(defaultMetrics);
   const [crmSources, setCrmSources] = useState<CrmSource[]>(() =>
     reportDataSource.getInitialCrmSources(),
   );
@@ -200,6 +284,12 @@ function App() {
       chartDisplayMode: filters.chartDisplayMode,
     });
   });
+  const [reportEmployees, setReportEmployees] = useState<ReportEmployee[]>([]);
+  const [reportDetails, setReportDetails] = useState<MetricDetailItem[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState('');
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState('');
   const [isSaveOpen, setIsSaveOpen] = useState(false);
   const [isProOpen, setIsProOpen] = useState(false);
   const [isInstructionOpen, setIsInstructionOpen] = useState(false);
@@ -284,16 +374,49 @@ function App() {
 
   useEffect(() => {
     let isActive = true;
+    setCatalogLoading(true);
+    setCatalogError('');
 
-    reportDataSource
-      .loadCrmSources()
-      .then((sources) => {
-        if (isActive) {
-          setCrmSources(sources);
+    Promise.all([
+      reportDataSource.loadCrmSources(),
+      reportDataSource.loadPeriods(),
+      reportDataSource.loadMetricSections(),
+      reportDataSource.loadMetrics(),
+    ])
+      .then(([sources, periods, sections, nextMetrics]) => {
+        if (!isActive) {
+          return;
         }
+
+        setCrmSources(sources);
+        setPeriodOptions(periods);
+        setMetricSections(sections);
+        setMetrics(nextMetrics);
+        setSectionOrder(sections.map((section) => section.id));
+        setMetricOrderBySection(
+          sections.reduce<Record<string, string[]>>((acc, section) => {
+            acc[section.id] = section.metricIds;
+            return acc;
+          }, {}),
+        );
+        setEnabledMetricIdsBySection(
+          sections.reduce<Record<string, Set<string>>>((acc, section) => {
+            acc[section.id] = new Set(section.metricIds);
+            return acc;
+          }, {}),
+        );
+        setExpandedSections(new Set(sections.map((section) => section.id)));
       })
       .catch((error) => {
         console.warn('[Report data source] CRM sources were not loaded', error);
+        if (isActive) {
+          setCatalogError(error instanceof Error ? error.message : 'Не удалось загрузить настройки отчета.');
+        }
+      })
+      .finally(() => {
+        if (isActive) {
+          setCatalogLoading(false);
+        }
       });
 
     return () => {
@@ -302,24 +425,53 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!hasBuiltReport) {
+      return undefined;
+    }
+
     let isActive = true;
+    const selectedMetricIds = metricSections.flatMap((section) => {
+      const enabledMetricIds = enabledMetricIdsBySection[section.id] ?? new Set(section.metricIds);
+      return section.metricIds.filter((metricId) => enabledMetricIds.has(metricId));
+    });
     const filters: ReportLoadFilters = {
       period: appliedFilters.period,
       dateRange: appliedFilters.dateRange,
       selectedSources: appliedFilters.selectedSources,
+      selectedMetricIds,
       metricMode: appliedFilters.metricMode,
       chartDisplayMode: appliedFilters.chartDisplayMode,
     };
 
+    setReportLoading(true);
+    setReportError('');
     reportDataSource
-      .loadReportData(filters)
-      .then((data) => {
+      .loadReportPreview(filters)
+      .then((preview) => {
         if (isActive) {
-          setRawReportData(data);
+          setRawReportData(preview.data);
+          setReportEmployees((preview.employees ?? []).map(toReportEmployee));
+          setReportDetails(preview.details ?? []);
         }
       })
       .catch((error) => {
         console.warn('[Report data source] report data were not loaded', error);
+        if (isActive) {
+          const message = error instanceof Error ? error.message : 'Не удалось построить отчет.';
+          setReportError(
+            message.includes('OAuth') || message.includes('токен')
+              ? 'Нет OAuth-токенов Bitrix24. Откройте приложение из портала или переустановите его, чтобы backend получил доступ к REST API.'
+              : message,
+          );
+          setRawReportData([]);
+          setReportEmployees([]);
+          setReportDetails([]);
+        }
+      })
+      .finally(() => {
+        if (isActive) {
+          setReportLoading(false);
+        }
       });
 
     return () => {
@@ -332,6 +484,9 @@ function App() {
     appliedFilters.period,
     appliedFilters.selectedSources,
     buildMoment,
+    enabledMetricIdsBySection,
+    hasBuiltReport,
+    metricSections,
   ]);
 
   const appliedReportData = useMemo(
@@ -522,6 +677,16 @@ function App() {
     () => orderedSections.filter((section) => draftFilters.enabledSectionIds.has(section.id)),
     [draftFilters.enabledSectionIds, orderedSections],
   );
+  const availableEmployees = useMemo<ReportEmployee[]>(
+    () =>
+      reportEmployees.length
+        ? reportEmployees
+        : mockEmployees.map((employee) => ({
+            ...employee,
+            name: `${employee.firstName} ${employee.lastName}`.trim(),
+          })),
+    [reportEmployees],
+  );
   const tableRows = useMemo<TableRow[]>(
     () =>
       visibleSections.flatMap((section) => {
@@ -556,7 +721,7 @@ function App() {
           });
 
           if (expandedEmployeeMetricIds.has(metric.id)) {
-            mockEmployees.forEach((employee, employeeIndex) => {
+            availableEmployees.forEach((employee, employeeIndex) => {
               rows.push({
                 kind: 'employee',
                 rowId: `employee-${metric.id}-${employee.id}`,
@@ -584,6 +749,7 @@ function App() {
       visibleSections,
       expandedSections,
       enabledMetricIdsBySection,
+      availableEmployees,
       metricMap,
       metricOrderBySection,
       expandedEmployeeMetricIds,
@@ -981,7 +1147,7 @@ function App() {
     point: ReportPoint,
     value: number,
     sectionId: string,
-    employee?: MockEmployee,
+    employee?: ReportEmployee,
   ) => {
     setDetailContext({
       metric,
@@ -991,6 +1157,10 @@ function App() {
       entityType: getEntityTypeForMetric(metric, sectionId),
     });
   }, []);
+  const detailRows = useMemo(
+    () => (detailContext ? buildBackendDetailRows(reportDetails, detailContext) : []),
+    [detailContext, reportDetails],
+  );
 
   const toggleEmployeeRows = useCallback((metricId: string) => {
     setExpandedEmployeeMetricIds((current) => {
@@ -1613,6 +1783,18 @@ function App() {
 
         <div className="soft-divider" />
 
+        {(catalogLoading || catalogError || reportLoading || reportError || (hasBuiltReport && !reportLoading && !reportError && reportData.length === 0)) && (
+          <div className={`report-status-bar ${catalogError || reportError ? 'is-error' : ''}`}>
+            {catalogLoading && <span>Загружаем настройки отчета из backend...</span>}
+            {catalogError && <span>{catalogError}</span>}
+            {reportLoading && <span>Строим отчет по данным Bitrix24...</span>}
+            {reportError && <span>{reportError}</span>}
+            {hasBuiltReport && !reportLoading && !reportError && reportData.length === 0 && (
+              <span>По выбранным фильтрам данных нет. Измените период, источники или метрики и постройте отчет заново.</span>
+            )}
+          </div>
+        )}
+
         <section className={`report-surface ${isPinned ? 'is-pinned' : ''}`} style={reportSurfaceStyle}>
           <div className="fixed-column">
             <div className="left-pane chart-left">
@@ -1925,12 +2107,13 @@ function App() {
                         <div className="value-axis-gutter" aria-hidden="true" />
                         {reportData.map((point, pointIndex) => {
                           const value = hasBuiltReport
-                            ? getEmployeeMetricValue(
-                                point.values[row.metric.id],
-                                row.metric,
-                                row.employeeIndex,
-                                pointIndex,
-                              )
+                            ? row.employee.values?.[row.metric.id] ??
+                              getEmployeeMetricValue(
+                                  point.values[row.metric.id],
+                                  row.metric,
+                                  row.employeeIndex,
+                                  pointIndex,
+                                )
                             : 0;
 
                           const valueLabel = formatMetricValue(value, row.metric.type);
@@ -2132,7 +2315,7 @@ function App() {
       )}
 
       {detailContext && (
-        <DetailModal context={detailContext} onClose={() => setDetailContext(null)} />
+        <DetailModal context={detailContext} rows={detailRows} onClose={() => setDetailContext(null)} />
       )}
 
       {notification && (

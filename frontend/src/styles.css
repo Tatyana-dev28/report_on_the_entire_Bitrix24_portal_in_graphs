@@ -2562,6 +2562,29 @@ button {
   max-width: none;
 }
 
+.detail-empty-state {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  min-height: 240px;
+  padding: 28px;
+  color: #667085;
+  text-align: center;
+}
+
+.detail-empty-state p {
+  margin: 0 0 8px;
+  color: #242a33;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.detail-empty-state span {
+  max-width: 520px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .detail-row-contents {
   display: contents;
 }

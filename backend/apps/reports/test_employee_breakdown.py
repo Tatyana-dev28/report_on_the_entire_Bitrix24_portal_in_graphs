@@ -143,12 +143,19 @@ class EmployeeBreakdownTests(TestCase):
         self.assertEqual(manager_77_values["calls_total"], 1)
         self.assertEqual(manager_77_values["calls_in"], 1)
 
-        detail_ids = {detail["id"] for detail in result.details}
+        detail_pairs = {(detail["id"], detail["metricId"]) for detail in result.details}
 
-        self.assertIn("42:deals_created", detail_ids)
-        self.assertIn("42:deals_won", detail_ids)
-        self.assertIn("42:leads_created", detail_ids)
-        self.assertIn("42:calls_total", detail_ids)
-        self.assertIn("77:deals_created", detail_ids)
-        self.assertIn("77:deals_lost", detail_ids)
-        self.assertIn("77:calls_total", detail_ids)
+        self.assertIn(("1", "deals_created"), detail_pairs)
+        self.assertIn(("1", "deals_won"), detail_pairs)
+        self.assertIn(("10", "leads_created"), detail_pairs)
+        self.assertIn(("call-400", "calls_total"), detail_pairs)
+        self.assertIn(("2", "deals_created"), detail_pairs)
+        self.assertIn(("2", "deals_lost"), detail_pairs)
+        self.assertIn(("call-401", "calls_total"), detail_pairs)
+
+        first_detail = result.details[0]
+
+        self.assertIn("periodKey", first_detail)
+        self.assertIn("entityId", first_detail)
+        self.assertIn("title", first_detail)
+        self.assertIn("responsibleName", first_detail)

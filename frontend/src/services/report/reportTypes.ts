@@ -41,6 +41,8 @@ export type EmployeeMetricRequest = {
 
 export type MetricDetailItem = {
   id: string | number;
+  entityId?: string | number;
+  periodKey?: string;
   employeeId?: string;
   employeeName?: string;
   metricId?: string;

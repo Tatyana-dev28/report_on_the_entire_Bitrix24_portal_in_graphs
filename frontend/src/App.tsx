@@ -236,6 +236,10 @@ const buildBackendDetailRows = (
         return false;
       }
 
+      if (detail.periodKey && detail.periodKey !== context.point.key) {
+        return false;
+      }
+
       if (context.employee && detail.employeeId && detail.employeeId !== context.employee.id) {
         return false;
       }
@@ -251,7 +255,7 @@ const buildBackendDetailRows = (
 
       return {
         rowNumber: index + 1,
-        entityId: detailIdToNumber(detail.id, index + 1),
+        entityId: detailIdToNumber(detail.entityId ?? detail.id, index + 1),
         title: detail.title || detail.metricLabel || context.metric.label,
         responsibleId: Number.isFinite(responsibleId) ? responsibleId : 0,
         responsibleName: detail.responsibleName || detail.employeeName || context.employee?.name || '',
@@ -660,11 +664,11 @@ function App() {
   );
   const metricMap = useMemo(
     () => new Map(metrics.map((metric) => [metric.id, metric])),
-    [],
+    [metrics],
   );
   const sectionMap = useMemo(
     () => new Map(metricSections.map((section) => [section.id, section])),
-    [],
+    [metricSections],
   );
   const orderedSections = useMemo(
     () =>

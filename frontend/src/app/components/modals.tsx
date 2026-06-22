@@ -13,7 +13,7 @@ import type { AppSettings, DetailColumnKey, DetailContext, DetailRow, DetailSort
 import { TooltipButton, useOutsideClose } from './common';
 import { bitrixEntityLabels, openBitrixEntity, openBitrixUser } from '../utils/bitrixNavigation';
 import { normalizeDetailColumnWidths, resizeDetailColumnWidths, sumDetailColumnWidths } from '../utils/detailColumns';
-import { buildMockDetailRows, compareDetailValues } from '../utils/detailRows';
+import { compareDetailValues } from '../utils/detailRows';
 import { loadDetailColumnWidths } from '../storage';
 
 export function SaveViewModal({
@@ -554,10 +554,8 @@ export function DetailModal({
   } | null>(null);
   const detailTableWrapRef = useRef<HTMLDivElement>(null);
   const [detailTableViewportWidth, setDetailTableViewportWidth] = useState(0);
-  const rows = useMemo(
-    () => (backendRows?.length ? backendRows : buildMockDetailRows(context)),
-    [backendRows, context],
-  );
+  const rows = useMemo(() => backendRows ?? [], [backendRows]);
+  const hasRows = rows.length > 0;
   const sortedRows = useMemo(() => {
     const nextRows = [...rows].sort((a, b) => compareDetailValues(a, b, sort.key));
 
@@ -585,6 +583,10 @@ export function DetailModal({
   );
 
   useEffect(() => {
+    if (!hasRows) {
+      return undefined;
+    }
+
     const node = detailTableWrapRef.current;
 
     if (!node) {
@@ -606,7 +608,7 @@ export function DetailModal({
       resizeObserver?.disconnect();
       window.removeEventListener('resize', update);
     };
-  }, []);
+  }, [hasRows]);
 
   useEffect(() => {
     if (detailTableViewportWidth <= 0) {
@@ -714,8 +716,9 @@ export function DetailModal({
           </button>
         </div>
 
-        <div className="details-table-scroll detail-table-wrap" ref={detailTableWrapRef}>
-          <div className="detail-table" role="table" style={detailTableStyle}>
+        {hasRows ? (
+          <div className="details-table-scroll detail-table-wrap" ref={detailTableWrapRef}>
+            <div className="detail-table" role="table" style={detailTableStyle}>
             {detailColumns.map((column) => (
               <button
                 className="detail-header-cell"
@@ -766,8 +769,14 @@ export function DetailModal({
                 <div className="detail-filler-cell" aria-hidden="true" />
               </div>
             ))}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="detail-empty-state">
+            <p>Детализация пока недоступна</p>
+            <span>Backend уже вернул агрегированные значения, но строки CRM-сущностей для этой метрики еще не подключены.</span>
+          </div>
+        )}
       </section>
     </div>
   );

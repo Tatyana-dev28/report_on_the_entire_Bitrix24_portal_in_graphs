@@ -212,7 +212,7 @@ class ReportBuilder:
             date_from=date_from,
             date_to=date_to,
             sources=filters["selectedSources"],
-            metrics=filters["selectedMetricIds"],
+            metrics=filters.get("selectedMetricIds") or [],
             options={
                 "metricMode": filters.get("metricMode"),
                 "chartDisplayMode": filters.get("chartDisplayMode"),

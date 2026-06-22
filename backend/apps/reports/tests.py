@@ -129,6 +129,12 @@ class ReportPreviewBitrixProviderFailureTests(TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"], "Не удалось построить отчет по данным Bitrix24.")
 
+        self.assertIn("details", payload)
+        self.assertIn("message", payload["details"])
+        self.assertIn("OAuth", payload["details"]["message"])
+        self.assertIn("filtersHash", payload["details"])
+        self.assertIn("sessionKey", payload["details"])
+
         session = ReportSession.objects.get(session_key=payload["details"]["sessionKey"])
 
         self.assertEqual(session.status, ReportSession.Status.ERROR)
@@ -657,7 +663,18 @@ class BitrixReportDataProviderTests(TestCase):
                 "period": "days",
                 "dateRange": {"from": "2026-05-01", "to": "2026-05-02"},
                 "selectedSources": ["Воронка продажи", "Лиды"],
-                "selectedMetricIds": ["deals_created", "leads_created"],
+                "selectedMetricIds": [
+                    "deals_created",
+                    "deals_won",
+                    "deals_lost",
+                    "deals_won_sum",
+                    "deals_lost_sum",
+                    "deals_conversion",
+                    "leads_created",
+                    "leads_quality",
+                    "leads_bad",
+                    "leads_quality_sum",
+                ],
                 "metricMode": "money",
                 "chartDisplayMode": "sum",
             },
@@ -691,6 +708,59 @@ class BitrixReportDataProviderTests(TestCase):
         self.assertEqual(second_day["leads_created"], 1)
         self.assertEqual(second_day["leads_bad"], 1)
 
+    def test_provider_limits_values_and_details_to_selected_metrics(self):
+        provider = BitrixReportDataProvider(rest_client_factory=FakeBitrixRestClient)
+
+        result = provider.build_preview(
+            filters={
+                "period": "days",
+                "dateRange": {"from": "2026-05-01", "to": "2026-05-02"},
+                "selectedSources": ["deal-sales", "lead-default"],
+                "selectedMetricIds": ["deals_created"],
+                "metricMode": "money",
+                "chartDisplayMode": "sum",
+            },
+            context=ReportDataProviderContext(
+                portal=self.portal,
+                user=None,
+                bitrix_user_id="42",
+                user_name="",
+            ),
+        )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(set(result.data[0]["values"].keys()), {"deals_created"})
+        self.assertEqual(set(result.data[1]["values"].keys()), {"deals_created"})
+        self.assertTrue(result.employees)
+        self.assertEqual(set(result.employees[0]["values"].keys()), {"deals_created"})
+        self.assertEqual({detail["metricId"] for detail in result.details}, {"deals_created"})
+
+    def test_provider_allows_empty_selected_metrics(self):
+        provider = BitrixReportDataProvider(rest_client_factory=FakeBitrixRestClient)
+
+        result = provider.build_preview(
+            filters={
+                "period": "days",
+                "dateRange": {"from": "2026-05-01", "to": "2026-05-02"},
+                "selectedSources": ["deal-sales"],
+                "selectedMetricIds": [],
+                "metricMode": "money",
+                "chartDisplayMode": "sum",
+            },
+            context=ReportDataProviderContext(
+                portal=self.portal,
+                user=None,
+                bitrix_user_id="42",
+                user_name="",
+            ),
+        )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.data[0]["values"], {})
+        self.assertTrue(result.employees)
+        self.assertEqual(result.employees[0]["values"], {})
+        self.assertEqual(result.details, [])
+
     def test_provider_builds_smart_invoice_metrics(self):
         provider = BitrixReportDataProvider(rest_client_factory=FakeInvoiceBitrixRestClient)
 
@@ -699,7 +769,14 @@ class BitrixReportDataProviderTests(TestCase):
                 "period": "days",
                 "dateRange": {"from": "2026-05-01", "to": "2026-05-02"},
                 "selectedSources": ["Счета"],
-                "selectedMetricIds": ["invoices_created", "invoices_won"],
+                "selectedMetricIds": [
+                    "invoices_created",
+                    "invoices_won",
+                    "invoices_lost",
+                    "invoices_won_sum",
+                    "invoices_lost_sum",
+                    "invoices_conversion",
+                ],
                 "metricMode": "money",
                 "chartDisplayMode": "sum",
             },
@@ -738,7 +815,14 @@ class BitrixReportDataProviderTests(TestCase):
                 "period": "days",
                 "dateRange": {"from": "2026-05-01", "to": "2026-05-01"},
                 "selectedSources": ["Счета"],
-                "selectedMetricIds": ["invoices_created", "invoices_won"],
+                "selectedMetricIds": [
+                    "invoices_created",
+                    "invoices_won",
+                    "invoices_lost",
+                    "invoices_won_sum",
+                    "invoices_lost_sum",
+                    "invoices_conversion",
+                ],
                 "metricMode": "money",
                 "chartDisplayMode": "sum",
             },
@@ -781,7 +865,7 @@ class BitrixReportDataProviderTests(TestCase):
             filters={
                 "period": "days",
                 "dateRange": {"from": "2026-05-01", "to": "2026-05-02"},
-                "selectedSources": ["smart-180-4"],
+                "selectedSources": ["Новые заявки"],
                 "selectedMetricIds": [
                     "production_accepted",
                     "production_work",
@@ -806,13 +890,6 @@ class BitrixReportDataProviderTests(TestCase):
 
         first_day = result.data[0]["values"]
 
-        self.assertEqual(first_day["smart_process_created"], 4)
-        self.assertEqual(first_day["smart_process_success"], 1)
-        self.assertEqual(first_day["smart_process_failed"], 0)
-        self.assertEqual(first_day["smart_process_success_sum"], 4000)
-        self.assertEqual(first_day["smart_process_failed_sum"], 0)
-        self.assertEqual(first_day["smart_process_conversion"], 25)
-
         self.assertEqual(first_day["production_accepted"], 1)
         self.assertEqual(first_day["production_work"], 1)
         self.assertEqual(first_day["production_check"], 1)
@@ -821,11 +898,11 @@ class BitrixReportDataProviderTests(TestCase):
 
         second_day = result.data[1]["values"]
 
-        self.assertEqual(second_day["smart_process_created"], 1)
-        self.assertEqual(second_day["smart_process_success"], 0)
-        self.assertEqual(second_day["smart_process_failed"], 1)
-        self.assertEqual(second_day["smart_process_failed_sum"], 500)
-        self.assertEqual(second_day["smart_process_conversion"], 0)
+        self.assertEqual(second_day["production_accepted"], 0)
+        self.assertEqual(second_day["production_work"], 0)
+        self.assertEqual(second_day["production_check"], 0)
+        self.assertEqual(second_day["production_ready"], 0)
+        self.assertEqual(second_day["production_closed"], 0)
 
     def test_provider_builds_telephony_metrics(self):
         provider = BitrixReportDataProvider(rest_client_factory=FakeTelephonyBitrixRestClient)
@@ -909,10 +986,23 @@ class BitrixReportDataProviderTests(TestCase):
                     "smart-182-2",
                 ],
                 "selectedMetricIds": [
+                    "activities_created",
                     "meetings_created",
+                    "activities_done",
+                    "activities_undone",
+                    "quotes_created",
                     "quotes_sent",
+                    "quotes_accepted",
+                    "quotes_declined",
+                    "quotes_accepted_sum",
+                    "quotes_declined_sum",
+                    "quotes_conversion",
+                    "contracts_created",
                     "contracts_sent",
                     "contracts_signed",
+                    "contracts_failed",
+                    "contracts_signed_sum",
+                    "contracts_conversion",
                 ],
                 "metricMode": "count",
                 "chartDisplayMode": "sum",

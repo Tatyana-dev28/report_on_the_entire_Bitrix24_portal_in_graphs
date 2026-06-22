@@ -99,8 +99,11 @@ class EmployeeBreakdownTests(TestCase):
                 "selectedMetricIds": [
                     "deals_created",
                     "deals_won",
+                    "deals_lost",
                     "leads_created",
                     "calls_total",
+                    "calls_out_success",
+                    "calls_in",
                 ],
                 "metricMode": "count",
                 "chartDisplayMode": "sum",

@@ -78,6 +78,7 @@ class BitrixReportDataProvider:
             context.portal,
             filters.get("selectedSources") or [],
         )
+        metric_catalog = resolve_metric_catalog(filters.get("selectedMetricIds"))
 
         client = self.rest_client_factory(context.portal)
 
@@ -91,11 +92,12 @@ class BitrixReportDataProvider:
         data = build_report_points(
             buckets=buckets,
             rows_by_source=rows_by_source,
+            metric_catalog=metric_catalog,
         )
 
         employees, details = build_employee_breakdown(
             rows_by_source=rows_by_source,
-            metric_catalog=METRICS,
+            metric_catalog=metric_catalog,
             date_from=date_from,
             date_to=date_to,
             build_bucket_values=_build_bucket_values,
@@ -419,8 +421,13 @@ class BitrixReportDataProvider:
         )
 
 
-def build_report_points(*, buckets: list[PeriodBucket], rows_by_source: dict[str, list[dict]]) -> list[dict]:
-    metric_ids = [metric["id"] for metric in METRICS]
+def build_report_points(
+    *,
+    buckets: list[PeriodBucket],
+    rows_by_source: dict[str, list[dict]],
+    metric_catalog: list[dict],
+) -> list[dict]:
+    metric_ids = [metric["id"] for metric in metric_catalog]
     points = []
 
     for bucket in buckets:
@@ -443,6 +450,37 @@ def build_report_points(*, buckets: list[PeriodBucket], rows_by_source: dict[str
         )
 
     return points
+
+
+def resolve_metric_catalog(selected_metric_ids: list[str] | None) -> list[dict]:
+    if selected_metric_ids is None:
+        return [dict(metric) for metric in METRICS]
+
+    if not selected_metric_ids:
+        return []
+
+    normalized_values = {str(value).strip() for value in selected_metric_ids if str(value).strip()}
+
+    catalog_ids = {str(metric.get("id")) for metric in METRICS}
+    unknown_values = sorted(normalized_values - catalog_ids)
+
+    if unknown_values:
+        raise ReportPreviewSessionError(
+            "Р’С‹Р±СЂР°РЅРЅС‹Рµ РјРµС‚СЂРёРєРё РЅРµ РЅР°Р№РґРµРЅС‹ РІ РєР°С‚Р°Р»РѕРіРµ РѕС‚С‡РµС‚Р°.",
+            status=400,
+            details={"selectedMetricIds": selected_metric_ids, "unknownMetricIds": unknown_values},
+        )
+
+    result = [dict(metric) for metric in METRICS if str(metric.get("id")) in normalized_values]
+
+    if result:
+        return result
+
+    raise ReportPreviewSessionError(
+        "Р’С‹Р±СЂР°РЅРЅС‹Рµ РјРµС‚СЂРёРєРё РЅРµ РЅР°Р№РґРµРЅС‹ РІ РєР°С‚Р°Р»РѕРіРµ РѕС‚С‡РµС‚Р°.",
+        status=400,
+        details={"selectedMetricIds": selected_metric_ids},
+    )
 
 
 def resolve_selected_sources(selected_sources: list[str]) -> list[dict]:
@@ -555,7 +593,7 @@ def _build_bucket_values(
     rows_by_source: dict[str, list[dict]],
     metric_ids: list[str],
 ) -> dict[str, int | float]:
-    values: dict[str, int | float] = {metric_id: 0 for metric_id in metric_ids}
+    values: dict[str, int | float] = {metric["id"]: 0 for metric in METRICS}
 
     deal_rows = [
         row
@@ -687,7 +725,7 @@ def _build_bucket_values(
     )
     values["sales_invoice"] = len([row for row in deal_rows if "INVOICE" in _stage_suffix(row.get("STAGE_ID"))])
 
-    return values
+    return {metric_id: values.get(metric_id, 0) for metric_id in metric_ids}
 
 
 def _resolve_date_range(filters: dict) -> tuple[datetime, datetime]:

@@ -35,9 +35,15 @@ def normalize_report_filters(payload: dict) -> dict:
         "selectedSources",
     )
 
-    selected_metric_ids = _normalize_string_list(
-        payload.get("selectedMetricIds") or payload.get("metrics"),
-        "selectedMetricIds",
+    raw_selected_metric_ids = (
+        payload["selectedMetricIds"]
+        if "selectedMetricIds" in payload
+        else payload.get("metrics")
+    )
+    selected_metric_ids = (
+        None
+        if raw_selected_metric_ids is None
+        else _normalize_string_list(raw_selected_metric_ids, "selectedMetricIds")
     )
 
     return {

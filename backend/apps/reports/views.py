@@ -5,10 +5,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 from apps.reports.catalog import METRIC_SECTIONS, METRICS, PERIOD_OPTIONS, REPORT_SOURCES
-from apps.reports.services.report_sessions import (
-    ReportPreviewSessionError,
-    create_report_preview_session,
-)
+from apps.reports.services.exceptions import ReportPreviewSessionError
+from apps.reports.services.report_sessions import create_report_preview_session
 
 
 def _json_error(message: str, status: int = 400, details: dict | None = None) -> JsonResponse:

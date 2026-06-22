@@ -8,7 +8,7 @@ from typing import Any, Callable
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
-from apps.bitrix.services.rest_client import BitrixRestClient
+from apps.bitrix.services.rest_client import BitrixRestClient, BitrixRestError
 from apps.reports.catalog import METRICS, REPORT_SOURCES
 from apps.reports.models import CrmSource
 from apps.reports.services.data_providers import (
@@ -18,7 +18,7 @@ from apps.reports.services.data_providers import (
 from apps.reports.services.exceptions import ReportPreviewSessionError
 
 
-SUPPORTED_SOURCE_TYPES = {"deal", "lead"}
+SUPPORTED_SOURCE_TYPES = {"deal", "lead", "invoice"}
 DEFAULT_REPORT_MESSAGE = "Отчет построен по данным Bitrix24."
 
 
@@ -43,18 +43,21 @@ class BitrixReportDataProvider:
     ) -> ReportDataResult:
         date_from, date_to = _resolve_date_range(filters)
         buckets = build_period_buckets(filters["period"], date_from, date_to)
+
         selected_sources = resolve_selected_sources_for_portal(
             context.portal,
             filters.get("selectedSources") or [],
         )
 
         client = self.rest_client_factory(context.portal)
+
         rows_by_source = self._load_source_rows(
             client=client,
             selected_sources=selected_sources,
             date_from=date_from,
             date_to=date_to,
         )
+
         data = build_report_points(
             buckets=buckets,
             rows_by_source=rows_by_source,
@@ -65,12 +68,13 @@ class BitrixReportDataProvider:
             for source in selected_sources
             if source.get("type") not in SUPPORTED_SOURCE_TYPES
         ]
+
         message = DEFAULT_REPORT_MESSAGE
 
         if unsupported_sources:
             message = (
                 "Отчет построен по доступным CRM-источникам. "
-                "Счета и смарт-процессы будут подключены отдельным расчетчиком."
+                "Смарт-процессы будут подключены отдельным расчетчиком."
             )
 
         return ReportDataResult(
@@ -112,6 +116,13 @@ class BitrixReportDataProvider:
                 )
             elif source_type == "lead":
                 rows_by_source[source["id"]] = self._load_leads(
+                    client=client,
+                    source=source,
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+            elif source_type == "invoice":
+                rows_by_source[source["id"]] = self._load_invoices(
                     client=client,
                     source=source,
                     date_from=date_from,
@@ -188,6 +199,100 @@ class BitrixReportDataProvider:
             },
         )
 
+    def _load_invoices(
+        self,
+        *,
+        client,
+        source: dict,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> list[dict]:
+        try:
+            rows = self._load_smart_invoices(
+                client=client,
+                source=source,
+                date_from=date_from,
+                date_to=date_to,
+            )
+
+            if rows:
+                return rows
+        except BitrixRestError:
+            pass
+
+        return self._load_legacy_invoices(
+            client=client,
+            date_from=date_from,
+            date_to=date_to,
+        )
+
+    def _load_smart_invoices(
+        self,
+        *,
+        client,
+        source: dict,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> list[dict]:
+        entity_type_id = int(source.get("entityTypeId") or 31)
+
+        rows = client.call_list(
+            "crm.item.list",
+            {
+                "entityTypeId": entity_type_id,
+                "order": {"createdTime": "ASC"},
+                "filter": {
+                    ">=createdTime": _bitrix_datetime(date_from),
+                    "<=createdTime": _bitrix_datetime(date_to),
+                },
+                "select": [
+                    "id",
+                    "title",
+                    "createdTime",
+                    "stageId",
+                    "stageSemanticId",
+                    "opportunity",
+                    "currencyId",
+                    "assignedById",
+                ],
+            },
+        )
+
+        return [_normalize_smart_invoice_row(row) for row in rows]
+
+    def _load_legacy_invoices(
+        self,
+        *,
+        client,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> list[dict]:
+        rows = client.call_list(
+            "crm.invoice.list",
+            {
+                "order": {"DATE_INSERT": "ASC"},
+                "filter": {
+                    ">=DATE_INSERT": _bitrix_datetime(date_from),
+                    "<=DATE_INSERT": _bitrix_datetime(date_to),
+                },
+                "select": [
+                    "ID",
+                    "ACCOUNT_NUMBER",
+                    "ORDER_TOPIC",
+                    "DATE_INSERT",
+                    "DATE_BILL",
+                    "STATUS_ID",
+                    "PRICE",
+                    "OPPORTUNITY",
+                    "CURRENCY",
+                    "CURRENCY_ID",
+                    "RESPONSIBLE_ID",
+                ],
+            },
+        )
+
+        return [_normalize_legacy_invoice_row(row) for row in rows]
+
 
 def build_report_points(*, buckets: list[PeriodBucket], rows_by_source: dict[str, list[dict]]) -> list[dict]:
     metric_ids = [metric["id"] for metric in METRICS]
@@ -195,12 +300,13 @@ def build_report_points(*, buckets: list[PeriodBucket], rows_by_source: dict[str
 
     for bucket in buckets:
         values = _build_bucket_values(bucket, rows_by_source, metric_ids)
+
         points.append(
             {
                 "key": bucket.key,
                 "label": bucket.label,
                 "tooltipLabel": bucket.tooltip_label,
-                "indicator": values["deals_won_sum"],
+                "indicator": values["deals_won_sum"] + values["invoices_won_sum"],
                 "values": values,
             }
         )
@@ -213,6 +319,7 @@ def resolve_selected_sources(selected_sources: list[str]) -> list[dict]:
         return [dict(source) for source in REPORT_SOURCES]
 
     normalized_values = {str(value).strip() for value in selected_sources if str(value).strip()}
+
     result = [
         dict(source)
         for source in REPORT_SOURCES
@@ -235,11 +342,13 @@ def resolve_selected_sources_for_portal(portal: Any, selected_sources: list[str]
         return resolve_selected_sources(selected_sources)
 
     normalized_values = {str(value).strip() for value in selected_sources if str(value).strip()}
+
     portal_sources = CrmSource.objects.filter(
         portal=portal,
         is_active=True,
         is_available=True,
     )
+
     result = []
 
     for source in portal_sources:
@@ -253,7 +362,11 @@ def resolve_selected_sources_for_portal(portal: Any, selected_sources: list[str]
             result.append(
                 {
                     "id": source.external_key,
-                    "type": "smartProcess" if source.source_type == CrmSource.SourceType.SMART_PROCESS else source.source_type,
+                    "type": (
+                        "smartProcess"
+                        if source.source_type == CrmSource.SourceType.SMART_PROCESS
+                        else source.source_type
+                    ),
                     "entityTypeId": source.entity_type_id,
                     "categoryId": source.category_id,
                     "title": source.title,
@@ -284,6 +397,7 @@ def _build_bucket_values(
     metric_ids: list[str],
 ) -> dict[str, int | float]:
     values: dict[str, int | float] = {metric_id: 0 for metric_id in metric_ids}
+
     deal_rows = [
         row
         for source_id, rows in rows_by_source.items()
@@ -291,6 +405,7 @@ def _build_bucket_values(
         for row in rows
         if _row_in_bucket(row, bucket)
     ]
+
     lead_rows = [
         row
         for source_id, rows in rows_by_source.items()
@@ -299,10 +414,22 @@ def _build_bucket_values(
         if _row_in_bucket(row, bucket)
     ]
 
+    invoice_rows = [
+        row
+        for source_id, rows in rows_by_source.items()
+        if source_id.startswith("invoice-")
+        for row in rows
+        if _row_in_bucket(row, bucket)
+    ]
+
     won_deals = [row for row in deal_rows if _is_won_stage(row.get("STAGE_ID"))]
     lost_deals = [row for row in deal_rows if _is_lost_stage(row.get("STAGE_ID"))]
+
     quality_leads = [row for row in lead_rows if _is_quality_lead(row.get("STATUS_ID"))]
     bad_leads = [row for row in lead_rows if _is_bad_lead(row.get("STATUS_ID"))]
+
+    won_invoices = [row for row in invoice_rows if _is_won_invoice(row)]
+    lost_invoices = [row for row in invoice_rows if _is_lost_invoice(row)]
 
     values["deals_created"] = len(deal_rows)
     values["deals_won"] = len(won_deals)
@@ -318,15 +445,30 @@ def _build_bucket_values(
     values["leads_bad_sum"] = _sum_opportunity(bad_leads)
     values["leads_conversion"] = _conversion(values["leads_quality"], values["leads_created"])
 
+    values["invoices_created"] = len(invoice_rows)
+    values["invoices_won"] = len(won_invoices)
+    values["invoices_lost"] = len(lost_invoices)
+    values["invoices_won_sum"] = _sum_opportunity(won_invoices)
+    values["invoices_lost_sum"] = _sum_opportunity(lost_invoices)
+    values["invoices_conversion"] = _conversion(values["invoices_won"], values["invoices_created"])
+
     values["sales_won"] = values["deals_won"]
     values["sales_lost"] = values["deals_lost"]
+
     values["lead_qualified"] = values["leads_quality"]
     values["lead_bad_stage"] = values["leads_bad"]
     values["lead_new"] = len([row for row in lead_rows if str(row.get("STATUS_ID", "")).upper() in {"NEW", ""}])
-    values["lead_work"] = max(0, values["leads_created"] - values["lead_new"] - values["lead_qualified"] - values["lead_bad_stage"])
+    values["lead_work"] = max(
+        0,
+        values["leads_created"] - values["lead_new"] - values["lead_qualified"] - values["lead_bad_stage"],
+    )
 
-    values["sales_new"] = len([row for row in deal_rows if _stage_suffix(row.get("STAGE_ID")) in {"NEW", "PREPARATION"}])
-    values["sales_talk"] = len([row for row in deal_rows if _stage_suffix(row.get("STAGE_ID")) in {"PREPAYMENT_INVOICE", "EXECUTING"}])
+    values["sales_new"] = len(
+        [row for row in deal_rows if _stage_suffix(row.get("STAGE_ID")) in {"NEW", "PREPARATION"}]
+    )
+    values["sales_talk"] = len(
+        [row for row in deal_rows if _stage_suffix(row.get("STAGE_ID")) in {"PREPAYMENT_INVOICE", "EXECUTING"}]
+    )
     values["sales_invoice"] = len([row for row in deal_rows if "INVOICE" in _stage_suffix(row.get("STAGE_ID"))])
 
     return values
@@ -334,8 +476,10 @@ def _build_bucket_values(
 
 def _resolve_date_range(filters: dict) -> tuple[datetime, datetime]:
     date_range = filters.get("dateRange") or {}
+
     start_value = date_range.get("from") or date_range.get("start")
     end_value = date_range.get("to") or date_range.get("end")
+
     now = timezone.localtime()
 
     date_from = _parse_datetime_or_date(start_value, end_of_day=False) or datetime.combine(
@@ -369,6 +513,7 @@ def _parse_datetime_or_date(value: Any, *, end_of_day: bool) -> datetime | None:
 
         if parsed_date is not None:
             parsed_time = time.max if end_of_day else time.min
+
             return timezone.make_aware(
                 datetime.combine(parsed_date, parsed_time),
                 timezone.get_current_timezone(),
@@ -388,6 +533,7 @@ def _parse_datetime_or_date(value: Any, *, end_of_day: bool) -> datetime | None:
         return None
 
     parsed_time = time.max if end_of_day else time.min
+
     return timezone.make_aware(
         datetime.combine(parsed_date, parsed_time),
         timezone.get_current_timezone(),
@@ -400,6 +546,7 @@ def _build_hour_buckets(date_from: datetime, date_to: datetime) -> list[PeriodBu
 
     while cursor <= date_to:
         end = min(cursor + timedelta(hours=1) - timedelta(microseconds=1), date_to)
+
         buckets.append(
             PeriodBucket(
                 key=cursor.isoformat(),
@@ -409,6 +556,7 @@ def _build_hour_buckets(date_from: datetime, date_to: datetime) -> list[PeriodBu
                 end=end,
             )
         )
+
         cursor += timedelta(hours=1)
 
     return buckets
@@ -421,6 +569,7 @@ def _build_day_buckets(date_from: datetime, date_to: datetime) -> list[PeriodBuc
     while cursor <= date_to:
         end = min(cursor + timedelta(days=1) - timedelta(microseconds=1), date_to)
         local_cursor = timezone.localtime(cursor)
+
         buckets.append(
             PeriodBucket(
                 key=cursor.isoformat(),
@@ -430,6 +579,7 @@ def _build_day_buckets(date_from: datetime, date_to: datetime) -> list[PeriodBuc
                 end=end,
             )
         )
+
         cursor += timedelta(days=1)
 
     return buckets
@@ -443,6 +593,7 @@ def _build_week_buckets(date_from: datetime, date_to: datetime) -> list[PeriodBu
         end = min(cursor + timedelta(days=7) - timedelta(microseconds=1), date_to)
         local_start = timezone.localtime(cursor)
         local_end = timezone.localtime(end)
+
         buckets.append(
             PeriodBucket(
                 key=cursor.isoformat(),
@@ -452,6 +603,7 @@ def _build_week_buckets(date_from: datetime, date_to: datetime) -> list[PeriodBu
                 end=end,
             )
         )
+
         cursor += timedelta(days=7)
 
     return buckets
@@ -465,6 +617,7 @@ def _build_month_buckets(date_from: datetime, date_to: datetime) -> list[PeriodB
         next_month = _add_month(cursor)
         end = min(next_month - timedelta(microseconds=1), date_to)
         local_cursor = timezone.localtime(cursor)
+
         buckets.append(
             PeriodBucket(
                 key=cursor.isoformat(),
@@ -474,6 +627,7 @@ def _build_month_buckets(date_from: datetime, date_to: datetime) -> list[PeriodB
                 end=end,
             )
         )
+
         cursor = next_month
 
     return buckets
@@ -488,6 +642,7 @@ def _add_month(value: datetime) -> datetime:
 
 def _row_in_bucket(row: dict, bucket: PeriodBucket) -> bool:
     created_at = _parse_datetime_or_date(str(row.get("DATE_CREATE") or ""), end_of_day=False)
+
     return bool(created_at and bucket.start <= created_at <= bucket.end)
 
 
@@ -524,6 +679,7 @@ def _is_won_stage(value: Any) -> bool:
 
 def _is_lost_stage(value: Any) -> bool:
     suffix = _stage_suffix(value)
+
     return suffix in {"LOSE", "LOST", "APOLOGY", "JUNK"} or "LOSE" in suffix or "LOST" in suffix
 
 
@@ -533,3 +689,85 @@ def _is_quality_lead(value: Any) -> bool:
 
 def _is_bad_lead(value: Any) -> bool:
     return str(value or "").upper() in {"JUNK", "LOSE", "LOST", "BAD"}
+
+
+def _normalize_smart_invoice_row(row: dict) -> dict:
+    return {
+        "ID": row.get("id") or row.get("ID"),
+        "TITLE": row.get("title") or row.get("TITLE") or "",
+        "DATE_CREATE": row.get("createdTime") or row.get("CREATED_TIME"),
+        "STAGE_ID": row.get("stageId") or row.get("STAGE_ID"),
+        "STAGE_SEMANTIC_ID": row.get("stageSemanticId") or row.get("STAGE_SEMANTIC_ID"),
+        "OPPORTUNITY": row.get("opportunity") or row.get("OPPORTUNITY") or 0,
+        "CURRENCY_ID": row.get("currencyId") or row.get("CURRENCY_ID"),
+        "ASSIGNED_BY_ID": row.get("assignedById") or row.get("ASSIGNED_BY_ID"),
+        "SOURCE_KIND": "smart_invoice",
+    }
+
+
+def _normalize_legacy_invoice_row(row: dict) -> dict:
+    return {
+        "ID": row.get("ID"),
+        "TITLE": row.get("ACCOUNT_NUMBER") or row.get("ORDER_TOPIC") or "",
+        "DATE_CREATE": row.get("DATE_INSERT") or row.get("DATE_BILL"),
+        "STAGE_ID": row.get("STATUS_ID"),
+        "STAGE_SEMANTIC_ID": _legacy_invoice_semantic(row.get("STATUS_ID")),
+        "OPPORTUNITY": row.get("PRICE") or row.get("OPPORTUNITY") or 0,
+        "CURRENCY_ID": row.get("CURRENCY") or row.get("CURRENCY_ID"),
+        "ASSIGNED_BY_ID": row.get("RESPONSIBLE_ID"),
+        "SOURCE_KIND": "legacy_invoice",
+    }
+
+
+def _legacy_invoice_semantic(status_id: Any) -> str:
+    status = str(status_id or "").upper()
+
+    if status == "P":
+        return "S"
+
+    if status in {"D", "CANCEL", "CANCELED", "DECLINED"}:
+        return "F"
+
+    return "P"
+
+
+def _is_won_invoice(row: dict) -> bool:
+    semantic = str(row.get("STAGE_SEMANTIC_ID") or "").upper()
+
+    if semantic == "S":
+        return True
+
+    stage = _stage_suffix(row.get("STAGE_ID"))
+
+    return stage in {
+        "P",
+        "PAID",
+        "PAYMENT_PAID",
+        "WON",
+        "SUCCESS",
+        "SUCCESSFUL",
+        "FINAL_INVOICE",
+    }
+
+
+def _is_lost_invoice(row: dict) -> bool:
+    semantic = str(row.get("STAGE_SEMANTIC_ID") or "").upper()
+
+    if semantic == "F":
+        return True
+
+    stage = _stage_suffix(row.get("STAGE_ID"))
+
+    return (
+        stage in {
+            "D",
+            "CANCEL",
+            "CANCELED",
+            "DECLINED",
+            "LOSE",
+            "LOST",
+        }
+        or "CANCEL" in stage
+        or "LOSE" in stage
+        or "LOST" in stage
+    )

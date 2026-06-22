@@ -11,6 +11,10 @@ from django.utils.dateparse import parse_date, parse_datetime
 from apps.bitrix.services.rest_client import BitrixRestClient, BitrixRestError
 from apps.reports.catalog import METRICS, REPORT_SOURCES
 from apps.reports.models import CrmSource
+from apps.reports.services.calculators.smart_process_calculator import (
+    apply_smart_process_metrics,
+    load_smart_process_rows,
+)
 from apps.reports.services.data_providers import (
     ReportDataProviderContext,
     ReportDataResult,
@@ -18,7 +22,7 @@ from apps.reports.services.data_providers import (
 from apps.reports.services.exceptions import ReportPreviewSessionError
 
 
-SUPPORTED_SOURCE_TYPES = {"deal", "lead", "invoice"}
+SUPPORTED_SOURCE_TYPES = {"deal", "lead", "invoice", "smartProcess"}
 DEFAULT_REPORT_MESSAGE = "Отчет построен по данным Bitrix24."
 
 
@@ -69,20 +73,12 @@ class BitrixReportDataProvider:
             if source.get("type") not in SUPPORTED_SOURCE_TYPES
         ]
 
-        message = DEFAULT_REPORT_MESSAGE
-
-        if unsupported_sources:
-            message = (
-                "Отчет построен по доступным CRM-источникам. "
-                "Смарт-процессы будут подключены отдельным расчетчиком."
-            )
-
         return ReportDataResult(
             data=data,
             employees=[],
             details=[],
             status="ready",
-            message=message,
+            message=DEFAULT_REPORT_MESSAGE,
             metadata={
                 "provider": "bitrix",
                 "loadedSources": [
@@ -123,6 +119,13 @@ class BitrixReportDataProvider:
                 )
             elif source_type == "invoice":
                 rows_by_source[source["id"]] = self._load_invoices(
+                    client=client,
+                    source=source,
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+            elif source_type == "smartProcess":
+                rows_by_source[source["id"]] = self._load_smart_processes(
                     client=client,
                     source=source,
                     date_from=date_from,
@@ -293,6 +296,22 @@ class BitrixReportDataProvider:
 
         return [_normalize_legacy_invoice_row(row) for row in rows]
 
+    def _load_smart_processes(
+        self,
+        *,
+        client,
+        source: dict,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> list[dict]:
+        return load_smart_process_rows(
+            client=client,
+            source=source,
+            date_from=date_from,
+            date_to=date_to,
+            bitrix_datetime=_bitrix_datetime,
+        )
+
 
 def build_report_points(*, buckets: list[PeriodBucket], rows_by_source: dict[str, list[dict]]) -> list[dict]:
     metric_ids = [metric["id"] for metric in METRICS]
@@ -306,7 +325,11 @@ def build_report_points(*, buckets: list[PeriodBucket], rows_by_source: dict[str
                 "key": bucket.key,
                 "label": bucket.label,
                 "tooltipLabel": bucket.tooltip_label,
-                "indicator": values["deals_won_sum"] + values["invoices_won_sum"],
+                "indicator": (
+                    values.get("deals_won_sum", 0)
+                    + values.get("invoices_won_sum", 0)
+                    + values.get("smart_process_success_sum", 0)
+                ),
                 "values": values,
             }
         )
@@ -422,6 +445,14 @@ def _build_bucket_values(
         if _row_in_bucket(row, bucket)
     ]
 
+    smart_process_rows = [
+        row
+        for source_id, rows in rows_by_source.items()
+        if source_id.startswith("smart-")
+        for row in rows
+        if _row_in_bucket(row, bucket)
+    ]
+
     won_deals = [row for row in deal_rows if _is_won_stage(row.get("STAGE_ID"))]
     lost_deals = [row for row in deal_rows if _is_lost_stage(row.get("STAGE_ID"))]
 
@@ -451,6 +482,8 @@ def _build_bucket_values(
     values["invoices_won_sum"] = _sum_opportunity(won_invoices)
     values["invoices_lost_sum"] = _sum_opportunity(lost_invoices)
     values["invoices_conversion"] = _conversion(values["invoices_won"], values["invoices_created"])
+
+    apply_smart_process_metrics(values, smart_process_rows)
 
     values["sales_won"] = values["deals_won"]
     values["sales_lost"] = values["deals_lost"]

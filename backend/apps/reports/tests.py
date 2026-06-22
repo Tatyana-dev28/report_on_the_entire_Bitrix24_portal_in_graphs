@@ -6,6 +6,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.bitrix.models import BitrixPortal
+from apps.bitrix.services.rest_client import BitrixRestError
 from apps.reports.models import CrmSource, ReportBuild, ReportSession
 from apps.reports.services.bitrix_report_data_provider import BitrixReportDataProvider
 from apps.reports.services.data_providers import ReportDataProviderContext
@@ -16,6 +17,7 @@ from apps.reports.services.report_catalog import build_report_catalog
 class ReportPreviewApiTests(TestCase):
     def setUp(self):
         cache.clear()
+
         self.portal = BitrixPortal.objects.create(
             member_id="test-member",
             domain="test.bitrix24.ru",
@@ -42,7 +44,9 @@ class ReportPreviewApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+
         payload = response.json()
+
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["status"], "ready")
         self.assertEqual(payload["data"], [])
@@ -50,6 +54,7 @@ class ReportPreviewApiTests(TestCase):
         self.assertEqual(payload["details"], [])
 
         session = ReportSession.objects.get(session_key=payload["sessionKey"])
+
         self.assertEqual(session.portal, self.portal)
         self.assertEqual(session.bitrix_user_id, "42")
         self.assertEqual(session.filters_hash, payload["filtersHash"])
@@ -57,11 +62,13 @@ class ReportPreviewApiTests(TestCase):
         self.assertTrue(session.cache_key)
 
         cached_payload = cache.get(session.cache_key)
+
         self.assertIsInstance(cached_payload, dict)
         self.assertEqual(cached_payload["meta"]["filtersHash"], payload["filtersHash"])
         self.assertEqual(cached_payload["meta"]["sessionKey"], payload["sessionKey"])
 
         build = ReportBuild.objects.get(session=session)
+
         self.assertEqual(build.status, ReportBuild.Status.SUCCESS)
         self.assertEqual(build.cache_key, session.cache_key)
         self.assertEqual(build.sources, ["Воронка продажи"])
@@ -81,7 +88,9 @@ class ReportPreviewApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+
         payload = response.json()
+
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"], "Некорректный период отчета.")
 
@@ -89,6 +98,7 @@ class ReportPreviewApiTests(TestCase):
 class ReportPreviewBitrixProviderFailureTests(TestCase):
     def setUp(self):
         cache.clear()
+
         self.portal = BitrixPortal.objects.create(
             member_id="test-member",
             domain="test.bitrix24.ru",
@@ -113,15 +123,19 @@ class ReportPreviewBitrixProviderFailureTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 502)
+
         payload = response.json()
+
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"], "Не удалось построить отчет по данным Bitrix24.")
 
         session = ReportSession.objects.get(session_key=payload["details"]["sessionKey"])
+
         self.assertEqual(session.status, ReportSession.Status.ERROR)
         self.assertIn("OAuth", session.error_message)
 
         build = ReportBuild.objects.get(session=session)
+
         self.assertEqual(build.status, ReportBuild.Status.FAILED)
         self.assertEqual(build.cache_key, "")
 
@@ -175,6 +189,148 @@ class FakeBitrixRestClient:
             ]
 
         return []
+
+
+class FakeInvoiceBitrixRestClient:
+    def __init__(self, portal):
+        self.portal = portal
+
+    def call_list(self, method, params=None, *, max_pages=None):
+        if method == "crm.item.list":
+            return [
+                {
+                    "id": 100,
+                    "title": "Paid smart invoice",
+                    "createdTime": "2026-05-01T10:00:00+03:00",
+                    "stageId": "DT31_1:SUCCESS",
+                    "stageSemanticId": "S",
+                    "opportunity": "2500",
+                    "currencyId": "RUB",
+                    "assignedById": 42,
+                },
+                {
+                    "id": 101,
+                    "title": "Failed smart invoice",
+                    "createdTime": "2026-05-01T12:00:00+03:00",
+                    "stageId": "DT31_1:LOSE",
+                    "stageSemanticId": "F",
+                    "opportunity": "800",
+                    "currencyId": "RUB",
+                    "assignedById": 42,
+                },
+                {
+                    "id": 102,
+                    "title": "Open smart invoice",
+                    "createdTime": "2026-05-02T09:00:00+03:00",
+                    "stageId": "DT31_1:NEW",
+                    "stageSemanticId": "P",
+                    "opportunity": "400",
+                    "currencyId": "RUB",
+                    "assignedById": 42,
+                },
+            ]
+
+        return []
+
+
+class FakeLegacyInvoiceBitrixRestClient:
+    def __init__(self, portal):
+        self.portal = portal
+
+    def call_list(self, method, params=None, *, max_pages=None):
+        if method == "crm.item.list":
+            raise BitrixRestError("crm.item.list unavailable")
+
+        if method == "crm.invoice.list":
+            return [
+                {
+                    "ID": "200",
+                    "ACCOUNT_NUMBER": "INV-200",
+                    "DATE_INSERT": "2026-05-01T10:00:00+03:00",
+                    "STATUS_ID": "P",
+                    "PRICE": "3000",
+                    "CURRENCY": "RUB",
+                    "RESPONSIBLE_ID": "42",
+                },
+                {
+                    "ID": "201",
+                    "ACCOUNT_NUMBER": "INV-201",
+                    "DATE_INSERT": "2026-05-01T12:00:00+03:00",
+                    "STATUS_ID": "D",
+                    "PRICE": "900",
+                    "CURRENCY": "RUB",
+                    "RESPONSIBLE_ID": "42",
+                },
+            ]
+
+        return []
+
+
+class FakeSmartProcessBitrixRestClient:
+    def __init__(self, portal):
+        self.portal = portal
+
+    def call_list(self, method, params=None, *, max_pages=None):
+        if method != "crm.item.list":
+            return []
+
+        return [
+            {
+                "id": 300,
+                "title": "Accepted item",
+                "createdTime": "2026-05-01T09:00:00+03:00",
+                "stageId": "DT180_4:NEW",
+                "stageSemanticId": "P",
+                "opportunity": "1000",
+                "currencyId": "RUB",
+                "assignedById": 42,
+                "categoryId": 4,
+            },
+            {
+                "id": 301,
+                "title": "Work item",
+                "createdTime": "2026-05-01T10:00:00+03:00",
+                "stageId": "DT180_4:WORK",
+                "stageSemanticId": "P",
+                "opportunity": "2000",
+                "currencyId": "RUB",
+                "assignedById": 42,
+                "categoryId": 4,
+            },
+            {
+                "id": 302,
+                "title": "Check item",
+                "createdTime": "2026-05-01T11:00:00+03:00",
+                "stageId": "DT180_4:CHECK",
+                "stageSemanticId": "P",
+                "opportunity": "3000",
+                "currencyId": "RUB",
+                "assignedById": 42,
+                "categoryId": 4,
+            },
+            {
+                "id": 303,
+                "title": "Ready item",
+                "createdTime": "2026-05-01T12:00:00+03:00",
+                "stageId": "DT180_4:READY",
+                "stageSemanticId": "S",
+                "opportunity": "4000",
+                "currencyId": "RUB",
+                "assignedById": 42,
+                "categoryId": 4,
+            },
+            {
+                "id": 304,
+                "title": "Failed item",
+                "createdTime": "2026-05-02T12:00:00+03:00",
+                "stageId": "DT180_4:FAILED",
+                "stageSemanticId": "F",
+                "opportunity": "500",
+                "currencyId": "RUB",
+                "assignedById": 42,
+                "categoryId": 4,
+            },
+        ]
 
 
 class FakeCatalogBitrixRestClient:
@@ -239,6 +395,7 @@ class ReportCatalogTests(TestCase):
     @patch("apps.reports.services.report_catalog.BitrixRestClient", FakeCatalogBitrixRestClient)
     def test_catalog_loads_sources_from_bitrix_and_syncs_mysql(self, _has_token):
         catalog = build_report_catalog(self.portal)
+
         source_ids = {source["id"] for source in catalog["sources"]}
 
         self.assertIn("lead-default", source_ids)
@@ -248,11 +405,13 @@ class ReportCatalogTests(TestCase):
         self.assertIn("invoice-default", source_ids)
 
         deal_source = CrmSource.objects.get(portal=self.portal, external_key="deal-12")
+
         self.assertEqual(deal_source.source_type, CrmSource.SourceType.DEAL)
         self.assertEqual(deal_source.category_id, 12)
         self.assertEqual(deal_source.title, "Производство")
 
         smart_source = CrmSource.objects.get(portal=self.portal, external_key="smart-180-4")
+
         self.assertEqual(smart_source.source_type, CrmSource.SourceType.SMART_PROCESS)
         self.assertEqual(smart_source.entity_type_id, 180)
         self.assertEqual(smart_source.category_id, 4)
@@ -286,6 +445,7 @@ class BitrixReportDataProviderTests(TestCase):
 
     def test_provider_builds_daily_deal_and_lead_metrics(self):
         provider = BitrixReportDataProvider(rest_client_factory=FakeBitrixRestClient)
+
         result = provider.build_preview(
             filters={
                 "period": "days",
@@ -307,6 +467,7 @@ class BitrixReportDataProviderTests(TestCase):
         self.assertEqual(len(result.data), 2)
 
         first_day = result.data[0]["values"]
+
         self.assertEqual(first_day["deals_created"], 2)
         self.assertEqual(first_day["deals_won"], 1)
         self.assertEqual(first_day["deals_lost"], 1)
@@ -318,7 +479,144 @@ class BitrixReportDataProviderTests(TestCase):
         self.assertEqual(first_day["leads_quality_sum"], 900)
 
         second_day = result.data[1]["values"]
+
         self.assertEqual(second_day["deals_created"], 1)
         self.assertEqual(second_day["deals_won"], 0)
         self.assertEqual(second_day["leads_created"], 1)
         self.assertEqual(second_day["leads_bad"], 1)
+
+    def test_provider_builds_smart_invoice_metrics(self):
+        provider = BitrixReportDataProvider(rest_client_factory=FakeInvoiceBitrixRestClient)
+
+        result = provider.build_preview(
+            filters={
+                "period": "days",
+                "dateRange": {"from": "2026-05-01", "to": "2026-05-02"},
+                "selectedSources": ["Счета"],
+                "selectedMetricIds": ["invoices_created", "invoices_won"],
+                "metricMode": "money",
+                "chartDisplayMode": "sum",
+            },
+            context=ReportDataProviderContext(
+                portal=self.portal,
+                user=None,
+                bitrix_user_id="42",
+                user_name="",
+            ),
+        )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.metadata["loadedSources"], ["Счета"])
+        self.assertEqual(result.metadata["unsupportedSources"], [])
+
+        first_day = result.data[0]["values"]
+
+        self.assertEqual(first_day["invoices_created"], 2)
+        self.assertEqual(first_day["invoices_won"], 1)
+        self.assertEqual(first_day["invoices_lost"], 1)
+        self.assertEqual(first_day["invoices_won_sum"], 2500)
+        self.assertEqual(first_day["invoices_lost_sum"], 800)
+        self.assertEqual(first_day["invoices_conversion"], 50)
+
+        second_day = result.data[1]["values"]
+
+        self.assertEqual(second_day["invoices_created"], 1)
+        self.assertEqual(second_day["invoices_won"], 0)
+        self.assertEqual(second_day["invoices_lost"], 0)
+
+    def test_provider_falls_back_to_legacy_invoice_metrics(self):
+        provider = BitrixReportDataProvider(rest_client_factory=FakeLegacyInvoiceBitrixRestClient)
+
+        result = provider.build_preview(
+            filters={
+                "period": "days",
+                "dateRange": {"from": "2026-05-01", "to": "2026-05-01"},
+                "selectedSources": ["Счета"],
+                "selectedMetricIds": ["invoices_created", "invoices_won"],
+                "metricMode": "money",
+                "chartDisplayMode": "sum",
+            },
+            context=ReportDataProviderContext(
+                portal=self.portal,
+                user=None,
+                bitrix_user_id="42",
+                user_name="",
+            ),
+        )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.metadata["loadedSources"], ["Счета"])
+        self.assertEqual(result.metadata["unsupportedSources"], [])
+
+        values = result.data[0]["values"]
+
+        self.assertEqual(values["invoices_created"], 2)
+        self.assertEqual(values["invoices_won"], 1)
+        self.assertEqual(values["invoices_lost"], 1)
+        self.assertEqual(values["invoices_won_sum"], 3000)
+        self.assertEqual(values["invoices_lost_sum"], 900)
+        self.assertEqual(values["invoices_conversion"], 50)
+
+    def test_provider_builds_smart_process_metrics_from_dynamic_source(self):
+        CrmSource.objects.create(
+            portal=self.portal,
+            external_key="smart-180-4",
+            source_type=CrmSource.SourceType.SMART_PROCESS,
+            entity_type_id=180,
+            category_id=4,
+            title="Новые заявки",
+            source_label="Новые заявки",
+            is_available=True,
+        )
+
+        provider = BitrixReportDataProvider(rest_client_factory=FakeSmartProcessBitrixRestClient)
+
+        result = provider.build_preview(
+            filters={
+                "period": "days",
+                "dateRange": {"from": "2026-05-01", "to": "2026-05-02"},
+                "selectedSources": ["smart-180-4"],
+                "selectedMetricIds": [
+                    "production_accepted",
+                    "production_work",
+                    "production_check",
+                    "production_ready",
+                    "production_closed",
+                ],
+                "metricMode": "money",
+                "chartDisplayMode": "sum",
+            },
+            context=ReportDataProviderContext(
+                portal=self.portal,
+                user=None,
+                bitrix_user_id="42",
+                user_name="",
+            ),
+        )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.metadata["loadedSources"], ["Новые заявки"])
+        self.assertEqual(result.metadata["unsupportedSources"], [])
+
+        first_day = result.data[0]["values"]
+
+        self.assertEqual(first_day["smart_process_created"], 4)
+        self.assertEqual(first_day["smart_process_success"], 1)
+        self.assertEqual(first_day["smart_process_failed"], 0)
+        self.assertEqual(first_day["smart_process_success_sum"], 4000)
+        self.assertEqual(first_day["smart_process_failed_sum"], 0)
+        self.assertEqual(first_day["smart_process_conversion"], 25)
+
+        self.assertEqual(first_day["production_accepted"], 1)
+        self.assertEqual(first_day["production_work"], 1)
+        self.assertEqual(first_day["production_check"], 1)
+        self.assertEqual(first_day["production_ready"], 1)
+        self.assertEqual(first_day["production_closed"], 1)
+
+        second_day = result.data[1]["values"]
+
+        self.assertEqual(second_day["smart_process_created"], 1)
+        self.assertEqual(second_day["smart_process_success"], 0)
+        self.assertEqual(second_day["smart_process_failed"], 1)
+        self.assertEqual(second_day["smart_process_failed_sum"], 500)
+        self.assertEqual(second_day["smart_process_conversion"], 0)

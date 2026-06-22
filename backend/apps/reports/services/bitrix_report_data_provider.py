@@ -10,6 +10,7 @@ from django.utils.dateparse import parse_date, parse_datetime
 
 from apps.bitrix.services.rest_client import BitrixRestClient
 from apps.reports.catalog import METRICS, REPORT_SOURCES
+from apps.reports.models import CrmSource
 from apps.reports.services.data_providers import (
     ReportDataProviderContext,
     ReportDataResult,
@@ -42,7 +43,10 @@ class BitrixReportDataProvider:
     ) -> ReportDataResult:
         date_from, date_to = _resolve_date_range(filters)
         buckets = build_period_buckets(filters["period"], date_from, date_to)
-        selected_sources = resolve_selected_sources(filters.get("selectedSources") or [])
+        selected_sources = resolve_selected_sources_for_portal(
+            context.portal,
+            filters.get("selectedSources") or [],
+        )
 
         client = self.rest_client_factory(context.portal)
         rows_by_source = self._load_source_rows(
@@ -224,6 +228,41 @@ def resolve_selected_sources(selected_sources: list[str]) -> list[dict]:
         "Выбранные CRM-источники не найдены в каталоге отчета.",
         details={"selectedSources": selected_sources},
     )
+
+
+def resolve_selected_sources_for_portal(portal: Any, selected_sources: list[str]) -> list[dict]:
+    if not selected_sources:
+        return resolve_selected_sources(selected_sources)
+
+    normalized_values = {str(value).strip() for value in selected_sources if str(value).strip()}
+    portal_sources = CrmSource.objects.filter(
+        portal=portal,
+        is_active=True,
+        is_available=True,
+    )
+    result = []
+
+    for source in portal_sources:
+        candidates = {
+            source.external_key,
+            source.title,
+            source.source_label,
+        }
+
+        if candidates & normalized_values:
+            result.append(
+                {
+                    "id": source.external_key,
+                    "type": "smartProcess" if source.source_type == CrmSource.SourceType.SMART_PROCESS else source.source_type,
+                    "entityTypeId": source.entity_type_id,
+                    "categoryId": source.category_id,
+                    "title": source.title,
+                    "sourceLabel": source.source_label or source.title,
+                    "isAvailable": source.is_available,
+                }
+            )
+
+    return result or resolve_selected_sources(selected_sources)
 
 
 def build_period_buckets(period: str, date_from: datetime, date_to: datetime) -> list[PeriodBucket]:

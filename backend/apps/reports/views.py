@@ -4,8 +4,9 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
-from apps.reports.catalog import METRIC_SECTIONS, METRICS, PERIOD_OPTIONS, REPORT_SOURCES
 from apps.reports.services.exceptions import ReportPreviewSessionError
+from apps.reports.services.report_catalog import build_report_catalog
+from apps.reports.services.report_context import resolve_portal
 from apps.reports.services.report_sessions import create_report_preview_session
 
 
@@ -41,13 +42,15 @@ def _parse_json_body(request) -> tuple[dict, JsonResponse | None]:
 
 @require_GET
 def report_catalog_view(request):
+    try:
+        portal = resolve_portal(request, request.GET.dict())
+    except ReportPreviewSessionError:
+        portal = None
+
     return JsonResponse(
         {
             "ok": True,
-            "periods": PERIOD_OPTIONS,
-            "sources": REPORT_SOURCES,
-            "metricSections": METRIC_SECTIONS,
-            "metrics": METRICS,
+            **build_report_catalog(portal),
         },
         json_dumps_params={"ensure_ascii": False},
     )

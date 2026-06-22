@@ -24,7 +24,8 @@ def normalize_bitrix_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     Bitrix24 может прислать данные:
     - плоско: DOMAIN, AUTH_ID, REFRESH_ID, member_id;
-    - во вложенном auth: auth[domain], auth[access_token];
+    - во вложенном auth: auth.domain, auth.access_token;
+    - в bracket-формате: auth[domain], auth[access_token];
     - как JSON с auth/data.
     """
 
@@ -52,8 +53,8 @@ def normalize_bitrix_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
         return default
 
-    domain = get_value("DOMAIN", "domain")
-    member_id = get_value("member_id")
+    domain = _normalize_domain(get_value("DOMAIN", "domain"))
+    member_id = str(get_value("member_id", "MEMBER_ID", default="") or "").strip()
     protocol_value = get_value("PROTOCOL", "protocol", default="1")
 
     if not domain:
@@ -69,18 +70,26 @@ def normalize_bitrix_payload(payload: dict[str, Any]) -> dict[str, Any]:
         protocol = BitrixPortal.Protocol.HTTPS
         scheme = "https"
 
-    default_endpoint = f"{scheme}://{str(domain).strip()}/rest/"
+    default_endpoint = f"{scheme}://{domain}/rest/"
 
-    expires_in = get_value("AUTH_EXPIRES", "expires_in", default="3600")
+    expires_in = get_value(
+        "AUTH_EXPIRES",
+        "expires_in",
+        "expires",
+        default="3600",
+    )
 
     try:
         expires_seconds = int(expires_in)
     except (TypeError, ValueError):
         expires_seconds = 3600
 
+    if expires_seconds <= 0:
+        expires_seconds = 3600
+
     return {
-        "domain": str(domain).strip(),
-        "member_id": str(member_id).strip(),
+        "domain": domain,
+        "member_id": member_id,
         "protocol": protocol,
         "language": str(get_value("LANG", "LANGUAGE_ID", "language", default="") or "").strip(),
         "app_sid": str(get_value("APP_SID", "app_sid", default="") or "").strip(),
@@ -125,7 +134,7 @@ def create_or_update_portal_from_bitrix_payload(
             "client_endpoint": normalized["client_endpoint"],
             "server_endpoint": normalized["server_endpoint"],
             "status": BitrixPortal.Status.INSTALLED,
-            "installed_at": now,
+            "installed_at": now if mark_installed else None,
             "last_opened_at": now,
             "installed_by_user_id": normalized["auth_user_id"],
             "installed_by_user_name": normalized["auth_user_name"],
@@ -178,6 +187,9 @@ def save_auth_token(
 ) -> BitrixAuthToken:
     """
     Создает или обновляет OAuth-токены портала.
+
+    Важно: если Bitrix при повторном открытии приложения не прислал refresh_token,
+    мы не затираем старый refresh_token пустой строкой.
     """
 
     auth_token, _ = BitrixAuthToken.objects.get_or_create(
@@ -187,15 +199,21 @@ def save_auth_token(
         },
     )
 
+    old_access_token = auth_token.get_access_token() if auth_token.has_access_token else ""
+    old_refresh_token = auth_token.get_refresh_token() if auth_token.has_refresh_token else ""
+
+    access_token = normalized["access_token"] or old_access_token
+    refresh_token = normalized["refresh_token"] or old_refresh_token
+
     auth_token.expires_at = normalized["expires_at"]
-    auth_token.scope = normalized["scope"]
-    auth_token.auth_user_id = normalized["auth_user_id"]
-    auth_token.auth_user_name = normalized["auth_user_name"]
+    auth_token.scope = normalized["scope"] or auth_token.scope
+    auth_token.auth_user_id = normalized["auth_user_id"] or auth_token.auth_user_id
+    auth_token.auth_user_name = normalized["auth_user_name"] or auth_token.auth_user_name
     auth_token.raw_auth_payload = normalized["raw_payload"]
 
     auth_token.set_tokens(
-        access_token=normalized["access_token"],
-        refresh_token=normalized["refresh_token"],
+        access_token=access_token,
+        refresh_token=refresh_token,
         expires_at=normalized["expires_at"],
         save=False,
     )
@@ -249,3 +267,12 @@ def ensure_free_subscription_and_access(portal: BitrixPortal) -> Subscription:
     )
 
     return subscription
+
+
+def _normalize_domain(value: Any) -> str:
+    domain = str(value or "").strip()
+    domain = domain.removeprefix("https://")
+    domain = domain.removeprefix("http://")
+    domain = domain.strip("/")
+
+    return domain

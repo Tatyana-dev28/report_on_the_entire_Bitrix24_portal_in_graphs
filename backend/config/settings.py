@@ -213,3 +213,31 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+
+CACHE_BACKEND = get_env("CACHE_BACKEND", default="locmem").lower()
+
+if CACHE_BACKEND == "redis":
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": get_env("REDIS_URL", default="redis://127.0.0.1:6379/1"),
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                "IGNORE_EXCEPTIONS": False,
+            },
+            "TIMEOUT": get_int_env("REPORT_SESSION_CACHE_TTL_SECONDS", default=7200),
+        }
+    }
+elif CACHE_BACKEND == "locmem":
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "bitrix-report-local-cache",
+            "TIMEOUT": get_int_env("REPORT_SESSION_CACHE_TTL_SECONDS", default=7200),
+        }
+    }
+else:
+    raise ImproperlyConfigured(
+        "CACHE_BACKEND must be one of: locmem, redis."
+    )

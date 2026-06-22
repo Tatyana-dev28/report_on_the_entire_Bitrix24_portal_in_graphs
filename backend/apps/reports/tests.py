@@ -395,6 +395,150 @@ class FakeTelephonyBitrixRestClient:
         ]
 
 
+class FakeActivityQuoteContractBitrixRestClient:
+    def __init__(self, portal):
+        self.portal = portal
+
+    def call_list(self, method, params=None, *, max_pages=None):
+        params = params or {}
+
+        if method == "crm.activity.list":
+            return [
+                {
+                    "ID": "500",
+                    "OWNER_ID": "1",
+                    "OWNER_TYPE_ID": "2",
+                    "TYPE_ID": "2",
+                    "SUBJECT": "Встреча с клиентом",
+                    "CREATED": "2026-05-01T08:30:00+03:00",
+                    "START_TIME": "2026-05-01T09:00:00+03:00",
+                    "END_TIME": "2026-05-01T10:00:00+03:00",
+                    "COMPLETED": "N",
+                    "STATUS": "1",
+                    "RESPONSIBLE_ID": "42",
+                    "AUTHOR_ID": "42",
+                },
+                {
+                    "ID": "501",
+                    "OWNER_ID": "2",
+                    "OWNER_TYPE_ID": "2",
+                    "TYPE_ID": "1",
+                    "SUBJECT": "Позвонить клиенту",
+                    "CREATED": "2026-05-01T10:30:00+03:00",
+                    "START_TIME": "2026-05-01T11:00:00+03:00",
+                    "END_TIME": "2026-05-01T11:15:00+03:00",
+                    "COMPLETED": "Y",
+                    "STATUS": "2",
+                    "RESPONSIBLE_ID": "42",
+                    "AUTHOR_ID": "42",
+                },
+                {
+                    "ID": "502",
+                    "OWNER_ID": "3",
+                    "OWNER_TYPE_ID": "2",
+                    "TYPE_ID": "MEETING",
+                    "SUBJECT": "Повторная встреча",
+                    "CREATED": "2026-05-02T09:30:00+03:00",
+                    "START_TIME": "2026-05-02T10:00:00+03:00",
+                    "END_TIME": "2026-05-02T11:00:00+03:00",
+                    "COMPLETED": "Y",
+                    "STATUS": "2",
+                    "RESPONSIBLE_ID": "42",
+                    "AUTHOR_ID": "42",
+                },
+            ]
+
+        if method == "crm.quote.list":
+            return [
+                {
+                    "ID": "600",
+                    "TITLE": "Принятое КП",
+                    "DATE_CREATE": "2026-05-01T12:00:00+03:00",
+                    "STATUS_ID": "APPROVED",
+                    "OPPORTUNITY": "2000",
+                    "CURRENCY_ID": "RUB",
+                    "ASSIGNED_BY_ID": "42",
+                },
+                {
+                    "ID": "601",
+                    "TITLE": "Отклоненное КП",
+                    "DATE_CREATE": "2026-05-01T13:00:00+03:00",
+                    "STATUS_ID": "DECLINED",
+                    "OPPORTUNITY": "500",
+                    "CURRENCY_ID": "RUB",
+                    "ASSIGNED_BY_ID": "42",
+                },
+            ]
+
+        if method == "crm.item.list":
+            entity_type_id = int(params.get("entityTypeId") or 0)
+
+            if entity_type_id == 181:
+                return [
+                    {
+                        "id": 700,
+                        "title": "Отправленный договор",
+                        "createdTime": "2026-05-01T14:00:00+03:00",
+                        "stageId": "DT181_1:CONTRACT_SENT",
+                        "stageSemanticId": "P",
+                        "opportunity": "1000",
+                        "currencyId": "RUB",
+                        "assignedById": 42,
+                        "categoryId": 1,
+                    },
+                    {
+                        "id": 701,
+                        "title": "Подписанный договор",
+                        "createdTime": "2026-05-01T15:00:00+03:00",
+                        "stageId": "DT181_1:SIGNED",
+                        "stageSemanticId": "S",
+                        "opportunity": "2500",
+                        "currencyId": "RUB",
+                        "assignedById": 42,
+                        "categoryId": 1,
+                    },
+                    {
+                        "id": 702,
+                        "title": "Отклоненный договор",
+                        "createdTime": "2026-05-01T16:00:00+03:00",
+                        "stageId": "DT181_1:FAILED",
+                        "stageSemanticId": "F",
+                        "opportunity": "400",
+                        "currencyId": "RUB",
+                        "assignedById": 42,
+                        "categoryId": 1,
+                    },
+                ]
+
+            if entity_type_id == 182:
+                return [
+                    {
+                        "id": 800,
+                        "title": "КП отправлено из смарт-процесса",
+                        "createdTime": "2026-05-01T17:00:00+03:00",
+                        "stageId": "DT182_2:SENT",
+                        "stageSemanticId": "P",
+                        "opportunity": "700",
+                        "currencyId": "RUB",
+                        "assignedById": 42,
+                        "categoryId": 2,
+                    },
+                    {
+                        "id": 801,
+                        "title": "КП принято из смарт-процесса",
+                        "createdTime": "2026-05-01T18:00:00+03:00",
+                        "stageId": "DT182_2:SUCCESS",
+                        "stageSemanticId": "S",
+                        "opportunity": "1300",
+                        "currencyId": "RUB",
+                        "assignedById": 42,
+                        "categoryId": 2,
+                    },
+                ]
+
+        return []
+
+
 class FakeCatalogBitrixRestClient:
     def __init__(self, portal):
         self.portal = portal
@@ -729,3 +873,89 @@ class BitrixReportDataProviderTests(TestCase):
         self.assertEqual(second_day["calls_out_success"], 0)
         self.assertEqual(second_day["calls_in"], 1)
         self.assertEqual(second_day["calls_missed"], 0)
+
+    def test_provider_builds_activity_quote_and_contract_metrics(self):
+        CrmSource.objects.create(
+            portal=self.portal,
+            external_key="smart-181-1",
+            source_type=CrmSource.SourceType.SMART_PROCESS,
+            entity_type_id=181,
+            category_id=1,
+            title="Договоры",
+            source_label="Договоры",
+            is_available=True,
+        )
+        CrmSource.objects.create(
+            portal=self.portal,
+            external_key="smart-182-2",
+            source_type=CrmSource.SourceType.SMART_PROCESS,
+            entity_type_id=182,
+            category_id=2,
+            title="КП из смарт-процесса",
+            source_label="КП из смарт-процесса",
+            is_available=True,
+        )
+
+        provider = BitrixReportDataProvider(rest_client_factory=FakeActivityQuoteContractBitrixRestClient)
+
+        result = provider.build_preview(
+            filters={
+                "period": "days",
+                "dateRange": {"from": "2026-05-01", "to": "2026-05-02"},
+                "selectedSources": [
+                    "Дела CRM",
+                    "Коммерческие предложения",
+                    "smart-181-1",
+                    "smart-182-2",
+                ],
+                "selectedMetricIds": [
+                    "meetings_created",
+                    "quotes_sent",
+                    "contracts_sent",
+                    "contracts_signed",
+                ],
+                "metricMode": "count",
+                "chartDisplayMode": "sum",
+            },
+            context=ReportDataProviderContext(
+                portal=self.portal,
+                user=None,
+                bitrix_user_id="42",
+                user_name="",
+            ),
+        )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.metadata["unsupportedSources"], [])
+        self.assertEqual(len(result.data), 2)
+
+        first_day = result.data[0]["values"]
+
+        self.assertEqual(first_day["activities_created"], 2)
+        self.assertEqual(first_day["meetings_created"], 1)
+        self.assertEqual(first_day["activities_done"], 1)
+        self.assertEqual(first_day["activities_undone"], 1)
+
+        self.assertEqual(first_day["quotes_created"], 4)
+        self.assertEqual(first_day["quotes_sent"], 2)
+        self.assertEqual(first_day["quotes_accepted"], 2)
+        self.assertEqual(first_day["quotes_declined"], 1)
+        self.assertEqual(first_day["quotes_accepted_sum"], 3300)
+        self.assertEqual(first_day["quotes_declined_sum"], 500)
+        self.assertEqual(first_day["quotes_conversion"], 50)
+
+        self.assertEqual(first_day["contracts_created"], 3)
+        self.assertEqual(first_day["contracts_sent"], 1)
+        self.assertEqual(first_day["contracts_signed"], 1)
+        self.assertEqual(first_day["contracts_failed"], 1)
+        self.assertEqual(first_day["contracts_signed_sum"], 2500)
+        self.assertEqual(first_day["contracts_conversion"], 33.3)
+
+        second_day = result.data[1]["values"]
+
+        self.assertEqual(second_day["activities_created"], 1)
+        self.assertEqual(second_day["meetings_created"], 1)
+        self.assertEqual(second_day["activities_done"], 1)
+        self.assertEqual(second_day["activities_undone"], 0)
+        self.assertEqual(second_day["quotes_created"], 0)
+        self.assertEqual(second_day["contracts_created"], 0)

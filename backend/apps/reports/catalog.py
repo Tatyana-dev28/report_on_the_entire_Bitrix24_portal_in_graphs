@@ -52,6 +52,24 @@ REPORT_SOURCES = [
         "sourceLabel": "Телефония",
         "isAvailable": True,
     },
+    {
+        "id": "activity-default",
+        "type": "activity",
+        "entityTypeId": None,
+        "categoryId": None,
+        "title": "Дела CRM",
+        "sourceLabel": "Дела CRM",
+        "isAvailable": True,
+    },
+    {
+        "id": "quote-default",
+        "type": "quote",
+        "entityTypeId": None,
+        "categoryId": None,
+        "title": "Коммерческие предложения",
+        "sourceLabel": "Коммерческие предложения",
+        "isAvailable": True,
+    },
 ]
 
 
@@ -77,10 +95,20 @@ METRICS = [
     {"id": "invoices_lost_sum", "label": "Сумма проигранных счетов", "type": "money", "base": 190000},
     {"id": "invoices_conversion", "label": "Конверсия счетов", "type": "percent", "base": 63},
 
-    {"id": "quotes_created", "label": "Создано предложений", "type": "number", "base": 24},
-    {"id": "quotes_accepted", "label": "Принятых предложений", "type": "number", "base": 15},
-    {"id": "quotes_declined", "label": "Отклоненных предложений", "type": "number", "base": 5},
-    {"id": "quotes_conversion", "label": "Конверсия предложений", "type": "percent", "base": 61},
+    {"id": "quotes_created", "label": "Создано КП", "type": "number", "base": 24},
+    {"id": "quotes_sent", "label": "Отправлено КП", "type": "number", "base": 18},
+    {"id": "quotes_accepted", "label": "Принято КП", "type": "number", "base": 15},
+    {"id": "quotes_declined", "label": "Отклонено КП", "type": "number", "base": 5},
+    {"id": "quotes_accepted_sum", "label": "Сумма принятых КП", "type": "money", "base": 510000},
+    {"id": "quotes_declined_sum", "label": "Сумма отклоненных КП", "type": "money", "base": 110000},
+    {"id": "quotes_conversion", "label": "Конверсия КП", "type": "percent", "base": 61},
+
+    {"id": "contracts_created", "label": "Создано договоров", "type": "number", "base": 18},
+    {"id": "contracts_sent", "label": "Отправлено договоров", "type": "number", "base": 14},
+    {"id": "contracts_signed", "label": "Подписано договоров", "type": "number", "base": 9},
+    {"id": "contracts_failed", "label": "Отклонено договоров", "type": "number", "base": 3},
+    {"id": "contracts_signed_sum", "label": "Сумма подписанных договоров", "type": "money", "base": 640000},
+    {"id": "contracts_conversion", "label": "Конверсия договоров", "type": "percent", "base": 50},
 
     {"id": "companies_new", "label": "Новых компаний", "type": "number", "base": 19},
     {"id": "contacts_new", "label": "Новых контактов", "type": "number", "base": 48},
@@ -103,9 +131,10 @@ METRICS = [
     {"id": "tasks_done", "label": "Завершено задач", "type": "number", "base": 49},
     {"id": "tasks_overdue", "label": "Просрочено задач", "type": "number", "base": 8},
 
+    {"id": "meetings_created", "label": "Назначено встреч", "type": "number", "base": 21},
     {"id": "activities_created", "label": "Создано дел", "type": "number", "base": 63},
-    {"id": "activities_done", "label": "Выполненных дел", "type": "number", "base": 55},
-    {"id": "activities_undone", "label": "Невыполненных дел", "type": "number", "base": 11},
+    {"id": "activities_done", "label": "Выполнено дел", "type": "number", "base": 55},
+    {"id": "activities_undone", "label": "Невыполнено дел", "type": "number", "base": 11},
 
     {"id": "lead_new", "label": "Новый", "group": "Воронка лидов", "type": "number", "base": 28},
     {"id": "lead_work", "label": "В работе", "group": "Воронка лидов", "type": "number", "base": 21},
@@ -165,12 +194,27 @@ METRIC_SECTIONS = [
     },
     {
         "id": "quotes",
-        "label": "Предложения",
+        "label": "КП",
         "metricIds": [
             "quotes_created",
+            "quotes_sent",
             "quotes_accepted",
             "quotes_declined",
+            "quotes_accepted_sum",
+            "quotes_declined_sum",
             "quotes_conversion",
+        ],
+    },
+    {
+        "id": "contracts",
+        "label": "Договоры",
+        "metricIds": [
+            "contracts_created",
+            "contracts_sent",
+            "contracts_signed",
+            "contracts_failed",
+            "contracts_signed_sum",
+            "contracts_conversion",
         ],
     },
     {
@@ -226,8 +270,9 @@ METRIC_SECTIONS = [
     },
     {
         "id": "activities",
-        "label": "Дела",
+        "label": "Встречи и дела",
         "metricIds": [
+            "meetings_created",
             "activities_created",
             "activities_done",
             "activities_undone",

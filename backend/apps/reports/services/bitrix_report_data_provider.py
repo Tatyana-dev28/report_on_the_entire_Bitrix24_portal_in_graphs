@@ -11,6 +11,19 @@ from django.utils.dateparse import parse_date, parse_datetime
 from apps.bitrix.services.rest_client import BitrixRestClient, BitrixRestError
 from apps.reports.catalog import METRICS, REPORT_SOURCES
 from apps.reports.models import CrmSource
+from apps.reports.services.calculators.activity_calculator import (
+    apply_activity_metrics,
+    load_activity_rows,
+)
+from apps.reports.services.calculators.contract_calculator import (
+    apply_contract_metrics,
+    apply_mapped_quote_metrics,
+    get_smart_source_report_role,
+)
+from apps.reports.services.calculators.quote_calculator import (
+    apply_quote_metrics,
+    load_quote_rows,
+)
 from apps.reports.services.calculators.smart_process_calculator import (
     apply_smart_process_metrics,
     load_smart_process_rows,
@@ -26,7 +39,15 @@ from apps.reports.services.data_providers import (
 from apps.reports.services.exceptions import ReportPreviewSessionError
 
 
-SUPPORTED_SOURCE_TYPES = {"deal", "lead", "invoice", "smartProcess", "telephony"}
+SUPPORTED_SOURCE_TYPES = {
+    "deal",
+    "lead",
+    "invoice",
+    "smartProcess",
+    "telephony",
+    "activity",
+    "quote",
+}
 DEFAULT_REPORT_MESSAGE = "Отчет построен по данным Bitrix24."
 
 
@@ -137,6 +158,18 @@ class BitrixReportDataProvider:
                 )
             elif source_type == "telephony":
                 rows_by_source[source["id"]] = self._load_calls(
+                    client=client,
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+            elif source_type == "activity":
+                rows_by_source[source["id"]] = self._load_activities(
+                    client=client,
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+            elif source_type == "quote":
+                rows_by_source[source["id"]] = self._load_quotes(
                     client=client,
                     date_from=date_from,
                     date_to=date_to,
@@ -314,13 +347,25 @@ class BitrixReportDataProvider:
         date_from: datetime,
         date_to: datetime,
     ) -> list[dict]:
-        return load_smart_process_rows(
+        source_role = get_smart_source_report_role(source)
+
+        rows = load_smart_process_rows(
             client=client,
             source=source,
             date_from=date_from,
             date_to=date_to,
             bitrix_datetime=_bitrix_datetime,
         )
+
+        return [
+            {
+                **row,
+                "REPORT_SOURCE_ID": source.get("id"),
+                "REPORT_SOURCE_LABEL": source.get("sourceLabel") or source.get("title"),
+                "REPORT_SOURCE_ROLE": source_role,
+            }
+            for row in rows
+        ]
 
     def _load_calls(
         self,
@@ -330,6 +375,34 @@ class BitrixReportDataProvider:
         date_to: datetime,
     ) -> list[dict]:
         return load_call_rows(
+            client=client,
+            date_from=date_from,
+            date_to=date_to,
+            bitrix_datetime=_bitrix_datetime,
+        )
+
+    def _load_activities(
+        self,
+        *,
+        client,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> list[dict]:
+        return load_activity_rows(
+            client=client,
+            date_from=date_from,
+            date_to=date_to,
+            bitrix_datetime=_bitrix_datetime,
+        )
+
+    def _load_quotes(
+        self,
+        *,
+        client,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> list[dict]:
+        return load_quote_rows(
             client=client,
             date_from=date_from,
             date_to=date_to,
@@ -353,6 +426,8 @@ def build_report_points(*, buckets: list[PeriodBucket], rows_by_source: dict[str
                     values.get("deals_won_sum", 0)
                     + values.get("invoices_won_sum", 0)
                     + values.get("smart_process_success_sum", 0)
+                    + values.get("quotes_accepted_sum", 0)
+                    + values.get("contracts_signed_sum", 0)
                 ),
                 "values": values,
             }
@@ -390,13 +465,14 @@ def resolve_selected_sources_for_portal(portal: Any, selected_sources: list[str]
 
     normalized_values = {str(value).strip() for value in selected_sources if str(value).strip()}
 
+    result = []
+    seen_ids = set()
+
     portal_sources = CrmSource.objects.filter(
         portal=portal,
         is_active=True,
         is_available=True,
     )
-
-    result = []
 
     for source in portal_sources:
         candidates = {
@@ -406,14 +482,16 @@ def resolve_selected_sources_for_portal(portal: Any, selected_sources: list[str]
         }
 
         if candidates & normalized_values:
+            source_type = (
+                "smartProcess"
+                if source.source_type == CrmSource.SourceType.SMART_PROCESS
+                else source.source_type
+            )
+
             result.append(
                 {
                     "id": source.external_key,
-                    "type": (
-                        "smartProcess"
-                        if source.source_type == CrmSource.SourceType.SMART_PROCESS
-                        else source.source_type
-                    ),
+                    "type": source_type,
                     "entityTypeId": source.entity_type_id,
                     "categoryId": source.category_id,
                     "title": source.title,
@@ -421,8 +499,33 @@ def resolve_selected_sources_for_portal(portal: Any, selected_sources: list[str]
                     "isAvailable": source.is_available,
                 }
             )
+            seen_ids.add(source.external_key)
 
-    return result or resolve_selected_sources(selected_sources)
+    portal_source_types = {source["type"] for source in result}
+
+    for source in REPORT_SOURCES:
+        candidates = {
+            str(source.get("id") or ""),
+            str(source.get("title") or ""),
+            str(source.get("sourceLabel") or ""),
+        }
+
+        if not candidates & normalized_values:
+            continue
+
+        if source["id"] in seen_ids:
+            continue
+
+        if source["type"] in portal_source_types:
+            continue
+
+        result.append(dict(source))
+        seen_ids.add(source["id"])
+
+    if result:
+        return result
+
+    return resolve_selected_sources(selected_sources)
 
 
 def build_period_buckets(period: str, date_from: datetime, date_to: datetime) -> list[PeriodBucket]:
@@ -485,6 +588,40 @@ def _build_bucket_values(
         if _row_in_bucket(row, bucket)
     ]
 
+    activity_rows = [
+        row
+        for source_id, rows in rows_by_source.items()
+        if source_id.startswith("activity-")
+        for row in rows
+        if _row_in_bucket(row, bucket)
+    ]
+
+    quote_rows = [
+        row
+        for source_id, rows in rows_by_source.items()
+        if source_id.startswith("quote-")
+        for row in rows
+        if _row_in_bucket(row, bucket)
+    ]
+
+    mapped_quote_rows = [
+        row
+        for row in smart_process_rows
+        if row.get("REPORT_SOURCE_ROLE") == "quote"
+    ]
+
+    contract_rows = [
+        row
+        for row in smart_process_rows
+        if row.get("REPORT_SOURCE_ROLE") == "contract"
+    ]
+
+    regular_smart_process_rows = [
+        row
+        for row in smart_process_rows
+        if row.get("REPORT_SOURCE_ROLE") not in {"quote", "contract"}
+    ]
+
     won_deals = [row for row in deal_rows if _is_won_stage(row.get("STAGE_ID"))]
     lost_deals = [row for row in deal_rows if _is_lost_stage(row.get("STAGE_ID"))]
 
@@ -515,8 +652,12 @@ def _build_bucket_values(
     values["invoices_lost_sum"] = _sum_opportunity(lost_invoices)
     values["invoices_conversion"] = _conversion(values["invoices_won"], values["invoices_created"])
 
-    apply_smart_process_metrics(values, smart_process_rows)
+    apply_smart_process_metrics(values, regular_smart_process_rows)
     apply_call_metrics(values, call_rows)
+    apply_activity_metrics(values, activity_rows)
+    apply_quote_metrics(values, quote_rows)
+    apply_mapped_quote_metrics(values, mapped_quote_rows)
+    apply_contract_metrics(values, contract_rows)
 
     values["sales_won"] = values["deals_won"]
     values["sales_lost"] = values["deals_lost"]

@@ -80,7 +80,6 @@ import {
   detailColumnMinWidthSum,
   detailColumns,
   isProUser,
-  mockEmployees,
   scheduleTimeOptions,
   serializeFilters,
   deserializeFilters,
@@ -682,13 +681,7 @@ function App() {
     [draftFilters.enabledSectionIds, orderedSections],
   );
   const availableEmployees = useMemo<ReportEmployee[]>(
-    () =>
-      reportEmployees.length
-        ? reportEmployees
-        : mockEmployees.map((employee) => ({
-            ...employee,
-            name: `${employee.firstName} ${employee.lastName}`.trim(),
-          })),
+    () => reportEmployees,
     [reportEmployees],
   );
   const tableRows = useMemo<TableRow[]>(
@@ -2308,6 +2301,7 @@ function App() {
       {isAppSettingsOpen && (
         <AppSettingsModal
           settings={appSettings}
+          employees={reportEmployees}
           onSave={saveAppSettings}
           onClose={() => setIsAppSettingsOpen(false)}
           onOpenPro={() => setIsProOpen(true)}

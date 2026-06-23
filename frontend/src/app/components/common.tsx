@@ -25,22 +25,40 @@ export function useOutsideClose<T extends HTMLElement>(
       return undefined;
     }
 
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      const clickedInsideMain = ref.current?.contains(target);
-      const clickedInsideExtra = extraRefsRef.current.some((extraRef) =>
-        extraRef.current?.contains(target),
-      );
-      const clickedInsideFloatingPopover =
-        target instanceof Element && Boolean(target.closest('.floating-popover'));
+    const isInsideKnownElement = (eventTarget: EventTarget | null) => {
+      if (!(eventTarget instanceof Node)) {
+        return false;
+      }
 
-      if (!clickedInsideMain && !clickedInsideExtra && !clickedInsideFloatingPopover) {
+      const insideMain = ref.current?.contains(eventTarget);
+      const insideExtra = extraRefsRef.current.some((extraRef) =>
+        extraRef.current?.contains(eventTarget),
+      );
+      const insideFloatingPopover =
+        eventTarget instanceof Element && Boolean(eventTarget.closest('.floating-popover'));
+
+      return Boolean(insideMain || insideExtra || insideFloatingPopover);
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!isInsideKnownElement(event.target)) {
+        onClose();
+      }
+    };
+
+    const handleScroll = (event: Event) => {
+      if (!isInsideKnownElement(event.target)) {
         onClose();
       }
     };
 
     document.addEventListener('pointerdown', handlePointerDown);
-    return () => document.removeEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('scroll', handleScroll, true);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('scroll', handleScroll, true);
+    };
   }, [open, onClose]);
 
   return ref;

@@ -1,10 +1,9 @@
-import { defaultDateRange, metricSections, type DateRange } from '../services/report/reportCatalog';
+﻿import { defaultDateRange, metricSections, type DateRange } from '../services/report/reportCatalog';
 import type {
   AppSettings,
   ChartDisplayMode,
   ChartMetricMode,
   DetailColumnKey,
-  MockEmployee,
   ReportFilters,
   SavedReportViewOption,
   ScheduleFilters,
@@ -29,12 +28,6 @@ export const MONTH_LABELS = [
   'Октябрь',
   'Ноябрь',
   'Декабрь',
-];
-
-export const mockEmployees: MockEmployee[] = [
-  { id: 'employee-1', userId: 104, firstName: 'Анна', lastName: 'Соколова' },
-  { id: 'employee-2', userId: 117, firstName: 'Илья', lastName: 'Морозов' },
-  { id: 'employee-3', userId: 126, firstName: 'Мария', lastName: 'Орлова' },
 ];
 
 export const LAST_AVAILABLE_MONTH_INDEX = 2026 * 12 + 5;

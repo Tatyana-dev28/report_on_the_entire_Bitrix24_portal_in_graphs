@@ -1,4 +1,4 @@
-import {
+﻿import {
   useEffect,
   useMemo,
   useRef,
@@ -8,8 +8,8 @@ import {
 } from 'react';
 import { ChevronDown, Crown, X } from 'lucide-react';
 import { formatMetricValue } from '../../services/report/reportCatalog';
-import { DETAIL_COLUMN_STORAGE_KEY, detailColumnMinWidthSum, detailColumns, mockEmployees } from '../constants';
-import type { AppSettings, DetailColumnKey, DetailContext, DetailRow, DetailSort } from '../types';
+import { DETAIL_COLUMN_STORAGE_KEY, detailColumnMinWidthSum, detailColumns } from '../constants';
+import type { AppSettings, DetailColumnKey, DetailContext, DetailRow, DetailSort, ReportEmployee } from '../types';
 import { TooltipButton, useOutsideClose } from './common';
 import { bitrixEntityLabels, openBitrixEntity, openBitrixUser } from '../utils/bitrixNavigation';
 import { normalizeDetailColumnWidths, resizeDetailColumnWidths, sumDetailColumnWidths } from '../utils/detailColumns';
@@ -373,31 +373,36 @@ export function InstructionModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+const employeeDisplayName = (employee: ReportEmployee) =>
+  employee.name || `${employee.firstName} ${employee.lastName}`.trim() || `Сотрудник ${employee.id}`;
+
 export function EmployeeMultiSelect({
   label,
+  employees,
   selectedIds,
   onChange,
 }: {
   label: string;
+  employees: ReportEmployee[];
   selectedIds: string[];
   onChange: (selectedIds: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false));
-  const selectedEmployees = mockEmployees.filter((employee) => selectedIds.includes(employee.id));
+  const selectedEmployees = employees.filter((employee) => selectedIds.includes(employee.id));
+  const selectedUnknownIds = selectedIds.filter(
+    (employeeId) => !employees.some((employee) => employee.id === employeeId),
+  );
   const normalizedQuery = query.trim().toLowerCase();
-  // TODO: заменить mockEmployees на загрузку активных сотрудников портала через Bitrix24 user.get.
-  const filteredEmployees = mockEmployees.filter((employee) => {
+  const filteredEmployees = employees.filter((employee) => {
+    const name = employeeDisplayName(employee).toLowerCase();
+
     if (!normalizedQuery) {
       return true;
     }
 
-    return (
-      employee.firstName.toLowerCase().startsWith(normalizedQuery) ||
-      employee.lastName.toLowerCase().startsWith(normalizedQuery) ||
-      `${employee.firstName} ${employee.lastName}`.toLowerCase().startsWith(normalizedQuery)
-    );
+    return name.startsWith(normalizedQuery) || employee.id.toLowerCase().startsWith(normalizedQuery);
   });
 
   const toggleEmployee = (employeeId: string) => {
@@ -418,12 +423,19 @@ export function EmployeeMultiSelect({
         onClick={() => setOpen((current) => !current)}
       >
         <span className="employee-chip-list">
-          {selectedEmployees.length ? (
-            selectedEmployees.map((employee) => (
-              <span className="employee-chip" key={employee.id}>
-                {employee.firstName} {employee.lastName}
-              </span>
-            ))
+          {selectedEmployees.length || selectedUnknownIds.length ? (
+            <>
+              {selectedEmployees.map((employee) => (
+                <span className="employee-chip" key={employee.id}>
+                  {employeeDisplayName(employee)}
+                </span>
+              ))}
+              {selectedUnknownIds.map((employeeId) => (
+                <span className="employee-chip" key={employeeId}>
+                  Сотрудник {employeeId}
+                </span>
+              ))}
+            </>
           ) : (
             <span className="employee-placeholder">Не выбрано</span>
           )}
@@ -443,30 +455,37 @@ export function EmployeeMultiSelect({
             </button>
           </div>
           <div className="employee-multi-list">
-            {filteredEmployees.map((employee) => (
-              <label className="employee-multi-option" key={employee.id}>
-                <input
-                  type="checkbox"
-                  checked={selectedIds.includes(employee.id)}
-                  onChange={() => toggleEmployee(employee.id)}
-                />
-                <span>{employee.firstName} {employee.lastName}</span>
-              </label>
-            ))}
+            {filteredEmployees.length ? (
+              filteredEmployees.map((employee) => (
+                <label className="employee-multi-option" key={employee.id}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(employee.id)}
+                    onChange={() => toggleEmployee(employee.id)}
+                  />
+                  <span>{employeeDisplayName(employee)}</span>
+                </label>
+              ))
+            ) : (
+              <div className="employee-multi-empty">
+                Сотрудники появятся после построения отчета по данным Bitrix24.
+              </div>
+            )}
           </div>
         </div>
       )}
     </div>
   );
 }
-
 export function AppSettingsModal({
   settings,
+  employees,
   onSave,
   onClose,
   onOpenPro,
 }: {
   settings: AppSettings;
+  employees: ReportEmployee[];
   onSave: (settings: AppSettings) => void;
   onClose: () => void;
   onOpenPro: () => void;
@@ -506,16 +525,19 @@ export function AppSettingsModal({
         <div className="app-settings-fields">
           <EmployeeMultiSelect
             label="Сотрудники, которым разрешено строить отчеты:"
+            employees={employees}
             selectedIds={draftSettings.reportBuilderUserIds}
             onChange={(values) => updateField('reportBuilderUserIds', values)}
           />
           <EmployeeMultiSelect
             label="Сотрудники, которым разрешено видеть показатели с деньгами:"
+            employees={employees}
             selectedIds={draftSettings.moneyViewerUserIds}
             onChange={(values) => updateField('moneyViewerUserIds', values)}
           />
           <EmployeeMultiSelect
             label="Сотрудники, которым разрешено сохранять отображения отчета:"
+            employees={employees}
             selectedIds={draftSettings.viewSaverUserIds}
             onChange={(values) => updateField('viewSaverUserIds', values)}
           />

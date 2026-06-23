@@ -1970,7 +1970,7 @@ button {
   z-index: 5000;
   display: grid;
   place-items: center;
-  padding: 20px;
+  padding: clamp(10px, 2vw, 20px);
   background: rgba(21, 27, 38, 0.2);
   backdrop-filter: blur(6px);
 }
@@ -2027,11 +2027,13 @@ button {
 .instruction-modal-panel,
 .app-settings-modal-panel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   width: min(92vw, 1120px);
   height: min(88vh, 820px);
-  max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 32px);
+  max-width: calc(100vw - clamp(20px, 4vw, 32px));
+  max-height: calc(100vh - clamp(20px, 4vw, 32px));
+  min-width: 0;
+  min-height: 0;
 }
 
 .instruction-modal-panel {
@@ -2040,14 +2042,14 @@ button {
 
 .instruction-content {
   display: grid;
-  grid-template-columns: 230px minmax(0, 1fr);
-  gap: 24px;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  gap: 18px;
   min-height: 0;
   overflow: auto;
   color: #111827;
-  font-size: 16px;
-  line-height: 1.58;
-  padding: 0 4px 24px 0;
+  font-size: 15px;
+  line-height: 1.5;
+  padding: 0 4px 18px 0;
   scroll-behavior: smooth;
 }
 
@@ -2057,16 +2059,20 @@ button {
   display: grid;
   align-self: start;
   gap: 6px;
+  max-height: calc(88vh - 130px);
+  overflow: auto;
   border: 1px solid #e6e9ee;
   border-radius: 16px;
   background: #ffffff;
-  padding: 10px;
+  padding: 8px;
 }
 
 .instruction-nav a {
   border-radius: 10px;
   color: #334155;
-  padding: 7px 9px;
+  padding: 6px 8px;
+  font-size: 13px;
+  line-height: 1.25;
   text-decoration: none;
 }
 
@@ -2079,23 +2085,25 @@ button {
 .instruction-section {
   display: grid;
   grid-column: 2;
-  gap: 12px;
+  gap: 9px;
   border-bottom: 1px solid #eef0f3;
-  padding: 0 0 24px;
+  padding: 0 0 18px;
 }
 
 .instruction-section h2 {
   margin: 0;
   color: #111827;
-  font-size: 24px;
+  font-size: 21px;
   font-weight: 500;
+  line-height: 1.25;
 }
 
 .instruction-section h3 {
-  margin: 10px 0 0;
+  margin: 6px 0 0;
   color: #111827;
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 500;
+  line-height: 1.3;
 }
 
 .instruction-section p,
@@ -2110,11 +2118,11 @@ button {
 .instruction-demo {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   border: 1px solid #e1e6ee;
   border-radius: 16px;
   background: #fbfcfe;
-  padding: 14px;
+  padding: 12px;
 }
 
 .demo-toolbar {
@@ -2127,13 +2135,15 @@ button {
 .demo-check,
 .demo-menu-item {
   display: inline-flex;
-  min-height: 34px;
+  min-height: 32px;
   align-items: center;
+  min-width: 0;
   border: 1px solid #e1e6ee;
   border-radius: 12px;
   background: #ffffff;
   color: #2b3038;
-  padding: 0 12px;
+  padding: 0 10px;
+  overflow-wrap: anywhere;
 }
 
 .demo-button.demo-blue {
@@ -2287,22 +2297,26 @@ button {
 }
 
 .app-settings-modal-panel {
-  width: min(75vw, 980px);
-  height: min(75vh, 720px);
-  overflow: visible;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  width: min(760px, 92vw);
+  height: auto;
+  max-height: min(720px, calc(100vh - clamp(20px, 4vw, 32px)));
+  overflow: hidden;
 }
 
 .modal-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 18px;
+  min-width: 0;
+  margin-bottom: 14px;
 }
 
 .modal-head p {
   margin: 0;
   color: #22262d;
+  line-height: 1.25;
 }
 
 .modal-head span {
@@ -2310,11 +2324,14 @@ button {
   margin-top: 5px;
   color: #69707d;
   font-size: 13px;
+  line-height: 1.4;
 }
 
 .modal-text {
-  margin: 0 0 16px;
+  margin: 0 0 12px;
   color: #4b5563;
+  font-size: 14px;
+  line-height: 1.45;
 }
 
 .pro-inline-link {
@@ -2328,10 +2345,11 @@ button {
 
 .app-settings-fields {
   display: grid;
-  gap: 14px;
+  gap: 12px;
   align-content: start;
   min-height: 0;
-  overflow: visible;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .field-label {
@@ -2357,14 +2375,16 @@ button {
 .employee-multi-field {
   position: relative;
   display: grid;
-  gap: 7px;
+  gap: 6px;
   color: #4b5563;
   font-size: 13px;
+  min-width: 0;
+  line-height: 1.35;
 }
 
 .employee-multi-trigger {
   display: flex;
-  min-height: 44px;
+  min-height: 40px;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
@@ -2384,7 +2404,7 @@ button {
 }
 
 .employee-chip {
-  max-width: 180px;
+  max-width: min(220px, 100%);
   overflow: hidden;
   border: 1px solid #dbeafe;
   border-radius: 999px;
@@ -2405,7 +2425,7 @@ button {
   left: 0;
   z-index: 5800;
   display: grid;
-  width: min(420px, 100%);
+  width: min(420px, calc(100vw - 48px));
   max-height: min(320px, calc(100vh - 120px));
   grid-template-rows: auto minmax(0, 1fr);
   gap: 8px;
@@ -2456,11 +2476,20 @@ button {
   accent-color: var(--blue);
 }
 
+.employee-multi-empty {
+  border-radius: 10px;
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 10px 8px;
+}
+
 .modal-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 18px;
+  margin-top: 14px;
 }
 
 .primary-button,
@@ -2772,6 +2801,8 @@ button {
 
   .instruction-content {
     grid-template-columns: 1fr;
+    gap: 14px;
+    padding-right: 0;
   }
 
   .instruction-nav,
@@ -2781,10 +2812,36 @@ button {
 
   .instruction-nav {
     position: static;
+    display: flex;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px;
+  }
+
+  .instruction-nav a {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .instruction-section {
+    padding-bottom: 16px;
+  }
+
+  .instruction-section h2 {
+    font-size: 19px;
+  }
+
+  .demo-card {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
 
   .demo-thresholds {
     grid-template-columns: 1fr;
+  }
+
+  .app-settings-modal-panel {
+    width: min(640px, calc(100vw - 24px));
   }
 
   .threshold-editor-grid {
@@ -2828,6 +2885,71 @@ button {
 
   .date-fields {
     grid-template-columns: 1fr;
+  }
+
+  .modal-layer {
+    padding: 8px;
+  }
+
+  .modal-panel {
+    border-radius: 16px;
+    padding: 14px;
+  }
+
+  .instruction-modal-panel,
+  .app-settings-modal-panel {
+    width: calc(100vw - 16px);
+    height: calc(100vh - 16px);
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+  }
+
+  .instruction-content {
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  .instruction-section {
+    gap: 8px;
+  }
+
+  .instruction-section h2 {
+    font-size: 18px;
+  }
+
+  .instruction-demo {
+    padding: 10px;
+  }
+
+  .demo-table-row {
+    grid-template-columns: 1fr;
+  }
+
+  .demo-table-row button {
+    justify-self: start;
+  }
+
+  .app-settings-modal-panel {
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+  }
+
+  .modal-head {
+    margin-bottom: 10px;
+  }
+
+  .modal-actions {
+    justify-content: stretch;
+  }
+
+  .modal-actions button {
+    flex: 1 1 140px;
+  }
+
+  .employee-multi-popover {
+    right: auto;
+    left: 0;
+    width: 100%;
+    max-height: min(340px, calc(100vh - 96px));
   }
 
   .chart-left,

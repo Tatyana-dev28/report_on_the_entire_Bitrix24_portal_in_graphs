@@ -16,23 +16,32 @@ from apps.bitrix.services.install import (
 
 def parse_bitrix_request_payload(request: HttpRequest) -> dict:
     """
-    Достает payload из POST/GET/JSON.
-    Bitrix24 может отправлять данные как form-data, query params или JSON.
+    Достает payload из query params, POST form-data и JSON body.
+
+    Bitrix24 при установке может отправить POST на URL вида:
+    /bitrix/install/?DOMAIN=...&PROTOCOL=...&LANG=...&APP_SID=...
+
+    Поэтому query params нужно читать всегда, не только для GET.
     """
 
     payload = {}
 
+    # Query params нужны и для GET, и для POST.
+    payload.update(request.GET.dict())
+
     if request.method == "POST":
         payload.update(request.POST.dict())
 
-        if not payload and request.body:
-            try:
-                payload.update(json.loads(request.body.decode("utf-8")))
-            except json.JSONDecodeError:
-                pass
+        content_type = str(request.headers.get("Content-Type", "")).lower()
 
-    if request.method == "GET":
-        payload.update(request.GET.dict())
+        if "application/json" in content_type and request.body:
+            try:
+                body_payload = json.loads(request.body.decode("utf-8"))
+            except json.JSONDecodeError:
+                body_payload = {}
+
+            if isinstance(body_payload, dict):
+                payload.update(body_payload)
 
     return payload
 
@@ -216,3 +225,4 @@ def bitrix_app_view(request: HttpRequest):
             mode="app",
         )
     )
+

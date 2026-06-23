@@ -1,4 +1,5 @@
 import json
+import os
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -107,7 +108,9 @@ def build_frontend_redirect_url(*, portal, mode: str) -> str:
     frontend_url = (
         getattr(settings, "FRONTEND_URL", "")
         or getattr(settings, "BITRIX_FRONTEND_URL", "")
-        or "http://127.0.0.1:5173"
+        or os.environ.get("FRONTEND_URL", "")
+        or os.environ.get("BITRIX_FRONTEND_URL", "")
+        or "https://portal-analytics.sappapp1b24.ru"
     ).rstrip("/")
 
     query = {
@@ -225,4 +228,3 @@ def bitrix_app_view(request: HttpRequest):
             mode="app",
         )
     )
-

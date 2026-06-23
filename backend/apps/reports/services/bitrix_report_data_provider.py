@@ -472,7 +472,7 @@ def resolve_metric_catalog(selected_metric_ids: list[str] | None) -> list[dict]:
 
     if unknown_values:
         raise ReportPreviewSessionError(
-            "Р’С‹Р±СЂР°РЅРЅС‹Рµ РјРµС‚СЂРёРєРё РЅРµ РЅР°Р№РґРµРЅС‹ РІ РєР°С‚Р°Р»РѕРіРµ РѕС‚С‡РµС‚Р°.",
+            "Выбранные метрики не найдены в каталоге отчета.",
             status=400,
             details={"selectedMetricIds": selected_metric_ids, "unknownMetricIds": unknown_values},
         )
@@ -483,7 +483,7 @@ def resolve_metric_catalog(selected_metric_ids: list[str] | None) -> list[dict]:
         return result
 
     raise ReportPreviewSessionError(
-        "Р’С‹Р±СЂР°РЅРЅС‹Рµ РјРµС‚СЂРёРєРё РЅРµ РЅР°Р№РґРµРЅС‹ РІ РєР°С‚Р°Р»РѕРіРµ РѕС‚С‡РµС‚Р°.",
+        "Выбранные метрики не найдены в каталоге отчета.",
         status=400,
         details={"selectedMetricIds": selected_metric_ids},
     )

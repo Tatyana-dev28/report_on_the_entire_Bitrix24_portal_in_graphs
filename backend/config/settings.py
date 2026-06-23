@@ -46,6 +46,18 @@ def get_list_env(name: str, default: str = "") -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def get_int_env(name: str, default: int) -> int:
+    value = os.environ.get(name)
+
+    if value is None or value == "":
+        return default
+
+    try:
+        return int(value)
+    except ValueError as error:
+        raise ImproperlyConfigured(f"{name} must be an integer.") from error
+
+
 SECRET_KEY = get_env("SECRET_KEY", required=True)
 FIELD_ENCRYPTION_KEY = get_env("FIELD_ENCRYPTION_KEY", required=True)
 FIELD_HASH_SECRET = get_env("FIELD_HASH_SECRET", required=True)
@@ -57,10 +69,29 @@ ALLOWED_HOSTS = get_list_env(
     default="127.0.0.1,localhost",
 )
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
+CORS_ALLOWED_ORIGINS = get_list_env(
+    "CORS_ALLOWED_ORIGINS",
+    default="http://localhost:5173,http://127.0.0.1:5173",
+)
+
+CSRF_TRUSTED_ORIGINS = get_list_env("CSRF_TRUSTED_ORIGINS")
+
+USE_X_FORWARDED_HOST = get_bool_env("USE_X_FORWARDED_HOST", default=False)
+
+if get_bool_env("SECURE_PROXY_SSL_HEADER", default=False):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+SECURE_SSL_REDIRECT = get_bool_env("SECURE_SSL_REDIRECT", default=False)
+SECURE_HSTS_SECONDS = get_int_env("SECURE_HSTS_SECONDS", default=0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = get_bool_env(
+    "SECURE_HSTS_INCLUDE_SUBDOMAINS",
+    default=False,
+)
+SECURE_HSTS_PRELOAD = get_bool_env("SECURE_HSTS_PRELOAD", default=False)
+SESSION_COOKIE_SECURE = get_bool_env("SESSION_COOKIE_SECURE", default=False)
+CSRF_COOKIE_SECURE = get_bool_env("CSRF_COOKIE_SECURE", default=False)
+X_FRAME_OPTIONS = get_env("X_FRAME_OPTIONS", default="DENY")
+ALLOW_IFRAME_EMBED = get_bool_env("ALLOW_IFRAME_EMBED", default=False)
 
 CORS_ALLOWED_METHODS = [
     "GET",
@@ -108,6 +139,9 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+if ALLOW_IFRAME_EMBED:
+    MIDDLEWARE.remove('django.middleware.clickjacking.XFrameOptionsMiddleware')
+
 ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [
@@ -132,18 +166,6 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 DATABASE_ENGINE = get_env("DATABASE_ENGINE", default="sqlite").lower()
-
-
-def get_int_env(name: str, default: int) -> int:
-    value = os.environ.get(name)
-
-    if value is None or value == "":
-        return default
-
-    try:
-        return int(value)
-    except ValueError as error:
-        raise ImproperlyConfigured(f"{name} must be an integer.") from error
 
 
 if DATABASE_ENGINE in ("mysql", "percona"):
@@ -212,7 +234,11 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = get_env("STATIC_URL", default="/static/")
+STATIC_ROOT = BASE_DIR / get_env("STATIC_ROOT", default="staticfiles")
+
+MEDIA_URL = get_env("MEDIA_URL", default="/media/")
+MEDIA_ROOT = BASE_DIR / get_env("MEDIA_ROOT", default="media")
 
 
 CACHE_BACKEND = get_env("CACHE_BACKEND", default="locmem").lower()

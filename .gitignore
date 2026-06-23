@@ -24,6 +24,13 @@ frontend/dist/
 .env
 .env.local
 .env.*.local
+backend/.env
+backend/.env.local
+backend/.env.*.local
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+frontend/.env.*.local
 
 # Logs
 *.log
@@ -32,3 +39,7 @@ frontend/dist/
 # IDE
 .vscode/
 .idea/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -164,11 +164,9 @@ export function ProVersionModal({ onClose }: { onClose: () => void }) {
 }
 
 export function InstructionModal({ onClose }: { onClose: () => void }) {
-  const panelRef = useOutsideClose<HTMLDivElement>(true, onClose);
-
   return (
     <div className="modal-layer instruction-modal-layer" role="presentation">
-      <div className="modal-panel instruction-modal-panel" role="dialog" aria-modal="true" ref={panelRef}>
+      <div className="modal-panel instruction-modal-panel" role="dialog" aria-modal="true">
         <div className="modal-head">
           <p>Инструкция</p>
           <button className="icon-button" type="button" aria-label="Закрыть окно" onClick={onClose}>
@@ -495,7 +493,6 @@ export function AppSettingsModal({
     moneyViewerUserIds: [...settings.moneyViewerUserIds],
     viewSaverUserIds: [...settings.viewSaverUserIds],
   }));
-  const panelRef = useOutsideClose<HTMLDivElement>(true, onClose);
 
   const updateField = (field: keyof AppSettings, values: string[]) => {
     setDraftSettings((current) => ({
@@ -506,7 +503,7 @@ export function AppSettingsModal({
 
   return (
     <div className="modal-layer app-settings-modal-layer" role="presentation">
-      <div className="modal-panel app-settings-modal-panel" role="dialog" aria-modal="true" ref={panelRef}>
+      <div className="modal-panel app-settings-modal-panel" role="dialog" aria-modal="true">
         <div className="modal-head">
           <div>
             <p>Настройки приложения</p>

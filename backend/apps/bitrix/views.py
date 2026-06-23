@@ -1,6 +1,9 @@
 import json
+from urllib.parse import urlencode
 
+from django.conf import settings
 from django.http import HttpRequest, JsonResponse
+from django.shortcuts import redirect
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
@@ -14,9 +17,7 @@ from apps.bitrix.services.install import (
 def parse_bitrix_request_payload(request: HttpRequest) -> dict:
     """
     Достает payload из POST/GET/JSON.
-
-    Сейчас возвращаем JSON для проверки backend-логики.
-    React-интерфейс подключим следующим шагом.
+    Bitrix24 может отправлять данные как form-data, query params или JSON.
     """
 
     payload = {}
@@ -70,20 +71,61 @@ def build_safe_bootstrap(portal) -> dict:
     }
 
 
+def should_return_json(request: HttpRequest) -> bool:
+    """
+    Для локальных smoke-тестов и backend-тестов оставляем JSON-режим.
+
+    В Bitrix24 iframe обычный сценарий — redirect на frontend.
+    """
+
+    requested_format = str(request.GET.get("format", "")).lower()
+    accept_header = str(request.headers.get("Accept", "")).lower()
+
+    return (
+        requested_format == "json"
+        or "application/json" in accept_header
+        or request.GET.get("debug") == "1"
+    )
+
+
+def build_frontend_redirect_url(*, portal, mode: str) -> str:
+    """
+    Собирает URL frontend-приложения после установки/открытия из Bitrix24.
+
+    Frontend забирает memberId/domain/bitrixUserId из URL и дальше ходит в backend API.
+    """
+
+    frontend_url = (
+        getattr(settings, "FRONTEND_URL", "")
+        or getattr(settings, "BITRIX_FRONTEND_URL", "")
+        or "http://127.0.0.1:5173"
+    ).rstrip("/")
+
+    query = {
+        "mode": mode,
+        "memberId": portal.member_id,
+        "domain": portal.domain,
+        "bitrixUserId": portal.installed_by_user_id or "",
+    }
+
+    return f"{frontend_url}/?{urlencode(query)}"
+
+
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def bitrix_install_view(request: HttpRequest):
     """
     Endpoint установки приложения Bitrix24.
 
-    Сейчас:
+    Делает backend-часть:
     - принимает данные Bitrix24;
     - создает/обновляет портал;
     - сохраняет токены;
-    - создает Free-подписку и PortalAccess;
-    - возвращает безопасный JSON.
+    - создает Free-подписку и PortalAccess.
 
-    Позже этот endpoint будет отдавать React install route.
+    После этого:
+    - для обычного Bitrix24 iframe редиректит на frontend;
+    - для тестов/debug может вернуть безопасный JSON.
     """
 
     payload = parse_bitrix_request_payload(request)
@@ -102,12 +144,24 @@ def bitrix_install_view(request: HttpRequest):
             status=400,
         )
 
-    return JsonResponse(
-        {
-            "ok": True,
-            "mode": "install",
-            "bootstrap": build_safe_bootstrap(portal),
-        }
+    if should_return_json(request):
+        return JsonResponse(
+            {
+                "ok": True,
+                "mode": "install",
+                "redirectUrl": build_frontend_redirect_url(
+                    portal=portal,
+                    mode="install",
+                ),
+                "bootstrap": build_safe_bootstrap(portal),
+            }
+        )
+
+    return redirect(
+        build_frontend_redirect_url(
+            portal=portal,
+            mode="install",
+        )
     )
 
 
@@ -115,14 +169,16 @@ def bitrix_install_view(request: HttpRequest):
 @require_http_methods(["GET", "POST"])
 def bitrix_app_view(request: HttpRequest):
     """
-    Endpoint открытия приложения из левого меню Bitrix24.
+    Endpoint открытия приложения из Bitrix24.
 
-    Сейчас:
+    Делает backend-часть:
     - принимает данные Bitrix24;
     - обновляет портал/токены/last_opened_at;
-    - возвращает безопасный JSON.
+    - не отдает токены наружу.
 
-    Позже этот endpoint будет отдавать React app route.
+    После этого:
+    - для обычного Bitrix24 iframe редиректит на frontend;
+    - для тестов/debug может вернуть безопасный JSON.
     """
 
     payload = parse_bitrix_request_payload(request)
@@ -141,10 +197,22 @@ def bitrix_app_view(request: HttpRequest):
             status=400,
         )
 
-    return JsonResponse(
-        {
-            "ok": True,
-            "mode": "app",
-            "bootstrap": build_safe_bootstrap(portal),
-        }
+    if should_return_json(request):
+        return JsonResponse(
+            {
+                "ok": True,
+                "mode": "app",
+                "redirectUrl": build_frontend_redirect_url(
+                    portal=portal,
+                    mode="app",
+                ),
+                "bootstrap": build_safe_bootstrap(portal),
+            }
+        )
+
+    return redirect(
+        build_frontend_redirect_url(
+            portal=portal,
+            mode="app",
+        )
     )

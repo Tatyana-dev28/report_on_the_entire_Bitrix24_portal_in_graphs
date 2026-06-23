@@ -131,9 +131,10 @@ class BitrixOAuthInstallTests(TestCase):
         self.assertEqual(token.get_refresh_token(), "first-refresh-token")
 
     @patch("apps.bitrix.services.install.ensure_free_subscription_and_access")
-    def test_install_endpoint_returns_safe_bootstrap(self, _ensure_access):
+    @override_settings(FRONTEND_URL="https://app.example.com")
+    def test_install_endpoint_returns_safe_bootstrap_in_json_mode(self, _ensure_access):
         response = self.client.post(
-            "/bitrix/install/",
+            "/bitrix/install/?format=json",
             data={
                 "DOMAIN": "demo.bitrix24.ru",
                 "member_id": "member-123",
@@ -154,8 +155,67 @@ class BitrixOAuthInstallTests(TestCase):
         self.assertEqual(payload["mode"], "install")
         self.assertEqual(payload["bootstrap"]["portal"]["domain"], "demo.bitrix24.ru")
         self.assertEqual(payload["bootstrap"]["portal"]["member_id"], "member-123")
+        self.assertIn("redirectUrl", payload)
+        self.assertIn("https://app.example.com/", payload["redirectUrl"])
+        self.assertIn("mode=install", payload["redirectUrl"])
+        self.assertIn("memberId=member-123", payload["redirectUrl"])
+        self.assertIn("domain=demo.bitrix24.ru", payload["redirectUrl"])
         self.assertNotIn("access_token", str(payload))
         self.assertNotIn("refresh_token", str(payload))
+
+    @patch("apps.bitrix.services.install.ensure_free_subscription_and_access")
+    @override_settings(FRONTEND_URL="https://app.example.com")
+    def test_install_endpoint_redirects_to_frontend_by_default(self, _ensure_access):
+        response = self.client.post(
+            "/bitrix/install/",
+            data={
+                "DOMAIN": "demo.bitrix24.ru",
+                "member_id": "member-123",
+                "AUTH_ID": "access-token",
+                "REFRESH_ID": "refresh-token",
+                "AUTH_EXPIRES": "3600",
+                "USER_ID": "42",
+                "USER_NAME": "Анна Иванова",
+                "SCOPE": "crm,user",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+
+        location = response.headers["Location"]
+
+        self.assertIn("https://app.example.com/", location)
+        self.assertIn("mode=install", location)
+        self.assertIn("memberId=member-123", location)
+        self.assertIn("domain=demo.bitrix24.ru", location)
+        self.assertIn("bitrixUserId=42", location)
+
+    @patch("apps.bitrix.services.install.ensure_free_subscription_and_access")
+    @override_settings(FRONTEND_URL="https://app.example.com")
+    def test_app_endpoint_redirects_to_frontend_by_default(self, _ensure_access):
+        response = self.client.post(
+            "/bitrix/app/",
+            data={
+                "DOMAIN": "demo.bitrix24.ru",
+                "member_id": "member-123",
+                "AUTH_ID": "access-token",
+                "REFRESH_ID": "refresh-token",
+                "AUTH_EXPIRES": "3600",
+                "USER_ID": "42",
+                "USER_NAME": "Анна Иванова",
+                "SCOPE": "crm,user",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+
+        location = response.headers["Location"]
+
+        self.assertIn("https://app.example.com/", location)
+        self.assertIn("mode=app", location)
+        self.assertIn("memberId=member-123", location)
+        self.assertIn("domain=demo.bitrix24.ru", location)
+        self.assertIn("bitrixUserId=42", location)
 
 
 class BitrixRestClientRefreshTests(TestCase):

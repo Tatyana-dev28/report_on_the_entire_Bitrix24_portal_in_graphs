@@ -14,9 +14,11 @@ export function useOutsideClose<T extends HTMLElement>(
   open: boolean,
   onClose: () => void,
   extraRefs: Array<RefObject<HTMLElement | null>> = [],
+  options: { closeOnScroll?: boolean } = {},
 ) {
   const ref = useRef<T>(null);
   const extraRefsRef = useRef(extraRefs);
+  const closeOnScroll = options.closeOnScroll ?? true;
 
   extraRefsRef.current = extraRefs;
 
@@ -53,13 +55,17 @@ export function useOutsideClose<T extends HTMLElement>(
     };
 
     document.addEventListener('pointerdown', handlePointerDown);
-    window.addEventListener('scroll', handleScroll, true);
+    if (closeOnScroll) {
+      window.addEventListener('scroll', handleScroll, true);
+    }
 
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown);
-      window.removeEventListener('scroll', handleScroll, true);
+      if (closeOnScroll) {
+        window.removeEventListener('scroll', handleScroll, true);
+      }
     };
-  }, [open, onClose]);
+  }, [closeOnScroll, open, onClose]);
 
   return ref;
 }

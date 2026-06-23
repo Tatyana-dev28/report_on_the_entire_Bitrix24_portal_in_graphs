@@ -133,8 +133,6 @@ export function FreeSaveLimitModal({
 }
 
 export function ProVersionModal({ onClose }: { onClose: () => void }) {
-  const panelRef = useOutsideClose<HTMLDivElement>(true, onClose);
-
   return (
     <div className="modal-layer pro-modal-layer" role="presentation">
       <div
@@ -142,21 +140,73 @@ export function ProVersionModal({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="pro-modal-title"
-        ref={panelRef}
       >
         <div className="modal-head">
-          <p id="pro-modal-title">ПРО версия</p>
+          <div>
+            <p id="pro-modal-title">ПРО версия</p>
+            <span>Месячная подписка для команд, которым нужно сохранять настройки и работать с доступами.</span>
+          </div>
           <button className="icon-button" type="button" aria-label="Закрыть окно" onClick={onClose}>
             <X size={18} />
           </button>
         </div>
         <div className="pro-modal-body">
-          <p>Здесь будет описание тарифа, возможностей и подключение оплаты.</p>
-          <p>ПРО версия позволяет:</p>
-          <ol>
-            <li>Сохранять множество вариантов отображений отчета.</li>
-            <li>Дать права сотрудникам к различным показателям отчета.</li>
-          </ol>
+          <div className="pro-modal-intro">
+            <span className="pro-badge">
+              <Crown size={15} />
+              Доступ для портала
+            </span>
+            <p>
+              Сейчас приложение работает по простой логике: при установке портал получает бесплатный доступ,
+              а расширенные возможности включаются через месячную ПРО подписку.
+            </p>
+          </div>
+
+          <div className="pro-plan-grid">
+            <section className="pro-plan-card">
+              <div className="pro-plan-head">
+                <span>Текущий стартовый доступ</span>
+                <h3>Бесплатно</h3>
+                <p>Подходит, чтобы построить отчет и проверить работу приложения на реальных данных.</p>
+              </div>
+              <ul>
+                <li>Построение отчета по данным Bitrix24.</li>
+                <li>Просмотр графиков, таблицы сотрудников и детализации.</li>
+                <li>Экспорт отчета в Excel и PDF.</li>
+                <li>Без сохранения нескольких отображений и расширенных настроек доступа.</li>
+              </ul>
+            </section>
+
+            <section className="pro-plan-card is-featured">
+              <div className="pro-plan-head">
+                <span>Расширенный доступ</span>
+                <h3>ПРО на месяц</h3>
+                <p>Для регулярной работы команды с сохраненными настройками отчета.</p>
+              </div>
+              <ul>
+                <li>Сохранение нескольких отображений отчета.</li>
+                <li>Сохранение настроек и фильтров для сотрудников портала.</li>
+                <li>Настройка прав: кто строит отчеты, видит деньги и сохраняет отображения.</li>
+                <li>Месячный срок доступа с управлением через админку.</li>
+              </ul>
+            </section>
+          </div>
+
+          <div className="pro-admin-note">
+            <p>Подписка подключается на весь портал.</p>
+            <span>
+              После подключения команда сможет пользоваться расширенными настройками без повторной настройки отчета.
+            </span>
+          </div>
+
+          <div className="pro-modal-actions">
+            <button className="secondary-button" type="button" onClick={onClose}>
+              Не сейчас
+            </button>
+            <button className="primary-button" type="button" disabled>
+              Подключить подписку
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -387,7 +437,7 @@ export function EmployeeMultiSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false));
+  const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [], { closeOnScroll: false });
   const selectedEmployees = employees.filter((employee) => selectedIds.includes(employee.id));
   const selectedUnknownIds = selectedIds.filter(
     (employeeId) => !employees.some((employee) => employee.id === employeeId),

@@ -1,4 +1,5 @@
-﻿import { defaultDateRange, metricSections, type DateRange } from '../services/report/reportCatalog';
+import { defaultDateRange, metricSections, type DateRange } from '../services/report/reportCatalog';
+
 import type {
   AppSettings,
   ChartDisplayMode,
@@ -15,6 +16,7 @@ export const PERIOD_COLUMN_WIDTH = 96;
 export const MIN_PERIOD_COLUMN_WIDTH = 36;
 export const MAX_PERIOD_COLUMN_WIDTH = 136;
 export const CHART_AXIS_WIDTH = 72;
+
 export const MONTH_LABELS = [
   'Январь',
   'Февраль',
@@ -31,7 +33,9 @@ export const MONTH_LABELS = [
 ];
 
 export const LAST_AVAILABLE_MONTH_INDEX = 2026 * 12 + 5;
+
 export const isProUser = false;
+
 export const buttonLabels = {
   build: 'Построить отчет',
   download: 'Скачать Excel',
@@ -61,7 +65,15 @@ export const weekDayOptions = [
   { id: 6, label: 'Вс' },
 ];
 
-export const chartSeriesColors = ['#2274ff', '#34a853', '#ff9f0a', '#af52de', '#ff375f', '#00a7c7', '#6e6e73'];
+export const chartSeriesColors = [
+  '#2274ff',
+  '#34a853',
+  '#ff9f0a',
+  '#af52de',
+  '#ff375f',
+  '#00a7c7',
+  '#6e6e73',
+];
 
 export const defaultSchedule: ScheduleFilters = {
   workdayStart: '',
@@ -70,7 +82,11 @@ export const defaultSchedule: ScheduleFilters = {
   calendarWeekStart: 0,
 };
 
-export const detailColumns: Array<{ key: DetailColumnKey; label: string; minWidth: number }> = [
+export const detailColumns: Array<{
+  key: DetailColumnKey;
+  label: string;
+  minWidth: number;
+}> = [
   { key: 'rowNumber', label: '№', minWidth: 60 },
   { key: 'entityId', label: 'ID', minWidth: 90 },
   { key: 'title', label: 'Название', minWidth: 220 },
@@ -102,12 +118,18 @@ export const defaultAppSettings: AppSettings = {
   viewSaverUserIds: [],
 };
 
-export const detailColumnMinWidths = detailColumns.reduce<Record<DetailColumnKey, number>>((acc, column) => {
-  acc[column.key] = column.minWidth;
-  return acc;
-}, {} as Record<DetailColumnKey, number>);
+export const detailColumnMinWidths = detailColumns.reduce<Record<DetailColumnKey, number>>(
+  (acc, column) => {
+    acc[column.key] = column.minWidth;
+    return acc;
+  },
+  {} as Record<DetailColumnKey, number>,
+);
 
-export const detailColumnMinWidthSum = detailColumns.reduce((sum, column) => sum + column.minWidth, 0);
+export const detailColumnMinWidthSum = detailColumns.reduce(
+  (sum, column) => sum + column.minWidth,
+  0,
+);
 
 export const createDefaultSchedule = (): ScheduleFilters => ({
   ...defaultSchedule,
@@ -116,8 +138,8 @@ export const createDefaultSchedule = (): ScheduleFilters => ({
 
 export const createDefaultFilters = (): ReportFilters => ({
   period: 'days',
-  dateRange: defaultDateRange,
-  selectedSources: ['deal-sales'],
+  dateRange: defaultDateRange as DateRange,
+  selectedSources: [],
   chartDisplayMode: 'sum',
   metricMode: 'money',
   schedule: createDefaultSchedule(),
@@ -143,5 +165,3 @@ export const deserializeFilters = (filters: SerializableReportFilters): ReportFi
   },
   enabledSectionIds: new Set(filters.enabledSectionIds),
 });
-
-

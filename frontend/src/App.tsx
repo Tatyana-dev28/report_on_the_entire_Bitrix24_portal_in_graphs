@@ -266,6 +266,9 @@ const buildBackendDetailRows = (
       };
     });
 
+const areStringArraysEqual = (first: string[], second: string[]) =>
+  first.length === second.length && first.every((value, index) => value === second[index]);
+
 function App() {
   const [savedViews, setSavedViews] = useState<SavedReportViewOption[]>(() => loadSavedViews());
   const [selectedView, setSelectedView] = useState('default');
@@ -433,10 +436,16 @@ function App() {
     }
 
     let isActive = true;
+
     const selectedMetricIds = metricSections.flatMap((section) => {
-      const enabledMetricIds = enabledMetricIdsBySection[section.id] ?? new Set(section.metricIds);
-      return section.metricIds.filter((metricId) => enabledMetricIds.has(metricId));
+      if (!appliedFilters.enabledSectionIds.has(section.id)) {
+        return [];
+    }
+
+    const enabledMetricIds = enabledMetricIdsBySection[section.id] ?? new Set(section.metricIds);
+    return section.metricIds.filter((metricId) => enabledMetricIds.has(metricId));
     });
+    
     const filters: ReportLoadFilters = {
       period: appliedFilters.period,
       dateRange: appliedFilters.dateRange,
@@ -486,6 +495,7 @@ function App() {
     appliedFilters.metricMode,
     appliedFilters.period,
     appliedFilters.selectedSources,
+    appliedFilters.enabledSectionIds,
     buildMoment,
     enabledMetricIdsBySection,
     hasBuiltReport,
@@ -519,31 +529,58 @@ function App() {
     [crmSourceOptions],
   );
 
+  const normalizeSelectedSources = useCallback(
+    (sources: string[]) => {
+      if (!crmSourceIds.length) {
+        return sources;
+      }
+
+      const allowedSourceIds = new Set(crmSourceIds);
+      const selectedSources = sources.filter((source) => allowedSourceIds.has(source));
+
+      return selectedSources.length ? selectedSources : [crmSourceIds[0]];
+    },
+    [crmSourceIds],
+  );
+
   useEffect(() => {
     if (!crmSourceIds.length) {
       return;
     }
 
     setDraftFilters((current) => {
-      const selectedSources = current.selectedSources.filter((source) =>
-        crmSourceIds.includes(source),
-      );
+      const selectedSources = normalizeSelectedSources(current.selectedSources);
 
-      if (selectedSources.length) {
+      if (areStringArraysEqual(selectedSources, current.selectedSources)) {
         return current;
       }
 
       return {
         ...current,
-        selectedSources: [crmSourceIds[0]],
+        selectedSources,
       };
     });
-  }, [crmSourceIds]);
+
+    setAppliedFilters((current) => {
+      const selectedSources = normalizeSelectedSources(current.selectedSources);
+
+      if (areStringArraysEqual(selectedSources, current.selectedSources)) {
+        return current;
+      }
+
+      return {
+        ...current,
+        selectedSources,
+      };
+    });
+  }, [crmSourceIds, normalizeSelectedSources]);
   const selectedChartSources = useMemo(
     () =>
       appliedFilters.selectedSources.length
         ? appliedFilters.selectedSources
-        : [crmSourceIds[0] ?? 'deal-sales'],
+        : crmSourceIds[0]
+          ? [crmSourceIds[0]]
+          : [],
     [appliedFilters.selectedSources, crmSourceIds],
   );
   const selectedChartSourceLabels = useMemo(
@@ -696,9 +733,13 @@ function App() {
         .filter((section): section is (typeof metricSections)[number] => Boolean(section)),
     [sectionMap, sectionOrder],
   );
+  const visibleSectionIds = hasBuiltReport
+    ? appliedFilters.enabledSectionIds
+    : draftFilters.enabledSectionIds;
+
   const visibleSections = useMemo(
-    () => orderedSections.filter((section) => draftFilters.enabledSectionIds.has(section.id)),
-    [draftFilters.enabledSectionIds, orderedSections],
+    () => orderedSections.filter((section) => visibleSectionIds.has(section.id)),
+    [orderedSections, visibleSectionIds],
   );
   const availableEmployees = useMemo<ReportEmployee[]>(
     () => reportEmployees,
@@ -1143,11 +1184,17 @@ function App() {
   }, []);
 
   const buildReport = useCallback(() => {
+    const selectedSources = normalizeSelectedSources(draftFilters.selectedSources);
+
     setHasBuiltReport(true);
+    setDraftFilters((current) => ({
+      ...current,
+      selectedSources,
+    }));
     setAppliedFilters({
       period: draftFilters.period,
       dateRange: draftFilters.dateRange,
-      selectedSources: [...draftFilters.selectedSources],
+      selectedSources,
       chartDisplayMode: draftFilters.chartDisplayMode,
       metricMode: draftFilters.metricMode,
       schedule: {
@@ -1157,7 +1204,7 @@ function App() {
       enabledSectionIds: new Set(draftFilters.enabledSectionIds),
     });
     setBuildMoment(Date.now());
-  }, [draftFilters]);
+  }, [draftFilters, normalizeSelectedSources]);
 
   const openDetail = useCallback((
     metric: MetricRow,

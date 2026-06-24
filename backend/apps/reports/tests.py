@@ -96,6 +96,51 @@ class ReportPreviewApiTests(TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"], "Некорректный период отчета.")
 
+    @patch("apps.reports.services.builders.enqueue_report_build", return_value="test-job")
+    def test_preview_queues_large_activity_report(self, _enqueue_report_build):
+        response = self.client.post(
+            reverse("reports:preview"),
+            data=json.dumps(
+                {
+                    "memberId": self.portal.member_id,
+                    "bitrixUserId": "42",
+                    "period": "months",
+                    "dateRange": {"start": "2020-01-01", "end": "2026-05-31"},
+                    "selectedSources": ["activity-default"],
+                    "selectedMetricIds": ["activities_created"],
+                    "metricMode": "count",
+                    "chartDisplayMode": "sum",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        payload = response.json()
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["status"], "queued")
+        self.assertEqual(payload["data"], [])
+        self.assertEqual(payload["employees"], [])
+        self.assertEqual(payload["details"], [])
+
+        session = ReportSession.objects.get(session_key=payload["sessionKey"])
+        build = ReportBuild.objects.get(session=session)
+
+        self.assertEqual(session.cache_key, "")
+        self.assertEqual(session.metadata["calculation"], "queued")
+        self.assertEqual(build.status, ReportBuild.Status.PENDING)
+        self.assertEqual(build.celery_task_id, "test-job")
+
+        status_response = self.client.get(
+            reverse("reports:preview-status", kwargs={"session_key": session.session_key}),
+            {"memberId": self.portal.member_id},
+        )
+
+        self.assertEqual(status_response.status_code, 200)
+        self.assertEqual(status_response.json()["status"], "queued")
+
 
 class ReportPreviewBitrixProviderFailureTests(TestCase):
     def setUp(self):

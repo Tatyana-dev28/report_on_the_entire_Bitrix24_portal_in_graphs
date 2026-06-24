@@ -380,5 +380,27 @@ def build_batch_command(method: str, params: dict[str, Any] | None = None) -> st
     if not params:
         return method
 
-    query = urlencode(params, doseq=True)
+    query = urlencode(_flatten_query_params(params), doseq=True)
     return f"{method}?{query}"
+
+
+def _flatten_query_params(params: dict[str, Any]) -> list[tuple[str, Any]]:
+    result: list[tuple[str, Any]] = []
+
+    def add_value(key: str, value: Any) -> None:
+        if isinstance(value, dict):
+            for nested_key, nested_value in value.items():
+                add_value(f"{key}[{nested_key}]", nested_value)
+            return
+
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                add_value(f"{key}[]", item)
+            return
+
+        result.append((key, value))
+
+    for param_key, param_value in params.items():
+        add_value(str(param_key), param_value)
+
+    return result

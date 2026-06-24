@@ -3,10 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from apps.bitrix.services.rest_client import BitrixRestError
-
+from apps.bitrix.services.rest_client import BitrixRestError, build_batch_command
 
 MEETING_TYPE_IDS = {"2", "MEETING", "CRM_MEETING"}
+ACTIVITY_MAX_LIST_PAGES = 1000
+ACTIVITY_BATCH_PAGE_SIZE = 25
+BITRIX_LIST_PAGE_SIZE = 50
 
 
 def load_activity_rows(
@@ -16,36 +18,154 @@ def load_activity_rows(
     date_to: datetime,
     bitrix_datetime,
 ) -> list[dict]:
-    try:
-        rows = client.call_list(
-            "crm.activity.list",
-            {
-                "order": {"START_TIME": "ASC"},
-                "filter": {
-                    ">=START_TIME": bitrix_datetime(date_from),
-                    "<=START_TIME": bitrix_datetime(date_to),
-                },
-                "select": [
-                    "ID",
-                    "OWNER_ID",
-                    "OWNER_TYPE_ID",
-                    "TYPE_ID",
-                    "SUBJECT",
-                    "CREATED",
-                    "START_TIME",
-                    "END_TIME",
-                    "DEADLINE",
-                    "COMPLETED",
-                    "STATUS",
-                    "RESPONSIBLE_ID",
-                    "AUTHOR_ID",
-                ],
-            },
-        )
-    except BitrixRestError:
-        return []
+    params = {
+        "order": {"START_TIME": "ASC"},
+        "filter": {
+            ">=START_TIME": bitrix_datetime(date_from),
+            "<=START_TIME": bitrix_datetime(date_to),
+        },
+        "select": [
+            "ID",
+            "OWNER_ID",
+            "OWNER_TYPE_ID",
+            "TYPE_ID",
+            "SUBJECT",
+            "CREATED",
+            "START_TIME",
+            "END_TIME",
+            "DEADLINE",
+            "COMPLETED",
+            "STATUS",
+            "RESPONSIBLE_ID",
+            "AUTHOR_ID",
+        ],
+    }
+    rows = _load_activity_rows_batched(client, params)
 
     return [_normalize_activity_row(row) for row in rows]
+
+
+def _load_activity_rows_batched(client, params: dict) -> list[dict]:
+    if not hasattr(client, "call_method") or not hasattr(client, "call_batch"):
+        return client.call_list(
+            "crm.activity.list",
+            params,
+            max_pages=ACTIVITY_MAX_LIST_PAGES,
+        )
+
+    first_response = client.call_method(
+        "crm.activity.list",
+        {
+            **params,
+            "start": 0,
+        },
+    )
+    rows = _extract_list_items(first_response.result)
+    total = _safe_int(first_response.total)
+
+    if not total and first_response.next is not None:
+        return _load_activity_rows_sequentially(
+            client=client,
+            params=params,
+            rows=rows,
+            next_start=first_response.next,
+        )
+
+    if not total or total <= BITRIX_LIST_PAGE_SIZE:
+        return rows
+
+    max_rows = ACTIVITY_MAX_LIST_PAGES * BITRIX_LIST_PAGE_SIZE
+
+    if total > max_rows:
+        raise BitrixRestError(
+            f"crm.activity.list returned {total} rows, limit is {max_rows} rows."
+        )
+
+    starts = list(range(BITRIX_LIST_PAGE_SIZE, total, BITRIX_LIST_PAGE_SIZE))
+
+    for index in range(0, len(starts), ACTIVITY_BATCH_PAGE_SIZE):
+        chunk = starts[index : index + ACTIVITY_BATCH_PAGE_SIZE]
+        commands = {
+            f"page_{start}": build_batch_command(
+                "crm.activity.list",
+                {
+                    **params,
+                    "start": start,
+                },
+            )
+            for start in chunk
+        }
+        response = client.call_batch(commands)
+        rows.extend(_extract_batch_items(response.result, commands.keys()))
+
+    return rows
+
+
+def _load_activity_rows_sequentially(
+    *,
+    client,
+    params: dict,
+    rows: list[dict],
+    next_start,
+) -> list[dict]:
+    page_count = 1
+
+    while next_start is not None:
+        page_count += 1
+
+        if page_count > ACTIVITY_MAX_LIST_PAGES:
+            raise BitrixRestError(
+                f"crm.activity.list pagination exceeded {ACTIVITY_MAX_LIST_PAGES} pages."
+            )
+
+        response = client.call_method(
+            "crm.activity.list",
+            {
+                **params,
+                "start": next_start,
+            },
+        )
+        rows.extend(_extract_list_items(response.result))
+        next_start = response.next
+
+    return rows
+
+
+def _extract_batch_items(result: Any, command_keys) -> list[dict]:
+    if not isinstance(result, dict):
+        return []
+
+    result_container = result.get("result")
+
+    if not isinstance(result_container, dict):
+        return []
+
+    rows: list[dict] = []
+
+    for command_key in command_keys:
+        rows.extend(_extract_list_items(result_container.get(command_key)))
+
+    return rows
+
+
+def _extract_list_items(value: Any) -> list[dict]:
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+
+    if isinstance(value, dict):
+        items = value.get("items")
+
+        if isinstance(items, list):
+            return [item for item in items if isinstance(item, dict)]
+
+    return []
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def apply_activity_metrics(values: dict[str, int | float], activity_rows: list[dict]) -> None:

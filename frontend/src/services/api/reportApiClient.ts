@@ -26,6 +26,9 @@ export type ReportPreviewResponse = {
     details: MetricDetailItem[];
 };
 
+const REPORT_PREVIEW_POLL_INTERVAL_MS = 1500;
+const REPORT_PREVIEW_MAX_POLL_ATTEMPTS = 800;
+
 const getApiBaseUrl = () => {
     const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
 
@@ -166,4 +169,41 @@ export const loadReportPreview = (filters: ReportLoadFilters) =>
             ...getBitrixContext(),
             ...filters,
         }),
+    }).then(waitForReportPreview);
+
+const loadReportPreviewStatus = (sessionKey: string) =>
+    requestJson<ReportPreviewResponse>(
+        appendQuery(`/api/reports/preview/${sessionKey}/`, getBitrixContext()),
+    );
+
+const waitForReportPreview = async (preview: ReportPreviewResponse) => {
+    if (preview.status !== 'queued' && preview.status !== 'running') {
+        return preview;
+    }
+
+    if (!preview.sessionKey) {
+        throw new Error('Backend queued report build without session key.');
+    }
+
+    let current = preview;
+
+    for (let attempt = 0; attempt < REPORT_PREVIEW_MAX_POLL_ATTEMPTS; attempt += 1) {
+        await delay(REPORT_PREVIEW_POLL_INTERVAL_MS);
+        current = await loadReportPreviewStatus(preview.sessionKey);
+
+        if (current.status === 'ready') {
+            return current;
+        }
+
+        if (current.status === 'failed') {
+            throw new Error(current.message || 'Не удалось построить отчет.');
+        }
+    }
+
+    throw new Error('Отчет строится слишком долго. Попробуйте выбрать меньший период или повторить позже.');
+};
+
+const delay = (ms: number) =>
+    new Promise((resolve) => {
+        window.setTimeout(resolve, ms);
     });

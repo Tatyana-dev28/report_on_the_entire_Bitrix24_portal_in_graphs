@@ -7,7 +7,10 @@ from django.views.decorators.http import require_GET, require_POST
 from apps.reports.services.exceptions import ReportPreviewSessionError
 from apps.reports.services.report_catalog import build_report_catalog
 from apps.reports.services.report_context import resolve_portal
-from apps.reports.services.report_sessions import create_report_preview_session
+from apps.reports.services.report_sessions import (
+    create_report_preview_session,
+    get_report_preview_session_status,
+)
 
 
 def _json_error(message: str, status: int = 400, details: dict | None = None) -> JsonResponse:
@@ -66,6 +69,26 @@ def report_preview_view(request):
 
     try:
         preview = create_report_preview_session(request, payload)
+    except ReportPreviewSessionError as error:
+        return _json_error(
+            str(error),
+            status=error.status,
+            details=error.details,
+        )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            **preview,
+        },
+        json_dumps_params={"ensure_ascii": False},
+    )
+
+
+@require_GET
+def report_preview_status_view(request, session_key: str):
+    try:
+        preview = get_report_preview_session_status(request, session_key)
     except ReportPreviewSessionError as error:
         return _json_error(
             str(error),

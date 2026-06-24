@@ -7,4 +7,5 @@ app_name = "reports"
 urlpatterns = [
     path("catalog/", views.report_catalog_view, name="catalog"),
     path("preview/", views.report_preview_view, name="preview"),
+    path("preview/<uuid:session_key>/", views.report_preview_status_view, name="preview-status"),
 ]

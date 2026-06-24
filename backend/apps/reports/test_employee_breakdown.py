@@ -75,6 +75,36 @@ class FakeEmployeeBreakdownBitrixRestClient:
         return []
 
 
+class FakeUserLookupBitrixRestClient:
+    def __init__(self, portal):
+        self.portal = portal
+
+    def call_list(self, method, params=None, *, max_pages=None):
+        if method == "crm.deal.list":
+            return [
+                {
+                    "ID": "1",
+                    "TITLE": "Won deal without embedded user name",
+                    "DATE_CREATE": "2026-05-01T10:00:00+03:00",
+                    "STAGE_ID": "C0:WON",
+                    "OPPORTUNITY": "1000",
+                    "ASSIGNED_BY_ID": "42",
+                },
+            ]
+
+        if method == "user.get":
+            return [
+                {
+                    "ID": "42",
+                    "NAME": "Anna",
+                    "LAST_NAME": "Ivanova",
+                    "ACTIVE": "Y",
+                },
+            ]
+
+        return []
+
+
 class EmployeeBreakdownTests(TestCase):
     def setUp(self):
         self.portal = BitrixPortal.objects.create(
@@ -159,3 +189,27 @@ class EmployeeBreakdownTests(TestCase):
         self.assertIn("entityId", first_detail)
         self.assertIn("title", first_detail)
         self.assertIn("responsibleName", first_detail)
+
+    def test_provider_loads_employee_names_when_rows_only_have_user_ids(self):
+        provider = BitrixReportDataProvider(rest_client_factory=FakeUserLookupBitrixRestClient)
+
+        result = provider.build_preview(
+            filters={
+                "period": "days",
+                "dateRange": {"from": "2026-05-01", "to": "2026-05-01"},
+                "selectedSources": ["deal-sales"],
+                "selectedMetricIds": ["deals_created", "deals_won", "deals_won_sum"],
+                "metricMode": "money",
+                "chartDisplayMode": "sum",
+            },
+            context=ReportDataProviderContext(
+                portal=self.portal,
+                user=None,
+                bitrix_user_id="42",
+                user_name="",
+            ),
+        )
+
+        self.assertEqual(result.employees[0]["id"], "42")
+        self.assertEqual(result.employees[0]["name"], "Anna Ivanova")
+        self.assertEqual(result.details[0]["employeeName"], "Anna Ivanova")

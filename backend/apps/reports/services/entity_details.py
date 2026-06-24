@@ -253,7 +253,7 @@ def _build_entity_detail(
     employee_id = _extract_employee_id(row)
     entity_id = str(row.get("CRM_ACTIVITY_ID") or row.get("CALL_ID") or row.get("ID") or "")
     title = _extract_entity_title(row, source_id)
-    created_at = _parse_datetime_or_date(str(row.get("DATE_CREATE") or ""), end_of_day=False)
+    created_at = _extract_row_datetime(row)
 
     return {
         "id": entity_id or f"{source_id}:{metric_id}:{period_key}:{len(title)}",
@@ -360,9 +360,35 @@ def _first_non_empty_value(row: dict, fields: list[str]) -> str:
 
 
 def _row_in_bucket(row: dict, bucket: Any) -> bool:
-    created_at = _parse_datetime_or_date(str(row.get("DATE_CREATE") or ""), end_of_day=False)
+    created_at = _extract_row_datetime(row)
 
     return bool(created_at and bucket.start <= created_at <= bucket.end)
+
+
+ROW_DATE_FIELDS = [
+    "DATE_CREATE",
+    "createdTime",
+    "CREATED_TIME",
+    "DATE_INSERT",
+    "DATE_BILL",
+    "CALL_START_DATE",
+    "START_TIME",
+    "CREATED",
+    "DEADLINE",
+]
+
+
+def _extract_row_datetime(row: dict) -> datetime | None:
+    for field in ROW_DATE_FIELDS:
+        value = row.get(field)
+
+        if value:
+            parsed = _parse_datetime_or_date(str(value), end_of_day=False)
+
+            if parsed is not None:
+                return parsed
+
+    return None
 
 
 def _parse_datetime_or_date(value: str, *, end_of_day: bool) -> datetime | None:

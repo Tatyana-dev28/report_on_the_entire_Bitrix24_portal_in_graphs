@@ -555,13 +555,17 @@ function App() {
   );
   const chartBaseValues = useMemo(
     () =>
-      reportData.map((point) =>
-        selectedChartSources.reduce(
+      reportData.map((point) => {
+        if (!isSeparateChart) {
+          return point.indicator;
+        }
+
+        return selectedChartSources.reduce(
           (sum, source) => sum + getChartSeriesValue(point, source, appliedFilters.metricMode),
           0,
-        ),
-      ),
-    [appliedFilters.metricMode, reportData, selectedChartSources],
+        );
+      }),
+    [appliedFilters.metricMode, isSeparateChart, reportData, selectedChartSources],
   );
   const mainThresholdRecommendationValues = useMemo(
     () =>

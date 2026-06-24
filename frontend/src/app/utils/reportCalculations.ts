@@ -116,24 +116,31 @@ export const getChartSeriesValue = (
   const values = point.values;
   const normalizedSource = source.toLowerCase();
 
-  const isLeadSource =
-    source === 'Воронка лидов' ||
-    source === 'Лиды' ||
-    normalizedSource.includes('лид');
-
+  const isLeadSource = normalizedSource.includes('lead') || normalizedSource.includes('лид');
   const isDealSource =
-    source === 'Воронка продажи' ||
+    normalizedSource.includes('deal') ||
     normalizedSource.includes('сдел') ||
     normalizedSource.includes('продаж');
-
   const isProductionSource =
-    source === 'Воронка производство' ||
+    normalizedSource.includes('smart') ||
+    normalizedSource.includes('смарт') ||
     normalizedSource.includes('производ');
-
   const isInvoiceSource =
-    source === 'Счета' ||
+    normalizedSource.includes('invoice') ||
     normalizedSource.includes('счет') ||
     normalizedSource.includes('счёт');
+  const isQuoteSource =
+    normalizedSource.includes('quote') ||
+    normalizedSource.includes('кп') ||
+    normalizedSource.includes('предлож');
+  const isTelephonySource =
+    normalizedSource.includes('telephony') ||
+    normalizedSource.includes('call') ||
+    normalizedSource.includes('звон');
+  const isActivitySource =
+    normalizedSource.includes('activity') ||
+    normalizedSource.includes('актив') ||
+    normalizedSource.includes('дел');
 
   if (metricMode === 'count') {
     if (isLeadSource) {
@@ -141,7 +148,7 @@ export const getChartSeriesValue = (
     }
 
     if (isProductionSource) {
-      return values.production_accepted + values.production_work + values.production_ready;
+      return values.smart_process_created || values.production_accepted + values.production_work + values.production_ready;
     }
 
     if (isInvoiceSource) {
@@ -152,16 +159,19 @@ export const getChartSeriesValue = (
       return values.deals_created;
     }
 
-    switch (source) {
-      case 'Смарт-процесс заявки':
-        return values.crm_forms;
-      case 'Смарт-процесс производство':
-        return values.activities_created + values.production_work;
-      case 'Смарт-процесс доставка':
-        return values.tasks_done + values.activities_done;
-      default:
-        return values.deals_created;
+    if (isQuoteSource) {
+      return values.quotes_created;
     }
+
+    if (isTelephonySource) {
+      return values.calls_total;
+    }
+
+    if (isActivitySource) {
+      return values.activities_created;
+    }
+
+    return values.deals_created;
   }
 
   if (isLeadSource) {
@@ -169,7 +179,7 @@ export const getChartSeriesValue = (
   }
 
   if (isProductionSource) {
-    return (values.production_accepted + values.production_ready) * 46000;
+    return values.smart_process_success_sum;
   }
 
   if (isInvoiceSource) {
@@ -180,18 +190,12 @@ export const getChartSeriesValue = (
     return values.deals_won_sum;
   }
 
-  switch (source) {
-    case 'Смарт-процесс заявки':
-      return values.crm_forms * 42000;
-    case 'Смарт-процесс производство':
-      return (values.activities_created + values.production_work) * 36000;
-    case 'Смарт-процесс доставка':
-      return (values.tasks_done + values.activities_done) * 18000;
-    default:
-      return values.deals_won_sum;
+  if (isQuoteSource) {
+    return values.quotes_accepted_sum;
   }
-};
 
+  return values.deals_won_sum;
+};
 export const formatMainChartValue = (value: number, metricMode: ChartMetricMode) => {
   if (metricMode === 'money') {
     return formatMoney(value);

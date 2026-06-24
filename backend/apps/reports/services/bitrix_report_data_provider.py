@@ -8,6 +8,7 @@ from typing import Any, Callable
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
+from apps.bitrix.models import PortalUser
 from apps.bitrix.services.rest_client import BitrixRestClient, BitrixRestError
 from apps.reports.catalog import METRICS, REPORT_SOURCES
 from apps.reports.models import CrmSource
@@ -89,11 +90,17 @@ class BitrixReportDataProvider:
             date_from=date_from,
             date_to=date_to,
         )
+        _enrich_rows_with_user_names(
+            client=client,
+            portal=context.portal,
+            rows_by_source=rows_by_source,
+        )
 
         data = build_report_points(
             buckets=buckets,
             rows_by_source=rows_by_source,
             metric_catalog=metric_catalog,
+            metric_mode=filters.get("metricMode") or "money",
         )
 
         employees, _employee_summary_details = build_employee_breakdown(
@@ -114,6 +121,14 @@ class BitrixReportDataProvider:
             for source in selected_sources
             if source.get("type") not in SUPPORTED_SOURCE_TYPES
         ]
+        source_row_counts = {
+            source_id: len(rows)
+            for source_id, rows in rows_by_source.items()
+        }
+        matched_source_row_counts = {
+            source_id: sum(1 for row in rows if any(_row_in_bucket(row, bucket) for bucket in buckets))
+            for source_id, rows in rows_by_source.items()
+        }
 
         return ReportDataResult(
             data=data,
@@ -129,6 +144,8 @@ class BitrixReportDataProvider:
                     if source.get("type") in SUPPORTED_SOURCE_TYPES
                 ],
                 "unsupportedSources": unsupported_sources,
+                "sourceRowCounts": source_row_counts,
+                "matchedSourceRowCounts": matched_source_row_counts,
             },
         )
 
@@ -432,6 +449,7 @@ def build_report_points(
     buckets: list[PeriodBucket],
     rows_by_source: dict[str, list[dict]],
     metric_catalog: list[dict],
+    metric_mode: str = "money",
 ) -> list[dict]:
     metric_ids = [metric["id"] for metric in metric_catalog]
     points = []
@@ -444,18 +462,33 @@ def build_report_points(
                 "key": bucket.key,
                 "label": bucket.label,
                 "tooltipLabel": bucket.tooltip_label,
-                "indicator": (
-                    values.get("deals_won_sum", 0)
-                    + values.get("invoices_won_sum", 0)
-                    + values.get("smart_process_success_sum", 0)
-                    + values.get("quotes_accepted_sum", 0)
-                    + values.get("contracts_signed_sum", 0)
-                ),
+                "indicator": _build_indicator_value(values, metric_catalog, metric_mode),
                 "values": values,
             }
         )
 
     return points
+
+
+def _build_indicator_value(
+    values: dict[str, int | float],
+    metric_catalog: list[dict],
+    metric_mode: str,
+) -> int | float:
+    if metric_mode == "count":
+        metric_ids = [
+            metric["id"]
+            for metric in metric_catalog
+            if metric.get("type") not in {"money", "percent"}
+        ]
+    else:
+        metric_ids = [
+            metric["id"]
+            for metric in metric_catalog
+            if metric.get("type") == "money"
+        ]
+
+    return sum(values.get(metric_id, 0) for metric_id in metric_ids)
 
 
 def resolve_metric_catalog(selected_metric_ids: list[str] | None) -> list[dict]:
@@ -901,9 +934,215 @@ def _add_month(value: datetime) -> datetime:
 
 
 def _row_in_bucket(row: dict, bucket: PeriodBucket) -> bool:
-    created_at = _parse_datetime_or_date(str(row.get("DATE_CREATE") or ""), end_of_day=False)
+    created_at = _extract_row_datetime(row)
 
     return bool(created_at and bucket.start <= created_at <= bucket.end)
+
+
+ROW_DATE_FIELDS = [
+    "DATE_CREATE",
+    "createdTime",
+    "CREATED_TIME",
+    "DATE_INSERT",
+    "DATE_BILL",
+    "CALL_START_DATE",
+    "START_TIME",
+    "CREATED",
+    "DEADLINE",
+]
+
+
+def _extract_row_datetime(row: dict) -> datetime | None:
+    for field in ROW_DATE_FIELDS:
+        value = row.get(field)
+
+        if value:
+            parsed = _parse_datetime_or_date(str(value), end_of_day=False)
+
+            if parsed is not None:
+                return parsed
+
+    return None
+
+
+EMPLOYEE_ID_FIELDS = [
+    "ASSIGNED_BY_ID",
+    "RESPONSIBLE_ID",
+    "PORTAL_USER_ID",
+    "assignedById",
+    "responsibleId",
+    "AUTHOR_ID",
+]
+
+
+def _enrich_rows_with_user_names(
+    *,
+    client,
+    portal,
+    rows_by_source: dict[str, list[dict]],
+) -> None:
+    user_ids = sorted(
+        {
+            employee_id
+            for rows in rows_by_source.values()
+            for row in rows
+            if (employee_id := _extract_employee_id(row)) not in {"", "unknown"}
+        }
+    )
+
+    if not user_ids:
+        return
+
+    profiles = _load_cached_user_profiles(portal, user_ids)
+    missing_user_ids = [user_id for user_id in user_ids if user_id not in profiles]
+    profiles.update(_load_bitrix_user_profiles(client, portal, missing_user_ids))
+
+    for rows in rows_by_source.values():
+        for row in rows:
+            profile = profiles.get(_extract_employee_id(row))
+
+            if profile:
+                _apply_user_profile_to_row(row, profile)
+
+
+def _extract_employee_id(row: dict) -> str:
+    for field in EMPLOYEE_ID_FIELDS:
+        value = row.get(field)
+
+        if value is None:
+            continue
+
+        normalized_value = str(value).strip()
+
+        if normalized_value:
+            return normalized_value
+
+    return "unknown"
+
+
+def _load_cached_user_profiles(portal, user_ids: list[str]) -> dict[str, dict[str, str]]:
+    users = PortalUser.objects.filter(
+        portal=portal,
+        bitrix_user_id__in=user_ids,
+        is_active=True,
+    )
+    profiles = {}
+
+    for user in users:
+        profile = _make_user_profile(
+            user_id=user.bitrix_user_id,
+            first_name=user.name,
+            last_name=user.last_name,
+            second_name=user.second_name,
+            full_name=user.full_name,
+        )
+
+        if profile["fullName"]:
+            profiles[user.bitrix_user_id] = profile
+
+    return profiles
+
+
+def _load_bitrix_user_profiles(client, portal, user_ids: list[str]) -> dict[str, dict[str, str]]:
+    profiles: dict[str, dict[str, str]] = {}
+
+    for user_id_chunk in _chunks(user_ids, 50):
+        try:
+            rows = client.call_list(
+                "user.get",
+                {
+                    "FILTER": {
+                        "ID": user_id_chunk,
+                    },
+                },
+            )
+        except BitrixRestError:
+            continue
+
+        for row in rows:
+            user_id = str(row.get("ID") or "").strip()
+
+            if not user_id:
+                continue
+
+            profile = _make_user_profile(
+                user_id=user_id,
+                first_name=row.get("NAME"),
+                last_name=row.get("LAST_NAME"),
+                second_name=row.get("SECOND_NAME"),
+                full_name=row.get("FULL_NAME"),
+            )
+
+            if not profile["fullName"]:
+                continue
+
+            profiles[user_id] = profile
+            PortalUser.objects.update_or_create(
+                portal=portal,
+                bitrix_user_id=user_id,
+                defaults={
+                    "name": profile["firstName"],
+                    "last_name": profile["lastName"],
+                    "second_name": profile["secondName"],
+                    "full_name": profile["fullName"],
+                    "email": str(row.get("EMAIL") or ""),
+                    "avatar_url": str(row.get("PERSONAL_PHOTO") or ""),
+                    "is_active": str(row.get("ACTIVE") or "Y").upper() != "N",
+                    "last_synced_at": timezone.now(),
+                },
+            )
+
+    return profiles
+
+
+def _make_user_profile(
+    *,
+    user_id: str,
+    first_name: Any,
+    last_name: Any,
+    second_name: Any,
+    full_name: Any,
+) -> dict[str, str]:
+    first_name_value = str(first_name or "").strip()
+    last_name_value = str(last_name or "").strip()
+    second_name_value = str(second_name or "").strip()
+    full_name_value = str(full_name or "").strip()
+
+    if not full_name_value:
+        full_name_value = " ".join(
+            part for part in [first_name_value, last_name_value] if part
+        ).strip()
+
+    return {
+        "id": user_id,
+        "firstName": first_name_value or full_name_value,
+        "lastName": last_name_value,
+        "secondName": second_name_value,
+        "fullName": full_name_value,
+    }
+
+
+def _apply_user_profile_to_row(row: dict, profile: dict[str, str]) -> None:
+    first_name = profile["firstName"] or profile["fullName"]
+    last_name = profile["lastName"]
+    full_name = profile["fullName"]
+
+    if first_name and not row.get("ASSIGNED_BY_NAME"):
+        row["ASSIGNED_BY_NAME"] = first_name
+
+    if last_name and not row.get("ASSIGNED_BY_LAST_NAME"):
+        row["ASSIGNED_BY_LAST_NAME"] = last_name
+
+    if full_name and not row.get("RESPONSIBLE_NAME"):
+        row["RESPONSIBLE_NAME"] = full_name
+
+    if last_name and not row.get("RESPONSIBLE_LAST_NAME"):
+        row["RESPONSIBLE_LAST_NAME"] = last_name
+
+
+def _chunks(values: list[str], size: int):
+    for index in range(0, len(values), size):
+        yield values[index:index + size]
 
 
 def _bitrix_datetime(value: datetime) -> str:

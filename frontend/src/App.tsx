@@ -436,16 +436,14 @@ function App() {
     }
 
     let isActive = true;
-
     const selectedMetricIds = metricSections.flatMap((section) => {
       if (!appliedFilters.enabledSectionIds.has(section.id)) {
         return [];
-    }
+      }
 
-    const enabledMetricIds = enabledMetricIdsBySection[section.id] ?? new Set(section.metricIds);
-    return section.metricIds.filter((metricId) => enabledMetricIds.has(metricId));
+      const enabledMetricIds = enabledMetricIdsBySection[section.id] ?? new Set(section.metricIds);
+      return section.metricIds.filter((metricId) => enabledMetricIds.has(metricId));
     });
-    
     const filters: ReportLoadFilters = {
       period: appliedFilters.period,
       dateRange: appliedFilters.dateRange,
@@ -538,7 +536,7 @@ function App() {
       const allowedSourceIds = new Set(crmSourceIds);
       const selectedSources = sources.filter((source) => allowedSourceIds.has(source));
 
-      return selectedSources.length ? selectedSources : [crmSourceIds[0]];
+      return selectedSources.length ? selectedSources : crmSourceIds;
     },
     [crmSourceIds],
   );
@@ -578,9 +576,7 @@ function App() {
     () =>
       appliedFilters.selectedSources.length
         ? appliedFilters.selectedSources
-        : crmSourceIds[0]
-          ? [crmSourceIds[0]]
-          : [],
+        : crmSourceIds,
     [appliedFilters.selectedSources, crmSourceIds],
   );
   const selectedChartSourceLabels = useMemo(
@@ -2393,4 +2389,5 @@ function App() {
 }
 
 export default App;
+
 

@@ -52,6 +52,7 @@ class ReportPreviewApiTests(TestCase):
         self.assertEqual(payload["data"], [])
         self.assertEqual(payload["employees"], [])
         self.assertEqual(payload["details"], [])
+        self.assertEqual(payload["metadata"], {})
 
         session = ReportSession.objects.get(session_key=payload["sessionKey"])
 
@@ -64,6 +65,7 @@ class ReportPreviewApiTests(TestCase):
         cached_payload = cache.get(session.cache_key)
 
         self.assertIsInstance(cached_payload, dict)
+        self.assertEqual(cached_payload["metadata"], payload["metadata"])
         self.assertEqual(cached_payload["meta"]["filtersHash"], payload["filtersHash"])
         self.assertEqual(cached_payload["meta"]["sessionKey"], payload["sessionKey"])
 

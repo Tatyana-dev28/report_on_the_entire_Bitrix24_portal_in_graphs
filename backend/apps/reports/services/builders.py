@@ -146,6 +146,7 @@ class ReportBuilder:
             "data": result_payload["data"],
             "employees": result_payload["employees"],
             "details": result_payload["details"],
+            "metadata": result_payload.get("metadata", {}),
             "message": result_payload["meta"]["message"],
         }
 

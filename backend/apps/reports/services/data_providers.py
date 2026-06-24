@@ -29,6 +29,7 @@ class ReportDataResult:
             "data": self.data,
             "employees": self.employees,
             "details": self.details,
+            "metadata": self.metadata,
             "meta": {
                 "status": self.status,
                 "message": self.message,

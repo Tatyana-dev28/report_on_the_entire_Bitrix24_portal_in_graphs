@@ -17,7 +17,11 @@ SOURCE_TYPE_TO_MODEL = {
     "invoice": CrmSource.SourceType.INVOICE,
     "telephony": CrmSource.SourceType.CALL,
     "activity": CrmSource.SourceType.ACTIVITY,
+    "company": CrmSource.SourceType.COMPANY,
+    "contact": CrmSource.SourceType.CONTACT,
+    "task": CrmSource.SourceType.TASK,
     "quote": CrmSource.SourceType.OTHER,
+    "crm_form": CrmSource.SourceType.OTHER,
 }
 
 SOURCE_TYPE_TO_API = {
@@ -27,12 +31,19 @@ SOURCE_TYPE_TO_API = {
     CrmSource.SourceType.INVOICE: "invoice",
     CrmSource.SourceType.CALL: "telephony",
     CrmSource.SourceType.ACTIVITY: "activity",
+    CrmSource.SourceType.COMPANY: "company",
+    CrmSource.SourceType.CONTACT: "contact",
+    CrmSource.SourceType.TASK: "task",
 }
 
 VIRTUAL_REPORT_SOURCE_IDS = {
     "telephony-default",
     "activity-default",
     "quote-default",
+    "company-default",
+    "contact-default",
+    "task-default",
+    "crm-form-default",
 }
 
 
@@ -265,6 +276,9 @@ def _api_source_type_from_model(source: CrmSource) -> str:
 
     if source.external_key.startswith("activity-"):
         return "activity"
+
+    if source.external_key.startswith("crm-form-"):
+        return "crm_form"
 
     return SOURCE_TYPE_TO_API.get(source.source_type, "other")
 

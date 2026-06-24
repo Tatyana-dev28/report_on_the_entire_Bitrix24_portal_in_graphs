@@ -50,6 +50,10 @@ SUPPORTED_SOURCE_TYPES = {
     "telephony",
     "activity",
     "quote",
+    "company",
+    "contact",
+    "task",
+    "crm_form",
 }
 DEFAULT_REPORT_MESSAGE = "Отчет построен по данным Bitrix24."
 
@@ -205,6 +209,30 @@ class BitrixReportDataProvider:
                 )
             elif source_type == "quote":
                 rows_by_source[source["id"]] = self._load_quotes(
+                    client=client,
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+            elif source_type == "company":
+                rows_by_source[source["id"]] = self._load_companies(
+                    client=client,
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+            elif source_type == "contact":
+                rows_by_source[source["id"]] = self._load_contacts(
+                    client=client,
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+            elif source_type == "task":
+                rows_by_source[source["id"]] = self._load_tasks(
+                    client=client,
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+            elif source_type == "crm_form":
+                rows_by_source[source["id"]] = self._load_crm_forms(
                     client=client,
                     date_from=date_from,
                     date_to=date_to,
@@ -443,6 +471,136 @@ class BitrixReportDataProvider:
             date_to=date_to,
             bitrix_datetime=_bitrix_datetime,
         )
+
+    def _load_companies(
+        self,
+        *,
+        client,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> list[dict]:
+        try:
+            rows = client.call_list(
+                "crm.company.list",
+                {
+                    "order": {"DATE_CREATE": "ASC"},
+                    "filter": {
+                        ">=DATE_CREATE": _bitrix_datetime(date_from),
+                        "<=DATE_CREATE": _bitrix_datetime(date_to),
+                    },
+                    "select": [
+                        "ID",
+                        "TITLE",
+                        "DATE_CREATE",
+                        "ASSIGNED_BY_ID",
+                        "ASSIGNED_BY_NAME",
+                        "ASSIGNED_BY_LAST_NAME",
+                    ],
+                },
+            )
+        except BitrixRestError:
+            return []
+
+        return [_normalize_company_row(row) for row in rows]
+
+    def _load_contacts(
+        self,
+        *,
+        client,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> list[dict]:
+        try:
+            rows = client.call_list(
+                "crm.contact.list",
+                {
+                    "order": {"DATE_CREATE": "ASC"},
+                    "filter": {
+                        ">=DATE_CREATE": _bitrix_datetime(date_from),
+                        "<=DATE_CREATE": _bitrix_datetime(date_to),
+                    },
+                    "select": [
+                        "ID",
+                        "NAME",
+                        "LAST_NAME",
+                        "SECOND_NAME",
+                        "DATE_CREATE",
+                        "ASSIGNED_BY_ID",
+                        "ASSIGNED_BY_NAME",
+                        "ASSIGNED_BY_LAST_NAME",
+                    ],
+                },
+            )
+        except BitrixRestError:
+            return []
+
+        return [_normalize_contact_row(row) for row in rows]
+
+    def _load_tasks(
+        self,
+        *,
+        client,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> list[dict]:
+        try:
+            rows = []
+            task_select = [
+                "ID",
+                "TITLE",
+                "CREATED_DATE",
+                "CLOSED_DATE",
+                "DEADLINE",
+                "STATUS",
+                "REAL_STATUS",
+                "RESPONSIBLE_ID",
+                "RESPONSIBLE_NAME",
+                "RESPONSIBLE_LAST_NAME",
+            ]
+
+            for date_field in ["CREATED_DATE", "CLOSED_DATE", "DEADLINE"]:
+                rows.extend(
+                    client.call_list(
+                        "tasks.task.list",
+                        {
+                            "order": {date_field: "ASC"},
+                            "filter": {
+                                f">={date_field}": _bitrix_datetime(date_from),
+                                f"<={date_field}": _bitrix_datetime(date_to),
+                            },
+                            "select": task_select,
+                        },
+                    )
+                )
+        except BitrixRestError:
+            return []
+
+        normalized_rows = [_normalize_task_row(row) for row in rows]
+
+        return _deduplicate_rows_by_id(normalized_rows)
+
+    def _load_crm_forms(
+        self,
+        *,
+        client,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> list[dict]:
+        try:
+            rows = client.call_list(
+                "crm.webform.result.list",
+                {
+                    "order": {"DATE_CREATE": "ASC"},
+                    "filter": {
+                        ">=DATE_CREATE": _bitrix_datetime(date_from),
+                        "<=DATE_CREATE": _bitrix_datetime(date_to),
+                    },
+                },
+            )
+        except BitrixRestError:
+            return []
+
+        return [_normalize_crm_form_row(row) for row in rows]
 
 
 def build_report_points(
@@ -732,6 +890,37 @@ def _build_bucket_values(
         if _row_in_bucket(row, bucket)
     ]
 
+    company_rows = [
+        row
+        for source_id, rows in rows_by_source.items()
+        if source_id.startswith("company-")
+        for row in rows
+        if _row_in_bucket(row, bucket)
+    ]
+
+    contact_rows = [
+        row
+        for source_id, rows in rows_by_source.items()
+        if source_id.startswith("contact-")
+        for row in rows
+        if _row_in_bucket(row, bucket)
+    ]
+
+    task_rows = [
+        row
+        for source_id, rows in rows_by_source.items()
+        if source_id.startswith("task-")
+        for row in rows
+    ]
+
+    crm_form_rows = [
+        row
+        for source_id, rows in rows_by_source.items()
+        if source_id.startswith("crm-form-")
+        for row in rows
+        if _row_in_bucket(row, bucket)
+    ]
+
     mapped_quote_rows = [
         row
         for row in smart_process_rows
@@ -785,6 +974,27 @@ def _build_bucket_values(
     values["invoices_won_sum"] = _sum_opportunity(won_invoices)
     values["invoices_lost_sum"] = _sum_opportunity(lost_invoices)
     values["invoices_conversion"] = _conversion(values["invoices_won"], values["invoices_created"])
+
+    values["companies_new"] = len(company_rows)
+    values["contacts_new"] = len(contact_rows)
+    values["crm_forms"] = len(crm_form_rows)
+    values["tasks_created"] = len(
+        [row for row in task_rows if _row_field_in_bucket(row, "DATE_CREATE", bucket)]
+    )
+    values["tasks_done"] = len(
+        [
+            row
+            for row in task_rows
+            if _is_completed_task(row) and _row_field_in_bucket(row, "CLOSED_DATE", bucket)
+        ]
+    )
+    values["tasks_overdue"] = len(
+        [
+            row
+            for row in task_rows
+            if not _is_completed_task(row) and _row_field_in_bucket(row, "DEADLINE", bucket)
+        ]
+    )
 
     apply_smart_process_metrics(values, regular_smart_process_rows)
     apply_call_metrics(values, call_rows)
@@ -988,6 +1198,17 @@ def _row_in_bucket(row: dict, bucket: PeriodBucket) -> bool:
     return bool(created_at and bucket.start <= created_at <= bucket.end)
 
 
+def _row_field_in_bucket(row: dict, field: str, bucket: PeriodBucket) -> bool:
+    value = row.get(field)
+
+    if not value:
+        return False
+
+    parsed = _parse_datetime_or_date(str(value), end_of_day=False)
+
+    return bool(parsed and bucket.start <= parsed <= bucket.end)
+
+
 ROW_DATE_FIELDS = [
     "DATE_CREATE",
     "createdTime",
@@ -997,6 +1218,8 @@ ROW_DATE_FIELDS = [
     "CALL_START_DATE",
     "START_TIME",
     "CREATED",
+    "CREATED_DATE",
+    "CLOSED_DATE",
     "DEADLINE",
 ]
 
@@ -1265,6 +1488,94 @@ def _normalize_legacy_invoice_row(row: dict) -> dict:
         "ASSIGNED_BY_ID": row.get("RESPONSIBLE_ID"),
         "SOURCE_KIND": "legacy_invoice",
     }
+
+
+def _normalize_task_row(row: dict) -> dict:
+    task = row.get("task") if isinstance(row.get("task"), dict) else row
+
+    return {
+        "ID": task.get("ID") or task.get("id"),
+        "TITLE": task.get("TITLE") or task.get("title") or "",
+        "DATE_CREATE": task.get("CREATED_DATE") or task.get("createdDate"),
+        "CREATED_DATE": task.get("CREATED_DATE") or task.get("createdDate"),
+        "CLOSED_DATE": task.get("CLOSED_DATE") or task.get("closedDate"),
+        "DEADLINE": task.get("DEADLINE") or task.get("deadline"),
+        "STATUS": task.get("STATUS") or task.get("status"),
+        "REAL_STATUS": task.get("REAL_STATUS") or task.get("realStatus"),
+        "RESPONSIBLE_ID": task.get("RESPONSIBLE_ID") or task.get("responsibleId"),
+        "RESPONSIBLE_NAME": task.get("RESPONSIBLE_NAME") or task.get("responsibleName"),
+        "RESPONSIBLE_LAST_NAME": task.get("RESPONSIBLE_LAST_NAME") or task.get("responsibleLastName"),
+        "SOURCE_KIND": "task",
+    }
+
+
+def _normalize_company_row(row: dict) -> dict:
+    return {
+        "ID": row.get("ID") or row.get("id"),
+        "TITLE": row.get("TITLE") or row.get("title") or "",
+        "DATE_CREATE": row.get("DATE_CREATE") or row.get("dateCreate"),
+        "ASSIGNED_BY_ID": row.get("ASSIGNED_BY_ID") or row.get("assignedById"),
+        "ASSIGNED_BY_NAME": row.get("ASSIGNED_BY_NAME"),
+        "ASSIGNED_BY_LAST_NAME": row.get("ASSIGNED_BY_LAST_NAME"),
+        "SOURCE_KIND": "company",
+    }
+
+
+def _normalize_contact_row(row: dict) -> dict:
+    title = " ".join(
+        str(value or "").strip()
+        for value in [
+            row.get("NAME") or row.get("name"),
+            row.get("LAST_NAME") or row.get("lastName"),
+        ]
+        if str(value or "").strip()
+    )
+
+    return {
+        "ID": row.get("ID") or row.get("id"),
+        "TITLE": title,
+        "DATE_CREATE": row.get("DATE_CREATE") or row.get("dateCreate"),
+        "ASSIGNED_BY_ID": row.get("ASSIGNED_BY_ID") or row.get("assignedById"),
+        "ASSIGNED_BY_NAME": row.get("ASSIGNED_BY_NAME"),
+        "ASSIGNED_BY_LAST_NAME": row.get("ASSIGNED_BY_LAST_NAME"),
+        "SOURCE_KIND": "contact",
+    }
+
+
+def _normalize_crm_form_row(row: dict) -> dict:
+    return {
+        "ID": row.get("ID") or row.get("id"),
+        "TITLE": row.get("FORM_NAME") or row.get("formName") or row.get("NAME") or row.get("name") or "CRM form",
+        "DATE_CREATE": row.get("DATE_CREATE") or row.get("dateCreate"),
+        "CRM_ENTITY_ID": row.get("CRM_ENTITY_ID") or row.get("crmEntityId"),
+        "CRM_ENTITY_TYPE": row.get("CRM_ENTITY_TYPE") or row.get("crmEntityType"),
+        "SOURCE_KIND": "crm_form",
+    }
+
+
+def _deduplicate_rows_by_id(rows: list[dict]) -> list[dict]:
+    result = []
+    seen_ids = set()
+
+    for row in rows:
+        row_id = str(row.get("ID") or "").strip()
+
+        if row_id and row_id in seen_ids:
+            continue
+
+        if row_id:
+            seen_ids.add(row_id)
+
+        result.append(row)
+
+    return result
+
+
+def _is_completed_task(row: dict) -> bool:
+    status = str(row.get("STATUS") or row.get("REAL_STATUS") or "").upper()
+    real_status = str(row.get("REAL_STATUS") or "").upper()
+
+    return status in {"5", "COMPLETED", "DONE"} or real_status in {"5", "COMPLETED", "DONE"}
 
 
 def _legacy_invoice_semantic(status_id: Any) -> str:

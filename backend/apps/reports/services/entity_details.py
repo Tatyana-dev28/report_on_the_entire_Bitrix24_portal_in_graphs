@@ -8,6 +8,8 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
 from apps.reports.services.calculators.activity_calculator import (
+    is_email_activity,
+    is_message_activity,
     is_completed_activity,
     is_meeting_activity,
 )
@@ -96,6 +98,14 @@ def _row_metric_ids(source_id: str, row: dict, metric_ids: set[str]) -> list[str
         candidates.extend(_activity_metric_ids(row))
     elif source_id.startswith("quote-"):
         candidates.extend(_quote_metric_ids(row))
+    elif source_id.startswith("company-"):
+        candidates.append("companies_new")
+    elif source_id.startswith("contact-"):
+        candidates.append("contacts_new")
+    elif source_id.startswith("task-"):
+        candidates.extend(_task_metric_ids(row))
+    elif source_id.startswith("crm-form-"):
+        candidates.append("crm_forms")
 
     seen = set()
     result = []
@@ -206,6 +216,15 @@ def _activity_metric_ids(row: dict) -> list[str]:
     if is_meeting_activity(row):
         metric_ids.append("meetings_created")
 
+    if is_email_activity(row):
+        if str(row.get("DIRECTION") or "") == "1":
+            metric_ids.append("email_in")
+        elif str(row.get("DIRECTION") or "") == "2":
+            metric_ids.append("email_out")
+
+    if is_message_activity(row):
+        metric_ids.extend(["messages_new", "messages_total"])
+
     if is_completed_activity(row):
         metric_ids.append("activities_done")
     else:
@@ -240,6 +259,17 @@ def _contract_metric_ids(row: dict) -> list[str]:
 
     if is_failed_contract_row(row):
         metric_ids.append("contracts_failed")
+
+    return metric_ids
+
+
+def _task_metric_ids(row: dict) -> list[str]:
+    metric_ids = ["tasks_created"]
+
+    if str(row.get("STATUS") or row.get("REAL_STATUS") or "").upper() in {"5", "COMPLETED", "DONE"}:
+        metric_ids.append("tasks_done")
+    elif row.get("DEADLINE"):
+        metric_ids.append("tasks_overdue")
 
     return metric_ids
 

@@ -159,6 +159,8 @@ class BitrixRestClient:
                 all_items.extend(result)
             elif isinstance(result, dict) and "items" in result and isinstance(result["items"], list):
                 all_items.extend(result["items"])
+            elif isinstance(result, dict) and "tasks" in result and isinstance(result["tasks"], list):
+                all_items.extend(result["tasks"])
             elif result is not None:
                 all_items.append(result)
 

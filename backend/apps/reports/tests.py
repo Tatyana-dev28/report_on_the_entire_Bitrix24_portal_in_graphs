@@ -499,6 +499,116 @@ class FakeActivityQuoteContractBitrixRestClient:
                     "RESPONSIBLE_ID": "42",
                     "AUTHOR_ID": "42",
                 },
+                {
+                    "ID": "503",
+                    "OWNER_ID": "4",
+                    "OWNER_TYPE_ID": "2",
+                    "TYPE_ID": "4",
+                    "SUBJECT": "Incoming email",
+                    "CREATED": "2026-05-01T12:30:00+03:00",
+                    "START_TIME": "2026-05-01T12:30:00+03:00",
+                    "COMPLETED": "Y",
+                    "STATUS": "2",
+                    "RESPONSIBLE_ID": "42",
+                    "AUTHOR_ID": "42",
+                    "PROVIDER_ID": "CRM_EMAIL",
+                    "PROVIDER_TYPE_ID": "EMAIL",
+                    "DIRECTION": "1",
+                },
+                {
+                    "ID": "504",
+                    "OWNER_ID": "5",
+                    "OWNER_TYPE_ID": "2",
+                    "TYPE_ID": "4",
+                    "SUBJECT": "Outgoing email",
+                    "CREATED": "2026-05-01T13:30:00+03:00",
+                    "START_TIME": "2026-05-01T13:30:00+03:00",
+                    "COMPLETED": "Y",
+                    "STATUS": "2",
+                    "RESPONSIBLE_ID": "42",
+                    "AUTHOR_ID": "42",
+                    "PROVIDER_ID": "CRM_EMAIL",
+                    "PROVIDER_TYPE_ID": "EMAIL",
+                    "DIRECTION": "2",
+                },
+                {
+                    "ID": "505",
+                    "OWNER_ID": "6",
+                    "OWNER_TYPE_ID": "2",
+                    "TYPE_ID": "6",
+                    "SUBJECT": "Open line message",
+                    "CREATED": "2026-05-01T14:30:00+03:00",
+                    "START_TIME": "2026-05-01T14:30:00+03:00",
+                    "COMPLETED": "Y",
+                    "STATUS": "2",
+                    "RESPONSIBLE_ID": "42",
+                    "AUTHOR_ID": "42",
+                    "PROVIDER_ID": "IM",
+                    "PROVIDER_TYPE_ID": "IM",
+                    "DIRECTION": "1",
+                },
+            ]
+
+        if method == "crm.company.list":
+            return [
+                {
+                    "ID": "900",
+                    "TITLE": "Company",
+                    "DATE_CREATE": "2026-05-01T09:00:00+03:00",
+                    "ASSIGNED_BY_ID": "42",
+                }
+            ]
+
+        if method == "crm.contact.list":
+            return [
+                {
+                    "ID": "901",
+                    "NAME": "Contact",
+                    "LAST_NAME": "Person",
+                    "DATE_CREATE": "2026-05-01T09:30:00+03:00",
+                    "ASSIGNED_BY_ID": "42",
+                }
+            ]
+
+        if method == "tasks.task.list":
+            return [
+                {
+                    "ID": "902",
+                    "TITLE": "Created task",
+                    "CREATED_DATE": "2026-05-01T09:00:00+03:00",
+                    "STATUS": "2",
+                    "REAL_STATUS": "2",
+                    "RESPONSIBLE_ID": "42",
+                },
+                {
+                    "ID": "903",
+                    "TITLE": "Closed task",
+                    "CREATED_DATE": "2026-04-25T09:00:00+03:00",
+                    "CLOSED_DATE": "2026-05-01T15:00:00+03:00",
+                    "STATUS": "5",
+                    "REAL_STATUS": "5",
+                    "RESPONSIBLE_ID": "42",
+                },
+                {
+                    "ID": "904",
+                    "TITLE": "Overdue task",
+                    "CREATED_DATE": "2026-04-25T09:00:00+03:00",
+                    "DEADLINE": "2026-05-01T16:00:00+03:00",
+                    "STATUS": "3",
+                    "REAL_STATUS": "3",
+                    "RESPONSIBLE_ID": "42",
+                },
+            ]
+
+        if method == "crm.webform.result.list":
+            return [
+                {
+                    "ID": "905",
+                    "FORM_NAME": "Brief",
+                    "DATE_CREATE": "2026-05-01T17:00:00+03:00",
+                    "CRM_ENTITY_ID": "1",
+                    "CRM_ENTITY_TYPE": "LEAD",
+                }
             ]
 
         if method == "crm.quote.list":
@@ -1086,6 +1196,10 @@ class BitrixReportDataProviderTests(TestCase):
                 "selectedSources": [
                     "activity-default",
                     "quote-default",
+                    "company-default",
+                    "contact-default",
+                    "task-default",
+                    "crm-form-default",
                     "smart-181-1",
                     "smart-182-2",
                 ],
@@ -1094,6 +1208,10 @@ class BitrixReportDataProviderTests(TestCase):
                     "meetings_created",
                     "activities_done",
                     "activities_undone",
+                    "email_in",
+                    "email_out",
+                    "messages_new",
+                    "messages_total",
                     "quotes_created",
                     "quotes_sent",
                     "quotes_accepted",
@@ -1107,6 +1225,12 @@ class BitrixReportDataProviderTests(TestCase):
                     "contracts_failed",
                     "contracts_signed_sum",
                     "contracts_conversion",
+                    "companies_new",
+                    "contacts_new",
+                    "tasks_created",
+                    "tasks_done",
+                    "tasks_overdue",
+                    "crm_forms",
                 ],
                 "metricMode": "count",
                 "chartDisplayMode": "sum",
@@ -1125,10 +1249,21 @@ class BitrixReportDataProviderTests(TestCase):
 
         first_day = result.data[0]["values"]
 
-        self.assertEqual(first_day["activities_created"], 2)
+        self.assertEqual(first_day["activities_created"], 5)
         self.assertEqual(first_day["meetings_created"], 1)
-        self.assertEqual(first_day["activities_done"], 1)
+        self.assertEqual(first_day["activities_done"], 4)
         self.assertEqual(first_day["activities_undone"], 1)
+        self.assertEqual(first_day["email_in"], 1)
+        self.assertEqual(first_day["email_out"], 1)
+        self.assertEqual(first_day["messages_new"], 1)
+        self.assertEqual(first_day["messages_total"], 1)
+
+        self.assertEqual(first_day["companies_new"], 1)
+        self.assertEqual(first_day["contacts_new"], 1)
+        self.assertEqual(first_day["tasks_created"], 1)
+        self.assertEqual(first_day["tasks_done"], 1)
+        self.assertEqual(first_day["tasks_overdue"], 1)
+        self.assertEqual(first_day["crm_forms"], 1)
 
         self.assertEqual(first_day["quotes_created"], 4)
         self.assertEqual(first_day["quotes_sent"], 2)

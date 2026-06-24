@@ -70,6 +70,42 @@ REPORT_SOURCES = [
         "sourceLabel": "Коммерческие предложения",
         "isAvailable": True,
     },
+    {
+        "id": "company-default",
+        "type": "company",
+        "entityTypeId": 4,
+        "categoryId": None,
+        "title": "Компании",
+        "sourceLabel": "Компании",
+        "isAvailable": True,
+    },
+    {
+        "id": "contact-default",
+        "type": "contact",
+        "entityTypeId": 3,
+        "categoryId": None,
+        "title": "Контакты",
+        "sourceLabel": "Контакты",
+        "isAvailable": True,
+    },
+    {
+        "id": "task-default",
+        "type": "task",
+        "entityTypeId": None,
+        "categoryId": None,
+        "title": "Задачи",
+        "sourceLabel": "Задачи",
+        "isAvailable": True,
+    },
+    {
+        "id": "crm-form-default",
+        "type": "crm_form",
+        "entityTypeId": None,
+        "categoryId": None,
+        "title": "CRM формы",
+        "sourceLabel": "CRM формы",
+        "isAvailable": True,
+    },
 ]
 
 

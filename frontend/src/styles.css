@@ -61,8 +61,10 @@ button {
 .top-panel {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: clamp(8px, 0.85vw, 14px);
   padding: 18px 20px;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .brand-mark {
@@ -103,15 +105,19 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .top-controls {
-  flex: 1 1 auto;
+  flex: 1 1 620px;
   min-width: 0;
 }
 
 .top-actions {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .soft-divider {
@@ -138,20 +144,22 @@ button {
 }
 
 .select-shell {
-  min-width: 180px;
+  min-width: 0;
 }
 
 .view-select {
-  min-width: 240px;
+  flex: 1 1 clamp(170px, 18vw, 300px);
+  min-width: 130px;
 }
 
 .period-select {
-  min-width: 160px;
+  flex: 0 1 clamp(132px, 12vw, 200px);
+  min-width: 112px;
 }
 
 .date-picker-shell {
-  min-width: 260px;
-  flex: 1 1 260px;
+  min-width: 168px;
+  flex: 1 1 clamp(190px, 22vw, 330px);
 }
 
 .select-trigger,
@@ -657,7 +665,7 @@ button {
   display: inline-grid;
   width: 42px;
   height: 42px;
-  flex: 0 0 auto;
+  flex: 0 0 42px;
   place-items: center;
   padding: 0;
   text-decoration: none;
@@ -681,12 +689,22 @@ button {
 
 .action-button {
   display: inline-flex;
+  min-width: 0;
   min-height: 42px;
+  flex: 0 1 auto;
   align-items: center;
   justify-content: center;
   gap: 8px;
   padding: 0 15px;
   color: #ffffff;
+  white-space: nowrap;
+}
+
+.action-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .blue-button {
@@ -727,6 +745,49 @@ button {
   border-color: #bdd2ff;
   background: #f0f6ff;
   color: #185ec8;
+}
+
+@media (max-width: 1280px) {
+  .top-panel {
+    padding-inline: 16px;
+  }
+
+  .top-controls,
+  .top-actions {
+    gap: 8px;
+  }
+
+  .brand-mark {
+    width: 72px;
+  }
+
+  .view-select {
+    flex-basis: clamp(150px, 17vw, 260px);
+  }
+
+  .period-select {
+    flex-basis: clamp(124px, 11vw, 180px);
+  }
+
+  .date-picker-shell {
+    flex-basis: clamp(178px, 20vw, 300px);
+  }
+
+  .action-button {
+    padding-inline: 12px;
+  }
+}
+
+@media (max-width: 1120px) {
+  .top-actions .action-button span {
+    display: none;
+  }
+
+  .top-actions .action-button {
+    width: 42px;
+    flex: 0 0 42px;
+    padding: 0;
+  }
 }
 
 .settings-list {
@@ -2839,15 +2900,17 @@ button {
   }
 
   .top-panel {
-    align-items: stretch;
-    flex-direction: column;
-    padding: 14px;
+    align-items: center;
+    flex-direction: row;
+    gap: 8px;
+    padding: 12px;
   }
 
   .top-controls,
   .top-actions {
-    width: 100%;
-    flex-wrap: wrap;
+    width: auto;
+    flex-wrap: nowrap;
+    gap: 7px;
   }
 
   .view-select,
@@ -2855,11 +2918,42 @@ button {
   .select-shell,
   .date-picker-shell {
     min-width: 0;
-    flex: 1 1 190px;
+  }
+
+  .brand-mark {
+    width: 68px;
+    height: 38px;
+  }
+
+  .icon-button,
+  .build-report-icon-button {
+    width: 38px;
+    height: 38px;
+    flex-basis: 38px;
+  }
+
+  .select-trigger,
+  .date-trigger,
+  .threshold-trigger,
+  .action-button {
+    min-height: 38px;
+    border-radius: 11px;
+  }
+
+  .select-trigger,
+  .date-trigger,
+  .threshold-trigger {
+    gap: 7px;
+    padding: 0 10px;
   }
 
   .action-button {
-    flex: 1 1 190px;
+    min-width: 38px;
+    padding: 0 11px;
+  }
+
+  .top-actions .action-button span {
+    display: none;
   }
 
   .soft-divider {
@@ -2974,17 +3068,43 @@ button {
 @media (max-width: 520px) {
   .top-actions,
   .top-controls {
-    gap: 8px;
+    gap: 6px;
   }
 
   .brand-mark {
-    width: 72px;
-    height: 38px;
+    width: 58px;
+    height: 34px;
   }
 
   .icon-button {
-    width: 40px;
-    height: 40px;
+    width: 34px;
+    height: 34px;
+    flex-basis: 34px;
+  }
+
+  .build-report-icon-button {
+    width: 34px;
+    height: 34px;
+    flex-basis: 34px;
+  }
+
+  .select-trigger,
+  .date-trigger,
+  .threshold-trigger,
+  .action-button {
+    min-height: 34px;
+    font-size: 13px;
+  }
+
+  .select-trigger,
+  .date-trigger,
+  .threshold-trigger {
+    padding: 0 8px;
+  }
+
+  .action-button {
+    min-width: 34px;
+    padding: 0 8px;
   }
 
   .row-action-button {

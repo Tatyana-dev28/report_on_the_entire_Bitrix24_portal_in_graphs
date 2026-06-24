@@ -38,6 +38,9 @@ def load_activity_rows(
             "STATUS",
             "RESPONSIBLE_ID",
             "AUTHOR_ID",
+            "PROVIDER_ID",
+            "PROVIDER_TYPE_ID",
+            "DIRECTION",
         ],
     }
     rows = _load_activity_rows_batched(client, params)
@@ -172,11 +175,17 @@ def apply_activity_metrics(values: dict[str, int | float], activity_rows: list[d
     meeting_rows = [row for row in activity_rows if is_meeting_activity(row)]
     completed_rows = [row for row in activity_rows if is_completed_activity(row)]
     undone_rows = [row for row in activity_rows if not is_completed_activity(row)]
+    email_rows = [row for row in activity_rows if is_email_activity(row)]
+    message_rows = [row for row in activity_rows if is_message_activity(row)]
 
     values["meetings_created"] = len(meeting_rows)
     values["activities_created"] = len(activity_rows)
     values["activities_done"] = len(completed_rows)
     values["activities_undone"] = len(undone_rows)
+    values["email_in"] = len([row for row in email_rows if str(row.get("DIRECTION") or "") == "1"])
+    values["email_out"] = len([row for row in email_rows if str(row.get("DIRECTION") or "") == "2"])
+    values["messages_new"] = len(message_rows)
+    values["messages_total"] = len(message_rows)
 
 
 def is_meeting_activity(row: dict) -> bool:
@@ -191,6 +200,30 @@ def is_completed_activity(row: dict) -> bool:
     status = str(row.get("STATUS") or "").upper()
 
     return completed == "Y" or status in {"2", "COMPLETED", "DONE"}
+
+
+def is_email_activity(row: dict) -> bool:
+    provider_id = str(row.get("PROVIDER_ID") or "").upper()
+    provider_type_id = str(row.get("PROVIDER_TYPE_ID") or "").upper()
+    type_id = str(row.get("TYPE_ID") or "").upper()
+
+    return (
+        provider_id in {"CRM_EMAIL", "BITRIX24_EMAIL"}
+        or provider_type_id in {"EMAIL", "CRM_EMAIL", "BITRIX24_EMAIL"}
+        or type_id == "4"
+    )
+
+
+def is_message_activity(row: dict) -> bool:
+    provider_id = str(row.get("PROVIDER_ID") or "").upper()
+    provider_type_id = str(row.get("PROVIDER_TYPE_ID") or "").upper()
+
+    return provider_id in {"IM", "LINES", "OPENLINES", "CRM_IM"} or provider_type_id in {
+        "IM",
+        "LINES",
+        "OPENLINES",
+        "CRM_IM",
+    }
 
 
 def _normalize_activity_row(row: dict) -> dict:
@@ -209,5 +242,8 @@ def _normalize_activity_row(row: dict) -> dict:
         "STATUS": row.get("STATUS"),
         "RESPONSIBLE_ID": row.get("RESPONSIBLE_ID"),
         "AUTHOR_ID": row.get("AUTHOR_ID"),
+        "PROVIDER_ID": row.get("PROVIDER_ID"),
+        "PROVIDER_TYPE_ID": row.get("PROVIDER_TYPE_ID"),
+        "DIRECTION": row.get("DIRECTION"),
         "SOURCE_KIND": "crm_activity",
     }

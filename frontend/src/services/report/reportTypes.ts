@@ -8,6 +8,10 @@ export type CrmSourceType =
   | 'telephony'
   | 'activity'
   | 'quote'
+  | 'company'
+  | 'contact'
+  | 'task'
+  | 'crm_form'
   | 'other';
 
 export type CrmSource = {

@@ -149,8 +149,37 @@ export const getChartSeriesValue = (
     normalizedSource.includes('smart-1070-') ||
     normalizedSource.includes('meeting') ||
     normalizedSource.includes('встреч');
+  const isCompanySource =
+    normalizedSource.includes('company') ||
+    normalizedSource.includes('компан');
+  const isContactSource =
+    normalizedSource.includes('contact') ||
+    normalizedSource.includes('контакт');
+  const isTaskSource =
+    normalizedSource.includes('task') ||
+    normalizedSource.includes('задач');
+  const isCrmFormSource =
+    normalizedSource.includes('crm-form') ||
+    normalizedSource.includes('crm_form') ||
+    normalizedSource.includes('форм');
 
   if (metricMode === 'count') {
+    if (isCompanySource) {
+      return values.companies_new;
+    }
+
+    if (isContactSource) {
+      return values.contacts_new;
+    }
+
+    if (isTaskSource) {
+      return values.tasks_created;
+    }
+
+    if (isCrmFormSource) {
+      return values.crm_forms;
+    }
+
     if (isContractSource) {
       return values.contracts_created;
     }

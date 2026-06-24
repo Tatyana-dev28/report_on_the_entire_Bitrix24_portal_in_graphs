@@ -141,8 +141,24 @@ export const getChartSeriesValue = (
     normalizedSource.includes('activity') ||
     normalizedSource.includes('актив') ||
     normalizedSource.includes('дел');
+  const isContractSource =
+    normalizedSource.includes('smart-170-') ||
+    normalizedSource.includes('contract') ||
+    normalizedSource.includes('договор');
+  const isMeetingSource =
+    normalizedSource.includes('smart-1070-') ||
+    normalizedSource.includes('meeting') ||
+    normalizedSource.includes('встреч');
 
   if (metricMode === 'count') {
+    if (isContractSource) {
+      return values.contracts_created;
+    }
+
+    if (isMeetingSource) {
+      return values.meetings_created;
+    }
+
     if (isLeadSource) {
       return values.leads_created;
     }
@@ -176,6 +192,14 @@ export const getChartSeriesValue = (
 
   if (isLeadSource) {
     return values.leads_quality_sum;
+  }
+
+  if (isContractSource) {
+    return values.contracts_signed_sum;
+  }
+
+  if (isMeetingSource) {
+    return 0;
   }
 
   if (isProductionSource) {

@@ -518,6 +518,43 @@ class FakeActivityQuoteContractBitrixRestClient:
                     },
                 ]
 
+            if entity_type_id == 170:
+                return [
+                    {
+                        "id": 710,
+                        "title": "Contract sent",
+                        "createdTime": "2026-05-01T14:00:00+03:00",
+                        "stageId": "DT170_17:CONTRACT_SENT",
+                        "stageSemanticId": "P",
+                        "opportunity": "1000",
+                        "currencyId": "RUB",
+                        "assignedById": 42,
+                        "categoryId": 17,
+                    },
+                    {
+                        "id": 711,
+                        "title": "Contract signed",
+                        "createdTime": "2026-05-01T15:00:00+03:00",
+                        "stageId": "DT170_17:SIGNED",
+                        "stageSemanticId": "S",
+                        "opportunity": "2500",
+                        "currencyId": "RUB",
+                        "assignedById": 42,
+                        "categoryId": 17,
+                    },
+                    {
+                        "id": 712,
+                        "title": "Contract failed",
+                        "createdTime": "2026-05-01T16:00:00+03:00",
+                        "stageId": "DT170_17:FAILED",
+                        "stageSemanticId": "F",
+                        "opportunity": "400",
+                        "currencyId": "RUB",
+                        "assignedById": 42,
+                        "categoryId": 17,
+                    },
+                ]
+
             if entity_type_id == 182:
                 return [
                     {
@@ -541,6 +578,21 @@ class FakeActivityQuoteContractBitrixRestClient:
                         "currencyId": "RUB",
                         "assignedById": 42,
                         "categoryId": 2,
+                    },
+                ]
+
+            if entity_type_id == 1070:
+                return [
+                    {
+                        "id": 900,
+                        "title": "Meeting",
+                        "createdTime": "2026-05-01T11:00:00+03:00",
+                        "stageId": "DT1070_87:NEW",
+                        "stageSemanticId": "P",
+                        "opportunity": "0",
+                        "currencyId": "RUB",
+                        "assignedById": 42,
+                        "categoryId": 87,
                     },
                 ]
 
@@ -617,6 +669,7 @@ class ReportCatalogTests(TestCase):
         self.assertIn("deal-12", source_ids)
         self.assertIn("smart-180-4", source_ids)
         self.assertIn("invoice-default", source_ids)
+        self.assertIn("telephony-default", source_ids)
 
         deal_source = CrmSource.objects.get(portal=self.portal, external_key="deal-12")
 
@@ -629,6 +682,10 @@ class ReportCatalogTests(TestCase):
         self.assertEqual(smart_source.source_type, CrmSource.SourceType.SMART_PROCESS)
         self.assertEqual(smart_source.entity_type_id, 180)
         self.assertEqual(smart_source.category_id, 4)
+
+        telephony_source = CrmSource.objects.get(portal=self.portal, external_key="telephony-default")
+
+        self.assertEqual(telephony_source.source_type, CrmSource.SourceType.CALL)
 
     def test_catalog_falls_back_to_cached_sources_without_bitrix_token(self):
         CrmSource.objects.create(
@@ -913,7 +970,7 @@ class BitrixReportDataProviderTests(TestCase):
             filters={
                 "period": "days",
                 "dateRange": {"from": "2026-05-01", "to": "2026-05-02"},
-                "selectedSources": ["Телефония"],
+                "selectedSources": ["telephony-default"],
                 "selectedMetricIds": [
                     "calls_total",
                     "calls_in",
@@ -982,8 +1039,8 @@ class BitrixReportDataProviderTests(TestCase):
                 "period": "days",
                 "dateRange": {"from": "2026-05-01", "to": "2026-05-02"},
                 "selectedSources": [
-                    "Дела CRM",
-                    "Коммерческие предложения",
+                    "activity-default",
+                    "quote-default",
                     "smart-181-1",
                     "smart-182-2",
                 ],
@@ -1051,3 +1108,69 @@ class BitrixReportDataProviderTests(TestCase):
         self.assertEqual(second_day["activities_undone"], 0)
         self.assertEqual(second_day["quotes_created"], 0)
         self.assertEqual(second_day["contracts_created"], 0)
+
+    def test_provider_resolves_duplicate_smart_labels_by_source_id(self):
+        CrmSource.objects.create(
+            portal=self.portal,
+            external_key="smart-170-17",
+            source_type=CrmSource.SourceType.SMART_PROCESS,
+            entity_type_id=170,
+            category_id=17,
+            title="Общее",
+            source_label="Общее",
+            is_available=True,
+            raw_data={"type": {"title": "Договор"}, "category": {"name": "Общее"}},
+        )
+        CrmSource.objects.create(
+            portal=self.portal,
+            external_key="smart-1070-87",
+            source_type=CrmSource.SourceType.SMART_PROCESS,
+            entity_type_id=1070,
+            category_id=87,
+            title="Общее",
+            source_label="Общее",
+            is_available=True,
+            raw_data={"type": {"title": "> Встречи"}, "category": {"name": "Общее"}},
+        )
+
+        provider = BitrixReportDataProvider(rest_client_factory=FakeActivityQuoteContractBitrixRestClient)
+
+        result = provider.build_preview(
+            filters={
+                "period": "days",
+                "dateRange": {"from": "2026-05-01", "to": "2026-05-02"},
+                "selectedSources": [
+                    "smart-170-17",
+                    "smart-1070-87",
+                ],
+                "selectedMetricIds": [
+                    "meetings_created",
+                    "contracts_created",
+                    "contracts_sent",
+                    "contracts_signed",
+                    "contracts_failed",
+                    "contracts_signed_sum",
+                    "contracts_conversion",
+                ],
+                "metricMode": "count",
+                "chartDisplayMode": "sum",
+            },
+            context=ReportDataProviderContext(
+                portal=self.portal,
+                user=None,
+                bitrix_user_id="42",
+                user_name="",
+            ),
+        )
+
+        first_day = result.data[0]["values"]
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.metadata["unsupportedSources"], [])
+        self.assertEqual(first_day["meetings_created"], 1)
+        self.assertEqual(first_day["contracts_created"], 3)
+        self.assertEqual(first_day["contracts_sent"], 1)
+        self.assertEqual(first_day["contracts_signed"], 1)
+        self.assertEqual(first_day["contracts_failed"], 1)
+        self.assertEqual(first_day["contracts_signed_sum"], 2500)
+        self.assertEqual(first_day["contracts_conversion"], 33.3)

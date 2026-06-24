@@ -23,15 +23,25 @@ CONTRACT_SOURCE_KEYWORDS = {
     "contracts",
 }
 
+MEETING_SOURCE_KEYWORDS = {
+    "meeting",
+    "meetings",
+}
+
+CONTRACT_ENTITY_TYPE_IDS = {170}
+MEETING_ENTITY_TYPE_IDS = {1070}
+
 
 def get_smart_source_report_role(source: dict) -> str | None:
-    text = " ".join(
-        [
-            str(source.get("id") or ""),
-            str(source.get("title") or ""),
-            str(source.get("sourceLabel") or ""),
-        ]
-    ).lower()
+    entity_type_id = _safe_int(source.get("entityTypeId"))
+
+    if entity_type_id in CONTRACT_ENTITY_TYPE_IDS:
+        return "contract"
+
+    if entity_type_id in MEETING_ENTITY_TYPE_IDS:
+        return "meeting"
+
+    text = _smart_source_search_text(source)
 
     if any(keyword in text for keyword in QUOTE_SOURCE_KEYWORDS):
         return "quote"
@@ -39,7 +49,51 @@ def get_smart_source_report_role(source: dict) -> str | None:
     if any(keyword in text for keyword in CONTRACT_SOURCE_KEYWORDS):
         return "contract"
 
+    if any(keyword in text for keyword in MEETING_SOURCE_KEYWORDS):
+        return "meeting"
+
     return None
+
+
+def _smart_source_search_text(source: dict) -> str:
+    raw_data = source.get("rawData") or {}
+    raw_type = raw_data.get("type") if isinstance(raw_data, dict) else {}
+    raw_category = raw_data.get("category") if isinstance(raw_data, dict) else {}
+
+    parts = [
+        source.get("id"),
+        source.get("title"),
+        source.get("sourceLabel"),
+    ]
+
+    if isinstance(raw_type, dict):
+        parts.extend(
+            [
+                raw_type.get("title"),
+                raw_type.get("TITLE"),
+                raw_type.get("name"),
+                raw_type.get("NAME"),
+            ]
+        )
+
+    if isinstance(raw_category, dict):
+        parts.extend(
+            [
+                raw_category.get("title"),
+                raw_category.get("TITLE"),
+                raw_category.get("name"),
+                raw_category.get("NAME"),
+            ]
+        )
+
+    return " ".join(str(part or "") for part in parts).lower()
+
+
+def _safe_int(value: object) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def apply_mapped_quote_metrics(values: dict[str, int | float], quote_rows: list[dict]) -> None:

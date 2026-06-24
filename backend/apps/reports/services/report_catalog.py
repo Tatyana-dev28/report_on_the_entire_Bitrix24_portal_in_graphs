@@ -15,9 +15,25 @@ SOURCE_TYPE_TO_MODEL = {
     "deal": CrmSource.SourceType.DEAL,
     "smartProcess": CrmSource.SourceType.SMART_PROCESS,
     "invoice": CrmSource.SourceType.INVOICE,
+    "telephony": CrmSource.SourceType.CALL,
+    "activity": CrmSource.SourceType.ACTIVITY,
+    "quote": CrmSource.SourceType.OTHER,
 }
 
-SOURCE_TYPE_TO_API = {value: key for key, value in SOURCE_TYPE_TO_MODEL.items()}
+SOURCE_TYPE_TO_API = {
+    CrmSource.SourceType.LEAD: "lead",
+    CrmSource.SourceType.DEAL: "deal",
+    CrmSource.SourceType.SMART_PROCESS: "smartProcess",
+    CrmSource.SourceType.INVOICE: "invoice",
+    CrmSource.SourceType.CALL: "telephony",
+    CrmSource.SourceType.ACTIVITY: "activity",
+}
+
+VIRTUAL_REPORT_SOURCE_IDS = {
+    "telephony-default",
+    "activity-default",
+    "quote-default",
+}
 
 
 class ReportCatalogError(Exception):
@@ -48,7 +64,7 @@ def get_report_sources(portal: BitrixPortal | None = None) -> list[dict]:
     cached_sources = get_cached_report_sources(portal)
 
     if cached_sources:
-        return cached_sources
+        return _deduplicate_sources([*cached_sources, *_virtual_report_sources()])
 
     return [dict(source) for source in REPORT_SOURCES]
 
@@ -59,12 +75,18 @@ def get_cached_report_sources(portal: BitrixPortal) -> list[dict]:
         is_active=True,
     ).order_by("source_type", "category_id", "title")
 
-    return [_model_to_api_source(source) for source in sources]
+    return _deduplicate_sources([_model_to_api_source(source) for source in sources])
 
 
 def load_sources_from_bitrix(portal: BitrixPortal) -> list[dict]:
     client = BitrixRestClient(portal)
-    sources = [_lead_source(), *_deal_sources(client), *_smart_process_sources(client), _invoice_source()]
+    sources = [
+        _lead_source(),
+        *_deal_sources(client),
+        *_smart_process_sources(client),
+        _invoice_source(),
+        *_virtual_report_sources(),
+    ]
 
     return _deduplicate_sources(sources)
 
@@ -224,13 +246,35 @@ def _invoice_source() -> dict:
 def _model_to_api_source(source: CrmSource) -> dict:
     return {
         "id": source.external_key,
-        "type": SOURCE_TYPE_TO_API.get(source.source_type, "other"),
+        "type": _api_source_type_from_model(source),
         "entityTypeId": source.entity_type_id,
         "categoryId": source.category_id,
         "title": source.title,
         "sourceLabel": source.source_label or source.title,
         "isAvailable": source.is_available,
+        "rawData": source.raw_data or {},
     }
+
+
+def _api_source_type_from_model(source: CrmSource) -> str:
+    if source.external_key.startswith("quote-"):
+        return "quote"
+
+    if source.external_key.startswith("telephony-"):
+        return "telephony"
+
+    if source.external_key.startswith("activity-"):
+        return "activity"
+
+    return SOURCE_TYPE_TO_API.get(source.source_type, "other")
+
+
+def _virtual_report_sources() -> list[dict]:
+    return [
+        dict(source)
+        for source in REPORT_SOURCES
+        if str(source.get("id")) in VIRTUAL_REPORT_SOURCE_IDS
+    ]
 
 
 def _portal_has_access_token(portal: BitrixPortal) -> bool:

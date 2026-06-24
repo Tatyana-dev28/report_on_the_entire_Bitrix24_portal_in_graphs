@@ -117,7 +117,7 @@ export const createDefaultSchedule = (): ScheduleFilters => ({
 export const createDefaultFilters = (): ReportFilters => ({
   period: 'days',
   dateRange: defaultDateRange,
-  selectedSources: ['Воронка продажи'],
+  selectedSources: ['deal-sales'],
   chartDisplayMode: 'sum',
   metricMode: 'money',
   schedule: createDefaultSchedule(),

@@ -504,18 +504,29 @@ function App() {
     () =>
       crmSources
         .filter((source) => source.isAvailable)
-        .map((source) => source.sourceLabel),
+        .map((source) => ({
+          value: source.id,
+          label: source.sourceLabel || source.title || source.id,
+        })),
     [crmSources],
+  );
+  const crmSourceIds = useMemo(
+    () => crmSourceOptions.map((source) => source.value),
+    [crmSourceOptions],
+  );
+  const crmSourceLabelById = useMemo(
+    () => new Map(crmSourceOptions.map((source) => [source.value, source.label])),
+    [crmSourceOptions],
   );
 
   useEffect(() => {
-    if (!crmSourceOptions.length) {
+    if (!crmSourceIds.length) {
       return;
     }
 
     setDraftFilters((current) => {
       const selectedSources = current.selectedSources.filter((source) =>
-        crmSourceOptions.includes(source),
+        crmSourceIds.includes(source),
       );
 
       if (selectedSources.length) {
@@ -524,16 +535,21 @@ function App() {
 
       return {
         ...current,
-        selectedSources: [crmSourceOptions[0]],
+        selectedSources: [crmSourceIds[0]],
       };
     });
-  }, [crmSourceOptions]);
+  }, [crmSourceIds]);
   const selectedChartSources = useMemo(
     () =>
       appliedFilters.selectedSources.length
         ? appliedFilters.selectedSources
-        : ['Воронка продажи'],
-    [appliedFilters.selectedSources],
+        : [crmSourceIds[0] ?? 'deal-sales'],
+    [appliedFilters.selectedSources, crmSourceIds],
+  );
+  const selectedChartSourceLabels = useMemo(
+    () =>
+      selectedChartSources.map((source) => crmSourceLabelById.get(source) ?? source),
+    [crmSourceLabelById, selectedChartSources],
   );
   const isSeparateChart = selectedChartSources.length > 1 && appliedFilters.chartDisplayMode === 'separate';
   const chartSeries = useMemo(
@@ -541,17 +557,17 @@ function App() {
       isSeparateChart
         ? selectedChartSources.map((source, index) => ({
             key: `series_${index}`,
-            label: source,
+            label: crmSourceLabelById.get(source) ?? source,
             color: chartSeriesColors[index % chartSeriesColors.length],
           }))
         : [
             {
               key: 'indicator',
-              label: selectedChartSources.length > 1 ? 'Сумма' : selectedChartSources[0],
+              label: selectedChartSources.length > 1 ? 'Сумма' : (selectedChartSourceLabels[0] ?? 'Показатель'),
               color: '#2274ff',
             },
           ],
-    [isSeparateChart, selectedChartSources],
+    [crmSourceLabelById, isSeparateChart, selectedChartSourceLabels, selectedChartSources],
   );
   const chartBaseValues = useMemo(
     () =>

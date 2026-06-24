@@ -86,6 +86,8 @@ def _row_metric_ids(source_id: str, row: dict, metric_ids: set[str]) -> list[str
             candidates.extend(_quote_metric_ids(row))
         elif role == "contract":
             candidates.extend(_contract_metric_ids(row))
+        elif role == "meeting":
+            candidates.append("meetings_created")
         else:
             candidates.extend(_smart_process_metric_ids(row))
     elif source_id.startswith("telephony-"):

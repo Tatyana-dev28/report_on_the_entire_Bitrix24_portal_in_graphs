@@ -532,7 +532,15 @@ def resolve_selected_sources(selected_sources: list[str]) -> list[dict]:
         dict(source)
         for source in REPORT_SOURCES
         if str(source.get("id")) in normalized_values
-        or str(source.get("title")) in normalized_values
+    ]
+
+    if result:
+        return result
+
+    result = [
+        dict(source)
+        for source in REPORT_SOURCES
+        if str(source.get("title")) in normalized_values
         or str(source.get("sourceLabel")) in normalized_values
     ]
 
@@ -561,37 +569,44 @@ def resolve_selected_sources_for_portal(portal: Any, selected_sources: list[str]
     )
 
     for source in portal_sources:
+        if source.external_key not in normalized_values:
+            continue
+
+        result.append(_crm_source_to_report_source(source))
+        seen_ids.add(source.external_key)
+
+    portal_source_types = {source["type"] for source in result}
+
+    for source in REPORT_SOURCES:
+        if str(source.get("id") or "") not in normalized_values:
+            continue
+
+        if source["id"] in seen_ids:
+            continue
+
+        if source["type"] in portal_source_types:
+            continue
+
+        result.append(dict(source))
+        seen_ids.add(source["id"])
+
+    if result:
+        return result
+
+    for source in portal_sources:
         candidates = {
-            source.external_key,
             source.title,
             source.source_label,
         }
 
         if candidates & normalized_values:
-            source_type = (
-                "smartProcess"
-                if source.source_type == CrmSource.SourceType.SMART_PROCESS
-                else source.source_type
-            )
-
-            result.append(
-                {
-                    "id": source.external_key,
-                    "type": source_type,
-                    "entityTypeId": source.entity_type_id,
-                    "categoryId": source.category_id,
-                    "title": source.title,
-                    "sourceLabel": source.source_label or source.title,
-                    "isAvailable": source.is_available,
-                }
-            )
+            result.append(_crm_source_to_report_source(source))
             seen_ids.add(source.external_key)
 
     portal_source_types = {source["type"] for source in result}
 
     for source in REPORT_SOURCES:
         candidates = {
-            str(source.get("id") or ""),
             str(source.get("title") or ""),
             str(source.get("sourceLabel") or ""),
         }
@@ -612,6 +627,32 @@ def resolve_selected_sources_for_portal(portal: Any, selected_sources: list[str]
         return result
 
     return resolve_selected_sources(selected_sources)
+
+
+def _crm_source_to_report_source(source: CrmSource) -> dict:
+    source_type = (
+        "smartProcess"
+        if source.source_type == CrmSource.SourceType.SMART_PROCESS
+        else source.source_type
+    )
+
+    if source.external_key.startswith("telephony-"):
+        source_type = "telephony"
+    elif source.external_key.startswith("activity-"):
+        source_type = "activity"
+    elif source.external_key.startswith("quote-"):
+        source_type = "quote"
+
+    return {
+        "id": source.external_key,
+        "type": source_type,
+        "entityTypeId": source.entity_type_id,
+        "categoryId": source.category_id,
+        "title": source.title,
+        "sourceLabel": source.source_label or source.title,
+        "isAvailable": source.is_available,
+        "rawData": source.raw_data or {},
+    }
 
 
 def build_period_buckets(period: str, date_from: datetime, date_to: datetime) -> list[PeriodBucket]:
@@ -702,10 +743,16 @@ def _build_bucket_values(
         if row.get("REPORT_SOURCE_ROLE") == "contract"
     ]
 
+    meeting_rows = [
+        row
+        for row in smart_process_rows
+        if row.get("REPORT_SOURCE_ROLE") == "meeting"
+    ]
+
     regular_smart_process_rows = [
         row
         for row in smart_process_rows
-        if row.get("REPORT_SOURCE_ROLE") not in {"quote", "contract"}
+        if row.get("REPORT_SOURCE_ROLE") not in {"quote", "contract", "meeting"}
     ]
 
     won_deals = [row for row in deal_rows if _is_won_stage(row.get("STAGE_ID"))]
@@ -741,6 +788,7 @@ def _build_bucket_values(
     apply_smart_process_metrics(values, regular_smart_process_rows)
     apply_call_metrics(values, call_rows)
     apply_activity_metrics(values, activity_rows)
+    values["meetings_created"] += len(meeting_rows)
     apply_quote_metrics(values, quote_rows)
     apply_mapped_quote_metrics(values, mapped_quote_rows)
     apply_contract_metrics(values, contract_rows)

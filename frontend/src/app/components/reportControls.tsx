@@ -415,17 +415,21 @@ export function MultiSelect({
   onChange,
 }: {
   values: string[];
-  options: string[];
+  options: SelectOption<string>[];
   onChange: (values: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
+  const optionLabelByValue = useMemo(
+    () => new Map(options.map((option) => [option.value, option.label])),
+    [options],
+  );
   const label =
     values.length === options.length
       ? 'Все источники'
       : values.length
-        ? values.join(', ')
+        ? values.map((value) => optionLabelByValue.get(value) ?? value).join(', ')
         : 'Не выбрано';
 
   const toggleValue = (value: string) => {
@@ -459,13 +463,13 @@ export function MultiSelect({
           expectedHeight={220}
         >
           {options.map((option) => (
-            <label className="multi-option" key={option}>
+            <label className="multi-option" key={option.value}>
               <input
                 type="checkbox"
-                checked={values.includes(option)}
-                onChange={() => toggleValue(option)}
+                checked={values.includes(option.value)}
+                onChange={() => toggleValue(option.value)}
               />
-              <span>{option}</span>
+              <span>{option.label}</span>
             </label>
           ))}
         </FloatingPopover>
@@ -650,7 +654,7 @@ export function ConfigureChartMenu({
   onThresholdReset,
 }: {
   filters: ReportFilters;
-  crmSourceOptions: string[];
+  crmSourceOptions: SelectOption<string>[];
   mainThreshold: ThresholdValues;
   mainRecommendedThreshold: RecommendedThresholdValues;
   onApply: (settings: ChartDraftSettings) => void;

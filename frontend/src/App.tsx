@@ -142,7 +142,6 @@ import {
   getChartDomain,
   getChartSeriesValue,
   getEmployeeInitials,
-  getEmployeeMetricValue,
 } from './app/utils/reportCalculations';
 import {
   calculateRecommendedThresholds,
@@ -268,6 +267,32 @@ const buildBackendDetailRows = (
 
 const areStringArraysEqual = (first: string[], second: string[]) =>
   first.length === second.length && first.every((value, index) => value === second[index]);
+
+const normalizePeriodKey = (value: string) => value.slice(0, 10);
+
+const getEmployeePeriodMetricValue = (
+  employee: ReportEmployee,
+  point: ReportPoint,
+  metricId: string,
+): number => {
+  const valuesByPeriod = employee.valuesByPeriod ?? {};
+  const exactValue = valuesByPeriod[point.key]?.[metricId];
+
+  if (typeof exactValue === 'number') {
+    return exactValue;
+  }
+
+  const pointDateKey = normalizePeriodKey(point.key);
+  const matchedPeriodKey = Object.keys(valuesByPeriod).find(
+    (periodKey) => normalizePeriodKey(periodKey) === pointDateKey,
+  );
+
+  if (!matchedPeriodKey) {
+    return 0;
+  }
+
+  return valuesByPeriod[matchedPeriodKey]?.[metricId] ?? 0;
+};
 
 function App() {
   const [savedViews, setSavedViews] = useState<SavedReportViewOption[]>(() => loadSavedViews());
@@ -1612,16 +1637,9 @@ function App() {
         if (row.kind === 'employee') {
           const employeeRow = worksheet.addRow([
             `  ${row.employee.firstName} ${row.employee.lastName}`,
-            ...reportData.map((point, pointIndex) =>
+            ...reportData.map((point) =>
               formatMetricValue(
-                hasBuiltReport
-                  ? getEmployeeMetricValue(
-                      point.values[row.metric.id],
-                      row.metric,
-                      row.employeeIndex,
-                      pointIndex,
-                    )
-                  : 0,
+                hasBuiltReport ? getEmployeePeriodMetricValue(row.employee, point, row.metric.id) : 0,
                 row.metric.type,
               ),
             ),
@@ -2165,15 +2183,9 @@ function App() {
                     <div className="table-right-cell" role="cell">
                       <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
                         <div className="value-axis-gutter" aria-hidden="true" />
-                        {reportData.map((point, pointIndex) => {
+                        {reportData.map((point) => {
                           const value = hasBuiltReport
-                            ? row.employee.values?.[row.metric.id] ??
-                              getEmployeeMetricValue(
-                                  point.values[row.metric.id],
-                                  row.metric,
-                                  row.employeeIndex,
-                                  pointIndex,
-                                )
+                            ? getEmployeePeriodMetricValue(row.employee, point, row.metric.id)
                             : 0;
 
                           const valueLabel = formatMetricValue(value, row.metric.type);

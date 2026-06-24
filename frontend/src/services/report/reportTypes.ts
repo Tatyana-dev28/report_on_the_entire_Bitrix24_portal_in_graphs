@@ -1,4 +1,4 @@
-﻿import type { DateRange, MetricRow, MetricSection, Period, ReportPoint } from './reportCatalog';
+import type { DateRange, MetricRow, MetricSection, Period, ReportPoint } from './reportCatalog';
 
 export type CrmSourceType =
   | 'lead'
@@ -55,6 +55,13 @@ export type MetricDetailItem = {
   entityType?: string;
 };
 
+export type EmployeeMetricPeriodValue = {
+  key: string;
+  label: string;
+  tooltipLabel?: string;
+  values: Record<string, number>;
+};
+
 export type EmployeeMetricItem = {
   id: string;
   userId?: number;
@@ -62,6 +69,8 @@ export type EmployeeMetricItem = {
   avatarUrl?: string;
   value?: number;
   values?: Record<string, number>;
+  valuesByPeriod?: Record<string, Record<string, number>>;
+  periodValues?: EmployeeMetricPeriodValue[];
 };
 
 export type ReportPreviewPayload = {

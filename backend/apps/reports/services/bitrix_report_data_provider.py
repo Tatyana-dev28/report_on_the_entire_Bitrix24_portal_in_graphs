@@ -108,6 +108,7 @@ class BitrixReportDataProvider:
             metric_catalog=metric_catalog,
             date_from=date_from,
             date_to=date_to,
+            buckets=buckets,
             build_bucket_values=_build_bucket_values,
         )
         details = build_entity_details(

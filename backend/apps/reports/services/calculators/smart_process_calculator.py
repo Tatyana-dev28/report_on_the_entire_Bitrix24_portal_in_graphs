@@ -240,10 +240,13 @@ def is_production_work(row: SmartProcessRow) -> bool:
             "PROCESS",
             "PRODUCTION",
             "IN_PROGRESS",
+            "UC_N8SQYZ",  # ГР загружено на портал
         }
         or "WORK" in stage
         or "PROCESS" in stage
         or "PRODUCTION" in stage
+        or "LOAD" in stage
+        or "ЗАГРУЖ" in stage
     ):
         return True
 
@@ -268,6 +271,7 @@ def is_production_check(row: SmartProcessRow) -> bool:
             "INSPECTION",
             "TEST",
             "TESTING",
+            "UC_TSL2FI",  # Инструкция по ГР записана
         }
         or "CHECK" in stage
         or "REVIEW" in stage
@@ -277,6 +281,7 @@ def is_production_check(row: SmartProcessRow) -> bool:
         or "QUALITY" in stage
         or "INSPECT" in stage
         or "TEST" in stage
+        or "ИНСТРУКЦ" in stage
     )
 
 
@@ -292,12 +297,15 @@ def is_production_ready(row: SmartProcessRow) -> bool:
             "FINAL",
             "COMPLETE",
             "COMPLETED",
-            "UC_1RXT3D",
+            "UC_1RXT3D",   # ГР настроено
+            "UC_UHTGE6",   # Публикация
         }
         or "READY" in stage
         or "DONE" in stage
         or "FINISH" in stage
         or "COMPLETE" in stage
+        or "PUBLIC" in stage
+        or "ПУБЛИК" in stage
     )
 
 

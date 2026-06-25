@@ -729,6 +729,7 @@ class BitrixReportDataProvider:
         date_from: datetime,
         date_to: datetime,
     ) -> list[dict]:
+        # Пытаемся загрузить через crm.webform.result.list (требует скоуп crm.webform)
         try:
             rows = client.call_list(
                 "crm.webform.result.list",
@@ -740,15 +741,85 @@ class BitrixReportDataProvider:
                     },
                 },
             )
+            if rows:
+                return [_normalize_crm_form_row(row) for row in rows]
         except BitrixRestError:
             logger.warning(
-                "crm.webform.result.list failed; crm_forms will be zero. "
-                "The method may be unavailable for this portal or OAuth scope.",
+                "crm.webform.result.list failed; falling back to leads/deals with SOURCE_ID=WEBFORM.",
                 exc_info=True,
             )
-            return []
 
-        return [_normalize_crm_form_row(row) for row in rows]
+        # Fallback: загружаем лиды и сделки с SOURCE_ID=WEBFORM
+        logger.info("Loading CRM forms fallback via leads and deals with SOURCE_ID=WEBFORM.")
+        form_rows: list[dict] = []
+
+        try:
+            lead_rows = client.call_list(
+                "crm.lead.list",
+                {
+                    "order": {"DATE_CREATE": "ASC"},
+                    "filter": {
+                        ">=DATE_CREATE": _bitrix_datetime(date_from),
+                        "<=DATE_CREATE": _bitrix_datetime(date_to),
+                        "SOURCE_ID": "WEBFORM",
+                    },
+                    "select": [
+                        "ID",
+                        "TITLE",
+                        "DATE_CREATE",
+                        "SOURCE_ID",
+                    ],
+                },
+            )
+            for row in lead_rows:
+                form_rows.append({
+                    "ID": f"lead-form-{row.get('ID')}",
+                    "DATE_CREATE": row.get("DATE_CREATE"),
+                    "FORM_NAME": f"WEBFORM (lead #{row.get('ID')})",
+                    "CRM_ENTITY_ID": row.get("ID"),
+                    "CRM_ENTITY_TYPE": "LEAD",
+                })
+        except BitrixRestError:
+            logger.warning("Failed to load leads with SOURCE_ID=WEBFORM for CRM forms fallback.", exc_info=True)
+
+        try:
+            deal_rows = client.call_list(
+                "crm.deal.list",
+                {
+                    "order": {"DATE_CREATE": "ASC"},
+                    "filter": {
+                        ">=DATE_CREATE": _bitrix_datetime(date_from),
+                        "<=DATE_CREATE": _bitrix_datetime(date_to),
+                        "SOURCE_ID": "WEBFORM",
+                    },
+                    "select": [
+                        "ID",
+                        "TITLE",
+                        "DATE_CREATE",
+                        "SOURCE_ID",
+                    ],
+                },
+            )
+            for row in deal_rows:
+                form_rows.append({
+                    "ID": f"deal-form-{row.get('ID')}",
+                    "DATE_CREATE": row.get("DATE_CREATE"),
+                    "FORM_NAME": f"WEBFORM (deal #{row.get('ID')})",
+                    "CRM_ENTITY_ID": row.get("ID"),
+                    "CRM_ENTITY_TYPE": "DEAL",
+                })
+        except BitrixRestError:
+            logger.warning("Failed to load deals with SOURCE_ID=WEBFORM for CRM forms fallback.", exc_info=True)
+
+        if form_rows:
+            logger.info("CRM forms fallback loaded %d rows from leads/deals with SOURCE_ID=WEBFORM.", len(form_rows))
+        else:
+            logger.warning(
+                "CRM forms fallback also returned no results. "
+                "Portal may not have SOURCE_ID=WEBFORM data in this period."
+            )
+
+        return form_rows
 
 
 def build_report_points(
@@ -916,6 +987,13 @@ def _ensure_essential_source_types(
     seen_ids = {str(source.get("id") or "") for source in result}
     seen_types = {s["type"] for s in result}
 
+    logger.info(
+        "_ensure_essential_source_types: before=%d sources, types=%s, portal_sources=%d",
+        len(result),
+        sorted(seen_types),
+        len(portal_sources),
+    )
+
     for source in REPORT_SOURCES:
         source_id = str(source.get("id") or "")
 
@@ -928,13 +1006,24 @@ def _ensure_essential_source_types(
         result.append(dict(source))
         seen_ids.add(source_id)
         seen_types.add(source["type"])
+        logger.info("_ensure_essential_source_types: added static source %s", source_id)
 
     if "deal" not in seen_types:
         for source in portal_sources:
             if source.source_type == CrmSource.SourceType.DEAL:
                 result.append(_crm_source_to_report_source(source))
                 seen_types.add("deal")
+                logger.info(
+                    "_ensure_essential_source_types: added deal source %s (entityTypeId=%s)",
+                    source.external_key,
+                    source.entity_type_id,
+                )
                 break
+        else:
+            logger.warning(
+                "_ensure_essential_source_types: no DEAL source found in %d portal sources",
+                len(portal_sources),
+            )
 
     if "smartProcess" not in seen_types:
         for source in portal_sources:
@@ -942,13 +1031,34 @@ def _ensure_essential_source_types(
                 if source.entity_type_id in (140, 128):
                     result.append(_crm_source_to_report_source(source))
                     seen_types.add("smartProcess")
+                    logger.info(
+                        "_ensure_essential_source_types: added smartProcess source %s (entityTypeId=%s)",
+                        source.external_key,
+                        source.entity_type_id,
+                    )
                     break
         if "smartProcess" not in seen_types:
             for source in portal_sources:
                 if source.source_type == CrmSource.SourceType.SMART_PROCESS:
                     result.append(_crm_source_to_report_source(source))
                     seen_types.add("smartProcess")
+                    logger.info(
+                        "_ensure_essential_source_types: added smartProcess source %s (entityTypeId=%s, fallback)",
+                        source.external_key,
+                        source.entity_type_id,
+                    )
                     break
+            else:
+                logger.warning(
+                    "_ensure_essential_source_types: no SMART_PROCESS source found in %d portal sources",
+                    len(portal_sources),
+                )
+
+    logger.info(
+        "_ensure_essential_source_types: after=%d sources, types=%s",
+        len(result),
+        sorted(seen_types),
+    )
 
 
 def resolve_selected_sources_for_portal(portal: Any, selected_sources: list[str]) -> list[dict]:
@@ -1764,29 +1874,45 @@ def _stage_category(value: Any) -> str:
 
 def _is_sales_new_stage(value: Any) -> bool:
     suffix = _stage_suffix(value)
+    category = _stage_category(value)
 
-    return suffix in SALES_NEW_STAGES or (
-        _stage_category(value) == "C31"
-        and suffix in SALES_NUMERIC_STAGE_BUCKETS["new"]
-    )
+    if suffix in SALES_NEW_STAGES:
+        return True
+
+    if category == "C31" and suffix in SALES_NUMERIC_STAGE_BUCKETS["new"]:
+        return True
+
+    return False
 
 
 def _is_sales_talk_stage(value: Any) -> bool:
     suffix = _stage_suffix(value)
+    category = _stage_category(value)
 
-    return suffix in SALES_TALK_STAGES or (
-        _stage_category(value) == "C31"
-        and suffix in SALES_NUMERIC_STAGE_BUCKETS["talk"]
-    )
+    if suffix in SALES_TALK_STAGES:
+        return True
+
+    if category == "C31" and suffix in SALES_NUMERIC_STAGE_BUCKETS["talk"]:
+        return True
+
+    # C57: кастомные стадии переговоров (например, UC_H85HN8 = "3 письмо отправлено")
+    if category == "C57":
+        return True
+
+    return False
 
 
 def _is_sales_invoice_stage(value: Any) -> bool:
     suffix = _stage_suffix(value)
+    category = _stage_category(value)
 
-    return "INVOICE" in suffix or (
-        _stage_category(value) == "C31"
-        and suffix in SALES_NUMERIC_STAGE_BUCKETS["invoice"]
-    )
+    if "INVOICE" in suffix:
+        return True
+
+    if category == "C31" and suffix in SALES_NUMERIC_STAGE_BUCKETS["invoice"]:
+        return True
+
+    return False
 
 
 def _is_won_stage(value: Any) -> bool:

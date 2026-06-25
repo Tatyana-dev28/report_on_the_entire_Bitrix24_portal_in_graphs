@@ -170,11 +170,20 @@ def apply_quote_metrics(values: dict[str, int | float], quote_rows: list[dict]) 
     values["quotes_declined_sum"] = _sum_opportunity(declined_rows)
     values["quotes_conversion"] = _conversion(values["quotes_accepted"], values["quotes_created"])
 
-    if quote_rows and not any([sent_rows, accepted_rows, declined_rows]):
-        logger.warning(
-            "Quotes exist but none were classified. STATUS_ID/STAGE_SEMANTIC_ID pairs: %s",
-            _sample_status_pairs(quote_rows),
-        )
+    if quote_rows:
+        classified = any([sent_rows, accepted_rows, declined_rows])
+        if not classified:
+            logger.warning(
+                "Quotes exist but none were classified. STATUS_ID/STAGE_SEMANTIC_ID pairs: %s",
+                _sample_status_pairs(quote_rows),
+            )
+        elif sent_rows and not accepted_rows and not declined_rows:
+            logger.info(
+                "Quotes partially classified: sent=%d, accepted=0, declined=0. "
+                "STATUS_ID/STAGE_SEMANTIC_ID pairs: %s",
+                len(sent_rows),
+                _sample_status_pairs(quote_rows),
+            )
 
 
 def is_sent_quote(row: dict) -> bool:
@@ -186,6 +195,7 @@ def is_sent_quote(row: dict) -> bool:
         or "SEND" in status
         or "PRESENT" in status
         or "ОТПРАВ" in status
+        or "ВЫСТАВ" in status
     )
 
 
@@ -200,6 +210,8 @@ def is_accepted_quote(row: dict) -> bool:
         or "SUCCESS" in status
         or "ПРИНЯ" in status
         or "СОГЛАС" in status
+        or "ОДОБР" in status
+        or "УТВЕРЖД" in status
     )
 
 

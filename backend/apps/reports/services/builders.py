@@ -23,7 +23,14 @@ from apps.reports.services.filters import (
 from apps.reports.services.exceptions import ReportPreviewSessionError
 
 
-ASYNC_ACTIVITY_DATE_RANGE_DAYS = 370
+ASYNC_DATE_RANGE_DAYS = 30
+ASYNC_SOURCE_COUNT_THRESHOLD = 2
+HEAVY_ASYNC_SOURCE_IDS = {
+    "activity-default",
+    "calls-default",
+    "task-default",
+}
+HEAVY_ASYNC_DATE_RANGE_DAYS = 7
 
 
 @dataclass(frozen=True)
@@ -383,10 +390,13 @@ class ReportBuilder:
 
 
 def _should_build_in_background(filters: dict) -> bool:
+    if getattr(settings, "REPORT_DATA_PROVIDER", "bitrix").lower() != "bitrix":
+        return False
+
     selected_sources = {str(source) for source in filters.get("selectedSources") or []}
 
-    if "activity-default" not in selected_sources:
-        return False
+    if len(selected_sources) > ASYNC_SOURCE_COUNT_THRESHOLD:
+        return True
 
     date_range = filters.get("dateRange") or {}
     date_from = parse_report_datetime(date_range.get("from"))
@@ -397,4 +407,10 @@ def _should_build_in_background(filters: dict) -> bool:
 
     range_days = abs((date_to.date() - date_from.date()).days) + 1
 
-    return range_days > ASYNC_ACTIVITY_DATE_RANGE_DAYS
+    if range_days > ASYNC_DATE_RANGE_DAYS:
+        return True
+
+    if selected_sources.intersection(HEAVY_ASYNC_SOURCE_IDS):
+        return range_days > HEAVY_ASYNC_DATE_RANGE_DAYS
+
+    return False

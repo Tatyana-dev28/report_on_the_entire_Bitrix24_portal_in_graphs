@@ -96,6 +96,7 @@ class ReportPreviewApiTests(TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"], "Некорректный период отчета.")
 
+    @override_settings(REPORT_DATA_PROVIDER="bitrix")
     @patch("apps.reports.services.builders.enqueue_report_build", return_value="test-job")
     def test_preview_queues_large_activity_report(self, _enqueue_report_build):
         response = self.client.post(

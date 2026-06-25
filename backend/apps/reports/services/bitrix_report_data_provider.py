@@ -544,40 +544,32 @@ class BitrixReportDataProvider:
         date_to: datetime,
     ) -> list[dict]:
         try:
-            rows = []
-            task_select = [
-                "ID",
-                "TITLE",
-                "CREATED_DATE",
-                "CLOSED_DATE",
-                "DEADLINE",
-                "STATUS",
-                "REAL_STATUS",
-                "RESPONSIBLE_ID",
-                "RESPONSIBLE_NAME",
-                "RESPONSIBLE_LAST_NAME",
-            ]
-
-            for date_field in ["CREATED_DATE", "CLOSED_DATE", "DEADLINE"]:
-                rows.extend(
-                    client.call_list(
-                        "tasks.task.list",
-                        {
-                            "order": {date_field: "ASC"},
-                            "filter": {
-                                f">={date_field}": _bitrix_datetime(date_from),
-                                f"<={date_field}": _bitrix_datetime(date_to),
-                            },
-                            "select": task_select,
-                        },
-                    )
-                )
+            rows = client.call_list(
+                "tasks.task.list",
+                {
+                    "order": {"CREATED_DATE": "ASC"},
+                    "filter": {
+                        ">=CREATED_DATE": _bitrix_datetime(date_from),
+                        "<=CREATED_DATE": _bitrix_datetime(date_to),
+                    },
+                    "select": [
+                        "ID",
+                        "TITLE",
+                        "CREATED_DATE",
+                        "CLOSED_DATE",
+                        "DEADLINE",
+                        "STATUS",
+                        "REAL_STATUS",
+                        "RESPONSIBLE_ID",
+                        "RESPONSIBLE_NAME",
+                        "RESPONSIBLE_LAST_NAME",
+                    ],
+                },
+            )
         except BitrixRestError:
             return []
 
-        normalized_rows = [_normalize_task_row(row) for row in rows]
-
-        return _deduplicate_rows_by_id(normalized_rows)
+        return [_normalize_task_row(row) for row in rows]
 
     def _load_crm_forms(
         self,

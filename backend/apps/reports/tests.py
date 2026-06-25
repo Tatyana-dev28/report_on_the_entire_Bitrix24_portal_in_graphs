@@ -755,6 +755,51 @@ class FakeActivityQuoteContractBitrixRestClient:
         return []
 
 
+class FakeMonthlyTaskBitrixRestClient:
+    def __init__(self, portal):
+        self.portal = portal
+        self.task_calls = []
+
+    def call_list(self, method, params=None, *, max_pages=None):
+        if method != "tasks.task.list":
+            return []
+
+        filters = (params or {}).get("filter") or {}
+        start = filters.get(">=CREATED_DATE", "")
+        end = filters.get("<=CREATED_DATE", "")
+        self.task_calls.append((start, end))
+
+        if start[:7] != end[:7]:
+            raise BitrixRestError("tasks.task.list pagination exceeded")
+
+        if start.startswith("2026-01"):
+            return [
+                {
+                    "ID": "task-jan",
+                    "TITLE": "January task",
+                    "CREATED_DATE": "2026-01-15T09:00:00+03:00",
+                    "STATUS": "2",
+                    "REAL_STATUS": "2",
+                    "RESPONSIBLE_ID": "42",
+                }
+            ]
+
+        if start.startswith("2026-02"):
+            return [
+                {
+                    "ID": "task-feb",
+                    "TITLE": "February task",
+                    "CREATED_DATE": "2026-02-15T09:00:00+03:00",
+                    "CLOSED_DATE": "2026-02-20T09:00:00+03:00",
+                    "STATUS": "5",
+                    "REAL_STATUS": "5",
+                    "RESPONSIBLE_ID": "42",
+                }
+            ]
+
+        return []
+
+
 class FakeCatalogBitrixRestClient:
     def __init__(self, portal):
         self.portal = portal
@@ -869,6 +914,32 @@ class BitrixReportDataProviderTests(TestCase):
             protocol=BitrixPortal.Protocol.HTTPS,
             status=BitrixPortal.Status.ACTIVE,
         )
+
+    def test_provider_loads_tasks_by_month_for_long_periods(self):
+        provider = BitrixReportDataProvider(rest_client_factory=FakeMonthlyTaskBitrixRestClient)
+
+        result = provider.build_preview(
+            filters={
+                "period": "months",
+                "dateRange": {"from": "2026-01-01", "to": "2026-02-28"},
+                "selectedSources": ["task-default"],
+                "selectedMetricIds": ["tasks_created", "tasks_done"],
+                "metricMode": "count",
+                "chartDisplayMode": "sum",
+            },
+            context=ReportDataProviderContext(
+                portal=self.portal,
+                user=None,
+                bitrix_user_id="42",
+                user_name="",
+            ),
+        )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.data[0]["values"]["tasks_created"], 1)
+        self.assertEqual(result.data[0]["values"]["tasks_done"], 0)
+        self.assertEqual(result.data[1]["values"]["tasks_created"], 1)
+        self.assertEqual(result.data[1]["values"]["tasks_done"], 1)
 
     def test_provider_builds_daily_deal_and_lead_metrics(self):
         provider = BitrixReportDataProvider(rest_client_factory=FakeBitrixRestClient)

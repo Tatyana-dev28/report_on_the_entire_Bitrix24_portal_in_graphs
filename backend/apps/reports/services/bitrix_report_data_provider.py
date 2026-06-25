@@ -547,34 +547,44 @@ class BitrixReportDataProvider:
         date_from: datetime,
         date_to: datetime,
     ) -> list[dict]:
-        try:
-            rows = client.call_list(
-                "tasks.task.list",
-                {
-                    "order": {"CREATED_DATE": "ASC"},
-                    "filter": {
-                        ">=CREATED_DATE": _bitrix_datetime(date_from),
-                        "<=CREATED_DATE": _bitrix_datetime(date_to),
-                    },
-                    "select": [
-                        "ID",
-                        "TITLE",
-                        "CREATED_DATE",
-                        "CLOSED_DATE",
-                        "DEADLINE",
-                        "STATUS",
-                        "REAL_STATUS",
-                        "RESPONSIBLE_ID",
-                        "RESPONSIBLE_NAME",
-                        "RESPONSIBLE_LAST_NAME",
-                    ],
-                },
-            )
-        except BitrixRestError:
-            logger.warning("Bitrix task loading failed; task metrics will be zero.", exc_info=True)
-            return []
+        all_rows: list[dict] = []
 
-        return [_normalize_task_row(row) for row in rows]
+        for period_start, period_end in _iter_month_ranges(date_from, date_to):
+            try:
+                rows = client.call_list(
+                    "tasks.task.list",
+                    {
+                        "order": {"CREATED_DATE": "ASC"},
+                        "filter": {
+                            ">=CREATED_DATE": _bitrix_datetime(period_start),
+                            "<=CREATED_DATE": _bitrix_datetime(period_end),
+                        },
+                        "select": [
+                            "ID",
+                            "TITLE",
+                            "CREATED_DATE",
+                            "CLOSED_DATE",
+                            "DEADLINE",
+                            "STATUS",
+                            "REAL_STATUS",
+                            "RESPONSIBLE_ID",
+                            "RESPONSIBLE_NAME",
+                            "RESPONSIBLE_LAST_NAME",
+                        ],
+                    },
+                )
+            except BitrixRestError:
+                logger.warning(
+                    "Bitrix task loading failed for period %s - %s; skipping this period.",
+                    period_start.date(),
+                    period_end.date(),
+                    exc_info=True,
+                )
+                continue
+
+            all_rows.extend(rows)
+
+        return [_normalize_task_row(row) for row in _deduplicate_rows_by_id(all_rows)]
 
     def _load_crm_forms(
         self,
@@ -595,7 +605,11 @@ class BitrixReportDataProvider:
                 },
             )
         except BitrixRestError:
-            logger.warning("Bitrix CRM form loading failed; crm_forms will be zero.", exc_info=True)
+            logger.warning(
+                "crm.webform.result.list failed; crm_forms will be zero. "
+                "The method may be unavailable for this portal or OAuth scope.",
+                exc_info=True,
+            )
             return []
 
         return [_normalize_crm_form_row(row) for row in rows]
@@ -1013,13 +1027,29 @@ def _build_bucket_values(
         values["leads_created"] - values["lead_new"] - values["lead_qualified"] - values["lead_bad_stage"],
     )
 
-    values["sales_new"] = len(
-        [row for row in deal_rows if _stage_suffix(row.get("STAGE_ID")) in {"NEW", "PREPARATION"}]
-    )
-    values["sales_talk"] = len(
-        [row for row in deal_rows if _stage_suffix(row.get("STAGE_ID")) in {"PREPAYMENT_INVOICE", "EXECUTING"}]
-    )
-    values["sales_invoice"] = len([row for row in deal_rows if "INVOICE" in _stage_suffix(row.get("STAGE_ID"))])
+    sales_new_rows = [
+        row for row in deal_rows if _stage_suffix(row.get("STAGE_ID")) in {"NEW", "PREPARATION"}
+    ]
+    sales_talk_rows = [
+        row
+        for row in deal_rows
+        if _stage_suffix(row.get("STAGE_ID")) in {"PREPAYMENT_INVOICE", "EXECUTING"}
+    ]
+    sales_invoice_rows = [
+        row for row in deal_rows if "INVOICE" in _stage_suffix(row.get("STAGE_ID"))
+    ]
+
+    values["sales_new"] = len(sales_new_rows)
+    values["sales_talk"] = len(sales_talk_rows)
+    values["sales_invoice"] = len(sales_invoice_rows)
+
+    if deal_rows and not any([sales_new_rows, sales_talk_rows, sales_invoice_rows, won_deals, lost_deals]):
+        logger.warning(
+            "Deals exist but sales funnel stages were not classified for bucket %s. "
+            "Available STAGE_ID values: %s",
+            bucket.tooltip_label,
+            _sample_unique_values(row.get("STAGE_ID") for row in deal_rows),
+        )
 
     return {metric_id: values.get(metric_id, 0) for metric_id in metric_ids}
 
@@ -1188,6 +1218,37 @@ def _add_month(value: datetime) -> datetime:
         return value.replace(year=value.year + 1, month=1)
 
     return value.replace(month=value.month + 1)
+
+
+def _iter_month_ranges(date_from: datetime, date_to: datetime):
+    cursor = date_from
+
+    while cursor <= date_to:
+        next_month_start = _add_month(cursor.replace(day=1, hour=0, minute=0, second=0, microsecond=0))
+        period_end = min(next_month_start - timedelta(microseconds=1), date_to)
+
+        yield cursor, period_end
+
+        cursor = next_month_start
+
+
+def _sample_unique_values(values, *, limit: int = 25) -> list[str]:
+    result: list[str] = []
+    seen = set()
+
+    for value in values:
+        text = str(value or "").strip()
+
+        if not text or text in seen:
+            continue
+
+        seen.add(text)
+        result.append(text)
+
+        if len(result) >= limit:
+            break
+
+    return result
 
 
 def _row_in_bucket(row: dict, bucket: PeriodBucket) -> bool:

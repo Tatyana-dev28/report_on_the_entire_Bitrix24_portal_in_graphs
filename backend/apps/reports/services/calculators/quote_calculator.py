@@ -170,6 +170,12 @@ def apply_quote_metrics(values: dict[str, int | float], quote_rows: list[dict]) 
     values["quotes_declined_sum"] = _sum_opportunity(declined_rows)
     values["quotes_conversion"] = _conversion(values["quotes_accepted"], values["quotes_created"])
 
+    if quote_rows and not any([sent_rows, accepted_rows, declined_rows]):
+        logger.warning(
+            "Quotes exist but none were classified. STATUS_ID/STAGE_SEMANTIC_ID pairs: %s",
+            _sample_status_pairs(quote_rows),
+        )
+
 
 def is_sent_quote(row: dict) -> bool:
     status = _status(row)
@@ -268,3 +274,25 @@ def _conversion(success: int | float, total: int | float) -> float:
         return 0
 
     return round((success / total) * 1000) / 10
+
+
+def _sample_status_pairs(rows: list[dict], *, limit: int = 25) -> list[tuple[str, str]]:
+    result: list[tuple[str, str]] = []
+    seen = set()
+
+    for row in rows:
+        pair = (
+            str(row.get("STATUS_ID") or "").strip(),
+            str(row.get("STAGE_SEMANTIC_ID") or "").strip(),
+        )
+
+        if pair in seen:
+            continue
+
+        seen.add(pair)
+        result.append(pair)
+
+        if len(result) >= limit:
+            break
+
+    return result

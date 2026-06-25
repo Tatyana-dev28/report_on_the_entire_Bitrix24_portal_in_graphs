@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+import logging
 from typing import Any
 
 from apps.bitrix.services.rest_client import BitrixRestError, build_batch_command
 
+logger = logging.getLogger(__name__)
 MEETING_TYPE_IDS = {"2", "MEETING", "CRM_MEETING"}
 ACTIVITY_MAX_LIST_PAGES = 1000
 ACTIVITY_BATCH_PAGE_SIZE = 25
@@ -187,6 +189,12 @@ def apply_activity_metrics(values: dict[str, int | float], activity_rows: list[d
     values["messages_new"] = len(message_rows)
     values["messages_total"] = len(message_rows)
 
+    if activity_rows and not message_rows:
+        logger.warning(
+            "No message activities detected. Available PROVIDER_ID/PROVIDER_TYPE_ID/TYPE_ID triples: %s",
+            _sample_provider_triples(activity_rows),
+        )
+
 
 def is_meeting_activity(row: dict) -> bool:
     type_id = str(row.get("TYPE_ID") or "").upper()
@@ -217,13 +225,35 @@ def is_email_activity(row: dict) -> bool:
 def is_message_activity(row: dict) -> bool:
     provider_id = str(row.get("PROVIDER_ID") or "").upper()
     provider_type_id = str(row.get("PROVIDER_TYPE_ID") or "").upper()
+    type_id = str(row.get("TYPE_ID") or "").upper()
 
-    return provider_id in {"IM", "LINES", "OPENLINES", "CRM_IM"} or provider_type_id in {
+    message_provider_ids = {
         "IM",
+        "IMBOT",
         "LINES",
         "OPENLINES",
         "CRM_IM",
+        "LIVECHAT",
+        "NETWORK",
+        "REST",
+        "SMS",
+        "WHATSAPP",
+        "TELEGRAM",
+        "VIBER",
     }
+    message_provider_type_ids = message_provider_ids | {
+        "MESSAGE",
+        "MESSENGER",
+        "CHAT",
+        "CHAT_MESSAGE",
+        "OPENLINE",
+    }
+
+    return (
+        provider_id in message_provider_ids
+        or provider_type_id in message_provider_type_ids
+        or type_id in {"6", "MESSAGE", "CHAT"}
+    )
 
 
 def _normalize_activity_row(row: dict) -> dict:
@@ -247,3 +277,26 @@ def _normalize_activity_row(row: dict) -> dict:
         "DIRECTION": row.get("DIRECTION"),
         "SOURCE_KIND": "crm_activity",
     }
+
+
+def _sample_provider_triples(rows: list[dict], *, limit: int = 25) -> list[tuple[str, str, str]]:
+    result: list[tuple[str, str, str]] = []
+    seen = set()
+
+    for row in rows:
+        triple = (
+            str(row.get("PROVIDER_ID") or "").strip(),
+            str(row.get("PROVIDER_TYPE_ID") or "").strip(),
+            str(row.get("TYPE_ID") or "").strip(),
+        )
+
+        if triple in seen:
+            continue
+
+        seen.add(triple)
+        result.append(triple)
+
+        if len(result) >= limit:
+            break
+
+    return result

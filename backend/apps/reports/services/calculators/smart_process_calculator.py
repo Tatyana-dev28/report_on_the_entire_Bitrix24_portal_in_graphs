@@ -3,11 +3,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+import logging
 from typing import Any
 
 
 SmartProcessRow = dict[str, Any]
 ReportSource = dict[str, Any]
+logger = logging.getLogger(__name__)
 
 
 SMART_PROCESS_SELECT_FIELDS = [
@@ -80,6 +82,8 @@ def apply_smart_process_metrics(
 
     successful_rows = [row for row in rows if is_success_smart_process(row)]
     failed_rows = [row for row in rows if is_failed_smart_process(row)]
+    check_rows = [row for row in rows if is_production_check(row)]
+    ready_rows = [row for row in rows if is_production_ready(row)]
 
     values["production_accepted"] = len(
         [row for row in rows if is_production_accepted(row)]
@@ -87,18 +91,28 @@ def apply_smart_process_metrics(
     values["production_work"] = len(
         [row for row in rows if is_production_work(row)]
     )
-    values["production_check"] = len(
-        [row for row in rows if is_production_check(row)]
-    )
-    values["production_ready"] = len(
-        [row for row in rows if is_production_ready(row)]
-    )
+    values["production_check"] = len(check_rows)
+    values["production_ready"] = len(ready_rows)
     values["production_closed"] = len(successful_rows)
 
     values["smart_process_total"] = len(rows)
     values["smart_process_success"] = len(successful_rows)
     values["smart_process_failed"] = len(failed_rows)
     values["smart_process_success_sum"] = _sum_opportunity(successful_rows)
+
+    intermediate_rows = [
+        row
+        for row in rows
+        if not is_production_accepted(row)
+        and not is_success_smart_process(row)
+        and not is_failed_smart_process(row)
+    ]
+    if intermediate_rows and not any([check_rows, ready_rows]):
+        logger.warning(
+            "Smart-process rows exist but production_check/production_ready were not classified. "
+            "Available STAGE_ID/STAGE_SEMANTIC_ID pairs: %s",
+            _sample_stage_pairs(intermediate_rows),
+        )
 
     return values
 
@@ -225,12 +239,21 @@ def is_production_check(row: SmartProcessRow) -> bool:
             "APPROVAL",
             "VERIFY",
             "VERIFICATION",
+            "QC",
+            "QA",
+            "QUALITY",
+            "INSPECTION",
+            "TEST",
+            "TESTING",
         }
         or "CHECK" in stage
         or "REVIEW" in stage
         or "CONTROL" in stage
         or "APPROVAL" in stage
         or "VERIFY" in stage
+        or "QUALITY" in stage
+        or "INSPECT" in stage
+        or "TEST" in stage
     )
 
 
@@ -244,10 +267,13 @@ def is_production_ready(row: SmartProcessRow) -> bool:
             "DONE",
             "FINISH",
             "FINAL",
+            "COMPLETE",
+            "COMPLETED",
         }
         or "READY" in stage
         or "DONE" in stage
         or "FINISH" in stage
+        or "COMPLETE" in stage
     )
 
 
@@ -332,3 +358,25 @@ def _sum_opportunity(rows: list[SmartProcessRow]) -> int:
             continue
 
     return int(total)
+
+
+def _sample_stage_pairs(rows: list[SmartProcessRow], *, limit: int = 25) -> list[tuple[str, str]]:
+    result: list[tuple[str, str]] = []
+    seen = set()
+
+    for row in rows:
+        pair = (
+            str(row.get("STAGE_ID") or row.get("stageId") or "").strip(),
+            str(row.get("STAGE_SEMANTIC_ID") or row.get("stageSemanticId") or "").strip(),
+        )
+
+        if pair in seen:
+            continue
+
+        seen.add(pair)
+        result.append(pair)
+
+        if len(result) >= limit:
+            break
+
+    return result

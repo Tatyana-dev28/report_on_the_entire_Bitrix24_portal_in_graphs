@@ -1,16 +1,18 @@
 ﻿from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 import logging
 from typing import Any, Callable
 
+from django.conf import settings
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
 from apps.bitrix.models import PortalUser
-from apps.bitrix.services.rest_client import BitrixRestClient, BitrixRestError
+from apps.bitrix.services.rest_client import BitrixRestAuthError, BitrixRestClient, BitrixRestError
 from apps.reports.catalog import METRICS, REPORT_SOURCES
 from apps.reports.models import CrmSource
 from apps.reports.services.calculators.activity_calculator import (
@@ -58,6 +60,8 @@ SUPPORTED_SOURCE_TYPES = {
 }
 DEFAULT_REPORT_MESSAGE = "Отчет построен по данным Bitrix24."
 logger = logging.getLogger(__name__)
+DEFAULT_SOURCE_LOAD_WORKERS = 4
+DEFAULT_TASK_MONTH_LOAD_WORKERS = 3
 ESSENTIAL_STATIC_SOURCE_IDS = {
     "lead-default",
     "invoice-default",
@@ -184,83 +188,145 @@ class BitrixReportDataProvider:
     ) -> dict[str, list[dict]]:
         rows_by_source: dict[str, list[dict]] = {}
 
-        for source in selected_sources:
-            source_type = source.get("type")
+        if not selected_sources:
+            return rows_by_source
 
-            if source_type == "deal":
-                rows_by_source[source["id"]] = self._load_deals(
+        max_workers = min(_source_load_workers(), len(selected_sources))
+
+        if max_workers <= 1:
+            for source in selected_sources:
+                rows_by_source[source["id"]] = self._load_single_source_rows(
                     client=client,
                     source=source,
                     date_from=date_from,
                     date_to=date_to,
                 )
-            elif source_type == "lead":
-                rows_by_source[source["id"]] = self._load_leads(
-                    client=client,
+
+            return rows_by_source
+
+        portal = getattr(client, "portal", None)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_source = {
+                executor.submit(
+                    self._load_single_source_rows,
+                    client=self.rest_client_factory(portal) if portal is not None else client,
                     source=source,
                     date_from=date_from,
                     date_to=date_to,
-                )
-            elif source_type == "invoice":
-                rows_by_source[source["id"]] = self._load_invoices(
-                    client=client,
-                    source=source,
-                    date_from=date_from,
-                    date_to=date_to,
-                )
-            elif source_type == "smartProcess":
-                rows_by_source[source["id"]] = self._load_smart_processes(
-                    client=client,
-                    source=source,
-                    date_from=date_from,
-                    date_to=date_to,
-                )
-            elif source_type == "telephony":
-                rows_by_source[source["id"]] = self._load_calls(
-                    client=client,
-                    date_from=date_from,
-                    date_to=date_to,
-                )
-            elif source_type == "activity":
-                rows_by_source[source["id"]] = self._load_activities(
-                    client=client,
-                    date_from=date_from,
-                    date_to=date_to,
-                )
-            elif source_type == "quote":
-                rows_by_source[source["id"]] = self._load_quotes(
-                    client=client,
-                    date_from=date_from,
-                    date_to=date_to,
-                )
-            elif source_type == "company":
-                rows_by_source[source["id"]] = self._load_companies(
-                    client=client,
-                    date_from=date_from,
-                    date_to=date_to,
-                )
-            elif source_type == "contact":
-                rows_by_source[source["id"]] = self._load_contacts(
-                    client=client,
-                    date_from=date_from,
-                    date_to=date_to,
-                )
-            elif source_type == "task":
-                rows_by_source[source["id"]] = self._load_tasks(
-                    client=client,
-                    date_from=date_from,
-                    date_to=date_to,
-                )
-            elif source_type == "crm_form":
-                rows_by_source[source["id"]] = self._load_crm_forms(
-                    client=client,
-                    date_from=date_from,
-                    date_to=date_to,
-                )
-            else:
-                rows_by_source[source["id"]] = []
+                ): source
+                for source in selected_sources
+            }
+
+            for future in as_completed(future_to_source):
+                source = future_to_source[future]
+
+                try:
+                    rows_by_source[source["id"]] = future.result()
+                except BitrixRestAuthError:
+                    raise
+                except BitrixRestError:
+                    logger.warning(
+                        "Bitrix source loading failed for source=%s; metrics for this source will be zero.",
+                        source.get("id"),
+                        exc_info=True,
+                    )
+                    rows_by_source[source["id"]] = []
 
         return rows_by_source
+
+    def _load_single_source_rows(
+        self,
+        *,
+        client,
+        source: dict,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> list[dict]:
+        source_type = source.get("type")
+
+        if source_type == "deal":
+            return self._load_deals(
+                client=client,
+                source=source,
+                date_from=date_from,
+                date_to=date_to,
+            )
+
+        if source_type == "lead":
+            return self._load_leads(
+                client=client,
+                source=source,
+                date_from=date_from,
+                date_to=date_to,
+            )
+
+        if source_type == "invoice":
+            return self._load_invoices(
+                client=client,
+                source=source,
+                date_from=date_from,
+                date_to=date_to,
+            )
+
+        if source_type == "smartProcess":
+            return self._load_smart_processes(
+                client=client,
+                source=source,
+                date_from=date_from,
+                date_to=date_to,
+            )
+
+        if source_type == "telephony":
+            return self._load_calls(
+                client=client,
+                date_from=date_from,
+                date_to=date_to,
+            )
+
+        if source_type == "activity":
+            return self._load_activities(
+                client=client,
+                date_from=date_from,
+                date_to=date_to,
+            )
+
+        if source_type == "quote":
+            return self._load_quotes(
+                client=client,
+                date_from=date_from,
+                date_to=date_to,
+            )
+
+        if source_type == "company":
+            return self._load_companies(
+                client=client,
+                date_from=date_from,
+                date_to=date_to,
+            )
+
+        if source_type == "contact":
+            return self._load_contacts(
+                client=client,
+                date_from=date_from,
+                date_to=date_to,
+            )
+
+        if source_type == "task":
+            return self._load_tasks(
+                client=client,
+                date_from=date_from,
+                date_to=date_to,
+            )
+
+        if source_type == "crm_form":
+            return self._load_crm_forms(
+                client=client,
+                date_from=date_from,
+                date_to=date_to,
+            )
+
+        return []
 
     def _load_deals(
         self,
@@ -566,43 +632,95 @@ class BitrixReportDataProvider:
         date_to: datetime,
     ) -> list[dict]:
         all_rows: list[dict] = []
+        periods = list(_iter_month_ranges(date_from, date_to))
 
-        for period_start, period_end in _iter_month_ranges(date_from, date_to):
-            try:
-                rows = client.call_list(
-                    "tasks.task.list",
-                    {
-                        "order": {"CREATED_DATE": "ASC"},
-                        "filter": {
-                            ">=CREATED_DATE": _bitrix_datetime(period_start),
-                            "<=CREATED_DATE": _bitrix_datetime(period_end),
-                        },
-                        "select": [
-                            "ID",
-                            "TITLE",
-                            "CREATED_DATE",
-                            "CLOSED_DATE",
-                            "DEADLINE",
-                            "STATUS",
-                            "REAL_STATUS",
-                            "RESPONSIBLE_ID",
-                            "RESPONSIBLE_NAME",
-                            "RESPONSIBLE_LAST_NAME",
-                        ],
-                    },
-                )
-            except BitrixRestError:
-                logger.warning(
-                    "Bitrix task loading failed for period %s - %s; skipping this period.",
-                    period_start.date(),
-                    period_end.date(),
-                    exc_info=True,
-                )
-                continue
+        if not periods:
+            return []
 
-            all_rows.extend(rows)
+        max_workers = min(_task_month_load_workers(), len(periods))
+
+        if max_workers <= 1:
+            for period_start, period_end in periods:
+                all_rows.extend(
+                    self._load_task_period(
+                        client=client,
+                        period_start=period_start,
+                        period_end=period_end,
+                    )
+                )
+
+            return [_normalize_task_row(row) for row in _deduplicate_rows_by_id(all_rows)]
+
+        portal = getattr(client, "portal", None)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_period = {
+                executor.submit(
+                    self._load_task_period,
+                    client=self.rest_client_factory(portal) if portal is not None else client,
+                    period_start=period_start,
+                    period_end=period_end,
+                ): (period_start, period_end)
+                for period_start, period_end in periods
+            }
+
+            for future in as_completed(future_to_period):
+                period_start, period_end = future_to_period[future]
+
+                try:
+                    all_rows.extend(future.result())
+                except BitrixRestAuthError:
+                    raise
+                except BitrixRestError:
+                    logger.warning(
+                        "Bitrix task loading failed for period %s - %s; skipping this period.",
+                        period_start.date(),
+                        period_end.date(),
+                        exc_info=True,
+                    )
 
         return [_normalize_task_row(row) for row in _deduplicate_rows_by_id(all_rows)]
+
+    def _load_task_period(
+        self,
+        *,
+        client,
+        period_start: datetime,
+        period_end: datetime,
+    ) -> list[dict]:
+        try:
+            return client.call_list(
+                "tasks.task.list",
+                {
+                    "order": {"CREATED_DATE": "ASC"},
+                    "filter": {
+                        ">=CREATED_DATE": _bitrix_datetime(period_start),
+                        "<=CREATED_DATE": _bitrix_datetime(period_end),
+                    },
+                    "select": [
+                        "ID",
+                        "TITLE",
+                        "CREATED_DATE",
+                        "CLOSED_DATE",
+                        "DEADLINE",
+                        "STATUS",
+                        "REAL_STATUS",
+                        "RESPONSIBLE_ID",
+                        "RESPONSIBLE_NAME",
+                        "RESPONSIBLE_LAST_NAME",
+                    ],
+                },
+            )
+        except BitrixRestAuthError:
+            raise
+        except BitrixRestError:
+            logger.warning(
+                "Bitrix task loading failed for period %s - %s; skipping this period.",
+                period_start.date(),
+                period_end.date(),
+                exc_info=True,
+            )
+            return []
 
     def _load_crm_forms(
         self,
@@ -1357,6 +1475,29 @@ def _sample_unique_values(values, *, limit: int = 25) -> list[str]:
             break
 
     return result
+
+
+def _source_load_workers() -> int:
+    return _positive_int_setting(
+        "BITRIX_REPORT_SOURCE_LOAD_WORKERS",
+        DEFAULT_SOURCE_LOAD_WORKERS,
+    )
+
+
+def _task_month_load_workers() -> int:
+    return _positive_int_setting(
+        "BITRIX_REPORT_TASK_MONTH_LOAD_WORKERS",
+        DEFAULT_TASK_MONTH_LOAD_WORKERS,
+    )
+
+
+def _positive_int_setting(name: str, default: int) -> int:
+    try:
+        value = int(getattr(settings, name, default))
+    except (TypeError, ValueError):
+        return default
+
+    return max(1, value)
 
 
 def _row_in_bucket(row: dict, bucket: PeriodBucket) -> bool:

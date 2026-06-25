@@ -650,6 +650,7 @@ export function ConfigureChartMenu({
   mainThreshold,
   mainRecommendedThreshold,
   onApply,
+  onDraftChange,
   onThresholdApply,
   onThresholdReset,
 }: {
@@ -658,6 +659,7 @@ export function ConfigureChartMenu({
   mainThreshold: ThresholdValues;
   mainRecommendedThreshold: RecommendedThresholdValues;
   onApply: (settings: ChartDraftSettings) => void;
+  onDraftChange: (settings: ChartDraftSettings) => void;
   onThresholdApply: (value: ThresholdValues) => void;
   onThresholdReset: () => void;
 }) {
@@ -673,6 +675,26 @@ export function ConfigureChartMenu({
   }));
   const popoverRef = useRef<HTMLDivElement>(null);
   const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
+
+  const persistDraftSettings = (settings: ChartDraftSettings) => {
+    onDraftChange({
+      selectedSources: [...settings.selectedSources],
+      chartDisplayMode: settings.chartDisplayMode,
+      metricMode: settings.metricMode,
+      schedule: {
+        ...settings.schedule,
+        weekendDayIds: [...settings.schedule.weekendDayIds],
+      },
+    });
+  };
+
+  const updateDraftSettings = (updater: (current: ChartDraftSettings) => ChartDraftSettings) => {
+    setDraftSettings((current) => {
+      const next = updater(current);
+      persistDraftSettings(next);
+      return next;
+    });
+  };
 
   const openMenu = () => {
     setDraftSettings({
@@ -736,7 +758,7 @@ export function ConfigureChartMenu({
               values={draftSettings.selectedSources}
               options={crmSourceOptions}
               onChange={(selectedSources) =>
-                setDraftSettings((current) => ({
+                updateDraftSettings((current) => ({
                   ...current,
                   selectedSources,
                 }))
@@ -747,7 +769,7 @@ export function ConfigureChartMenu({
                 options={chartDisplayModeOptions}
                 value={draftSettings.chartDisplayMode}
                 onChange={(chartDisplayMode) =>
-                  setDraftSettings((current) => ({
+                  updateDraftSettings((current) => ({
                     ...current,
                     chartDisplayMode,
                   }))
@@ -760,7 +782,7 @@ export function ConfigureChartMenu({
               options={chartMetricModeOptions}
               value={draftSettings.metricMode}
               onChange={(metricMode) =>
-                setDraftSettings((current) => ({
+                updateDraftSettings((current) => ({
                   ...current,
                   metricMode,
                 }))
@@ -777,7 +799,7 @@ export function ConfigureChartMenu({
             <ScheduleMenu
               schedule={draftSettings.schedule}
               onChange={(schedule) =>
-                setDraftSettings((current) => ({
+                updateDraftSettings((current) => ({
                   ...current,
                   schedule,
                 }))

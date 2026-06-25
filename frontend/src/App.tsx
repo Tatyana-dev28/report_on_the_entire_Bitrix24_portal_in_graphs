@@ -1905,6 +1905,7 @@ function App() {
                   mainThreshold={mainThreshold}
                   mainRecommendedThreshold={mainRecommendedThreshold}
                   onApply={applyChartDraftSettings}
+                  onDraftChange={applyChartDraftSettings}
                   onThresholdApply={setMainThreshold}
                   onThresholdReset={() => {
                     setMainThreshold({ upper: '', lower: '', mode: null });

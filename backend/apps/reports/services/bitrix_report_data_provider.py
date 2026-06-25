@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
+import logging
 from typing import Any, Callable
 
 from django.utils import timezone
@@ -56,6 +57,7 @@ SUPPORTED_SOURCE_TYPES = {
     "crm_form",
 }
 DEFAULT_REPORT_MESSAGE = "Отчет построен по данным Bitrix24."
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -327,7 +329,7 @@ class BitrixReportDataProvider:
             if rows:
                 return rows
         except BitrixRestError:
-            pass
+            logger.warning("Bitrix smart invoice loading failed; falling back to legacy invoices.", exc_info=True)
 
         return self._load_legacy_invoices(
             client=client,
@@ -499,6 +501,7 @@ class BitrixReportDataProvider:
                 },
             )
         except BitrixRestError:
+            logger.warning("Bitrix company loading failed; companies_new will be zero.", exc_info=True)
             return []
 
         return [_normalize_company_row(row) for row in rows]
@@ -532,6 +535,7 @@ class BitrixReportDataProvider:
                 },
             )
         except BitrixRestError:
+            logger.warning("Bitrix contact loading failed; contacts_new will be zero.", exc_info=True)
             return []
 
         return [_normalize_contact_row(row) for row in rows]
@@ -567,6 +571,7 @@ class BitrixReportDataProvider:
                 },
             )
         except BitrixRestError:
+            logger.warning("Bitrix task loading failed; task metrics will be zero.", exc_info=True)
             return []
 
         return [_normalize_task_row(row) for row in rows]
@@ -590,6 +595,7 @@ class BitrixReportDataProvider:
                 },
             )
         except BitrixRestError:
+            logger.warning("Bitrix CRM form loading failed; crm_forms will be zero.", exc_info=True)
             return []
 
         return [_normalize_crm_form_row(row) for row in rows]
@@ -1321,6 +1327,7 @@ def _load_bitrix_user_profiles(client, portal, user_ids: list[str]) -> dict[str,
                 },
             )
         except BitrixRestError:
+            logger.warning("Bitrix user profile loading failed for report employee names.", exc_info=True)
             continue
 
         for row in rows:

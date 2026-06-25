@@ -1087,6 +1087,7 @@ class BitrixReportDataProviderTests(TestCase):
                     "production_check",
                     "production_ready",
                     "production_closed",
+                    "smart_process_success_sum",
                 ],
                 "metricMode": "money",
                 "chartDisplayMode": "sum",
@@ -1110,6 +1111,7 @@ class BitrixReportDataProviderTests(TestCase):
         self.assertEqual(first_day["production_check"], 1)
         self.assertEqual(first_day["production_ready"], 1)
         self.assertEqual(first_day["production_closed"], 1)
+        self.assertEqual(first_day["smart_process_success_sum"], 4000)
 
         second_day = result.data[1]["values"]
 
@@ -1118,6 +1120,7 @@ class BitrixReportDataProviderTests(TestCase):
         self.assertEqual(second_day["production_check"], 0)
         self.assertEqual(second_day["production_ready"], 0)
         self.assertEqual(second_day["production_closed"], 0)
+        self.assertEqual(second_day["smart_process_success_sum"], 0)
 
     def test_provider_builds_telephony_metrics(self):
         provider = BitrixReportDataProvider(rest_client_factory=FakeTelephonyBitrixRestClient)

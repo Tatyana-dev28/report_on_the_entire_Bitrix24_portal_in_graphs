@@ -8,6 +8,7 @@ import type {
   MetricDetailItem,
   ReportDataSource,
   ReportLoadFilters,
+  ReportPreviewPayload,
 } from './reportTypes';
 
 const initialCrmSources: CrmSource[] = [
@@ -39,8 +40,8 @@ const initialCrmSources: CrmSource[] = [
     isAvailable: true,
   },
   {
-    id: 'calls-default',
-    type: 'call',
+    id: 'telephony-default',
+    type: 'telephony',
     entityTypeId: 0,
     categoryId: null,
     title: 'Телефония',
@@ -103,6 +104,12 @@ const initialCrmSources: CrmSource[] = [
   },
 ];
 
+let latestPreview: ReportPreviewPayload = {
+  data: [],
+  employees: [],
+  details: [],
+};
+
 export const bitrixReportDataSource: ReportDataSource = {
   async loadCrmSources() {
     const catalog = await loadReportCatalog();
@@ -137,21 +144,43 @@ export const bitrixReportDataSource: ReportDataSource = {
   async loadReportPreview(filters: ReportLoadFilters) {
     const preview = await loadReportPreview(filters);
 
-    return {
+    latestPreview = {
       data: preview.data,
       employees: preview.employees ?? [],
       details: preview.details ?? [],
     };
+
+    return latestPreview;
   },
 
-  async loadMetricDetails(_request: MetricDetailsRequest): Promise<MetricDetailItem[]> {
-    // Детализация будет подключена после появления backend report session/details API.
-    return [];
+  async loadMetricDetails(request: MetricDetailsRequest): Promise<MetricDetailItem[]> {
+    return latestPreview.details.filter((detail) => {
+      if (detail.metricId && detail.metricId !== request.metricId) {
+        return false;
+      }
+
+      if (detail.periodKey && detail.periodKey !== request.period.key) {
+        return false;
+      }
+
+      return true;
+    });
   },
 
-  async loadEmployeesMetric(_request: EmployeeMetricRequest): Promise<EmployeeMetricItem[]> {
-    // Разбивка по сотрудникам будет подключена после появления backend report session/employees API.
-    return [];
+  async loadEmployeesMetric(request: EmployeeMetricRequest): Promise<EmployeeMetricItem[]> {
+    return latestPreview.employees
+      .map((employee) => {
+        const value =
+          employee.valuesByPeriod?.[request.period.key]?.[request.metricId] ??
+          employee.values?.[request.metricId] ??
+          0;
+
+        return {
+          ...employee,
+          value,
+        };
+      })
+      .filter((employee) => (employee.value ?? 0) !== 0);
   },
 
   getInitialCrmSources() {

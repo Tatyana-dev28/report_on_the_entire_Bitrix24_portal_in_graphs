@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+import logging
 from typing import Any
 
 from apps.bitrix.services.rest_client import BitrixRestError
 
 
+logger = logging.getLogger(__name__)
 QUOTE_TYPE_KEYWORDS = {
     "кп",
     "коммерческое предложение",
@@ -48,6 +50,7 @@ def load_quote_rows(
             },
         )
     except BitrixRestError:
+        logger.warning("Bitrix legacy quote loading failed; trying smart-process quote fallback.", exc_info=True)
         rows = []
 
     if rows:
@@ -70,7 +73,11 @@ def _load_smart_quote_rows(
 ) -> list[dict]:
     try:
         response = client.call_method("crm.type.list", {})
-    except (AttributeError, BitrixRestError):
+    except AttributeError:
+        logger.warning("Bitrix REST client does not support crm.type.list; quote smart-process fallback skipped.", exc_info=True)
+        return []
+    except BitrixRestError:
+        logger.warning("Bitrix smart-process type loading failed; quote smart-process fallback skipped.", exc_info=True)
         return []
 
     quote_type_ids = [
@@ -106,6 +113,11 @@ def _load_smart_quote_rows(
                 )
             )
         except BitrixRestError:
+            logger.warning(
+                "Bitrix smart quote loading failed for entityTypeId=%s.",
+                entity_type_id,
+                exc_info=True,
+            )
             continue
 
     return [_normalize_smart_quote_row(row) for row in rows]

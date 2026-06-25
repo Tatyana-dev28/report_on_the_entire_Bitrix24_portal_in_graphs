@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from django.db import transaction
@@ -45,6 +46,7 @@ VIRTUAL_REPORT_SOURCE_IDS = {
     "task-default",
     "crm-form-default",
 }
+logger = logging.getLogger(__name__)
 
 
 class ReportCatalogError(Exception):
@@ -70,7 +72,7 @@ def get_report_sources(portal: BitrixPortal | None = None) -> list[dict]:
             sync_crm_sources(portal=portal, sources=sources)
             return sources
         except BitrixRestError:
-            pass
+            logger.warning("Bitrix report catalog loading failed; using cached or static sources.", exc_info=True)
 
     cached_sources = get_cached_report_sources(portal)
 
@@ -158,6 +160,7 @@ def _smart_process_sources(client: BitrixRestClient) -> list[dict]:
     try:
         response = client.call_method("crm.type.list", {})
     except BitrixRestError:
+        logger.warning("Bitrix smart-process type catalog loading failed.", exc_info=True)
         return []
 
     types = _extract_items(response.result, keys=("types", "items"))
@@ -225,6 +228,11 @@ def _smart_process_categories(client: BitrixRestClient, entity_type_id: int) -> 
             {"entityTypeId": entity_type_id},
         )
     except BitrixRestError:
+        logger.warning(
+            "Bitrix smart-process category catalog loading failed for entityTypeId=%s.",
+            entity_type_id,
+            exc_info=True,
+        )
         return []
 
     return _extract_items(response.result, keys=("categories", "items"))

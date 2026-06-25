@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+import logging
 from typing import Any
 
 from apps.bitrix.services.rest_client import BitrixRestError
 
 
+logger = logging.getLogger(__name__)
 OUTGOING_CALL_TYPE = 1
 INCOMING_CALL_TYPES = {2, 3}
 MISSED_CALL_CODE = "304"
@@ -33,6 +35,7 @@ def load_call_rows(
             },
         )
     except BitrixRestError:
+        logger.warning("Bitrix telephony loading failed; call metrics will be zero.", exc_info=True)
         return []
 
     return [_normalize_call_row(row) for row in rows]

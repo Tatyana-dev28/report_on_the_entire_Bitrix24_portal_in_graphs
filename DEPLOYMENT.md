@@ -45,6 +45,11 @@ MYSQL_PORT=3306
 CACHE_BACKEND=redis
 REDIS_URL=redis://127.0.0.1:6379/1
 REPORT_SESSION_CACHE_TTL_SECONDS=7200
+REPORT_BACKGROUND_BACKEND=celery
+CELERY_BROKER_URL=redis://127.0.0.1:6379/2
+CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/2
+SENTRY_DSN=
+SENTRY_ENVIRONMENT=production
 
 USE_X_FORWARDED_HOST=true
 SECURE_PROXY_SSL_HEADER=true
@@ -79,11 +84,12 @@ python backend/manage.py migrate
 python backend/manage.py collectstatic --noinput
 python backend/manage.py check --deploy
 gunicorn config.wsgi:application --chdir backend --bind 127.0.0.1:8000
+celery -A config.celery:app worker --workdir backend --loglevel=INFO --concurrency=2
 ```
 
-For systemd, run gunicorn from the same virtualenv and bind it to
-`127.0.0.1:8000`. nginx should proxy `/api/`, `/admin/`, and `/bitrix/` to
-gunicorn.
+For systemd, run gunicorn and celery worker as two separate services from the
+same virtualenv. Bind gunicorn to `127.0.0.1:8000`. nginx should proxy `/api/`,
+`/admin/`, and `/bitrix/` to gunicorn.
 
 ## Frontend env and build
 

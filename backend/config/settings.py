@@ -278,3 +278,62 @@ BITRIX_REST_RETRY_DELAY_SECONDS = float(
     get_env("BITRIX_REST_RETRY_DELAY_SECONDS", default="1")
 )
 REPORT_DATA_PROVIDER = get_env("REPORT_DATA_PROVIDER", default="bitrix").lower()
+REPORT_BACKGROUND_BACKEND = get_env("REPORT_BACKGROUND_BACKEND", default="thread").lower()
+
+CELERY_BROKER_URL = get_env("CELERY_BROKER_URL", default=get_env("REDIS_URL", default="redis://127.0.0.1:6379/2"))
+CELERY_RESULT_BACKEND = get_env("CELERY_RESULT_BACKEND", default=CELERY_BROKER_URL)
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_TASK_TIME_LIMIT = get_int_env("CELERY_TASK_TIME_LIMIT", default=1800)
+CELERY_TASK_SOFT_TIME_LIMIT = get_int_env("CELERY_TASK_SOFT_TIME_LIMIT", default=1500)
+CELERY_WORKER_PREFETCH_MULTIPLIER = get_int_env("CELERY_WORKER_PREFETCH_MULTIPLIER", default=1)
+
+LOG_LEVEL = get_env("LOG_LEVEL", default="INFO")
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "default": {
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "default",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": LOG_LEVEL,
+    },
+    "loggers": {
+        "apps.bitrix": {
+            "handlers": ["console"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        "apps.reports": {
+            "handlers": ["console"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+    },
+}
+
+SENTRY_DSN = get_env("SENTRY_DSN", default="")
+
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+    except ImportError as error:
+        raise ImproperlyConfigured(
+            "SENTRY_DSN is set, but sentry-sdk is not installed."
+        ) from error
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        environment=get_env("SENTRY_ENVIRONMENT", default="production" if not DEBUG else "development"),
+        traces_sample_rate=float(get_env("SENTRY_TRACES_SAMPLE_RATE", default="0")),
+        send_default_pii=False,
+    )

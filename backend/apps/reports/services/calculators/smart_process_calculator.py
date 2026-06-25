@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 
@@ -97,6 +98,7 @@ def apply_smart_process_metrics(
     values["smart_process_total"] = len(rows)
     values["smart_process_success"] = len(successful_rows)
     values["smart_process_failed"] = len(failed_rows)
+    values["smart_process_success_sum"] = _sum_opportunity(successful_rows)
 
     return values
 
@@ -318,3 +320,15 @@ def _semantic(row: SmartProcessRow) -> str:
         or row.get("stageSemanticId")
         or ""
     ).strip().upper()
+
+
+def _sum_opportunity(rows: list[SmartProcessRow]) -> int:
+    total = Decimal("0")
+
+    for row in rows:
+        try:
+            total += Decimal(str(row.get("OPPORTUNITY") or row.get("opportunity") or 0))
+        except (InvalidOperation, ValueError):
+            continue
+
+    return int(total)

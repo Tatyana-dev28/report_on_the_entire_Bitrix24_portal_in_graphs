@@ -188,6 +188,7 @@ METRICS = [
     {"id": "production_check", "label": "Проверка", "group": "Воронка производство", "type": "number", "base": 8},
     {"id": "production_ready", "label": "Готово", "group": "Воронка производство", "type": "number", "base": 7},
     {"id": "production_closed", "label": "Закрыто", "group": "Воронка производство", "type": "number", "base": 6},
+    {"id": "smart_process_success_sum", "label": "Сумма успешных смарт-процессов", "group": "Воронка производство", "type": "money", "base": 500000},
 ]
 
 
@@ -344,6 +345,7 @@ METRIC_SECTIONS = [
             "production_check",
             "production_ready",
             "production_closed",
+            "smart_process_success_sum",
         ],
     },
 ]

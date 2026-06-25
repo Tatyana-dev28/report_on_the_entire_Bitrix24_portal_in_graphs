@@ -27,7 +27,7 @@ ASYNC_DATE_RANGE_DAYS = 30
 ASYNC_SOURCE_COUNT_THRESHOLD = 2
 HEAVY_ASYNC_SOURCE_IDS = {
     "activity-default",
-    "calls-default",
+    "telephony-default",
     "task-default",
 }
 HEAVY_ASYNC_DATE_RANGE_DAYS = 7

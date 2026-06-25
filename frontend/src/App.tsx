@@ -77,6 +77,7 @@ import {
   createDefaultFilters,
   defaultAppSettings,
   defaultSavedView,
+  DEFAULT_SOURCE_IDS,
   detailColumnMinWidthSum,
   detailColumns,
   isProUser,
@@ -559,9 +560,17 @@ function App() {
       }
 
       const allowedSourceIds = new Set(crmSourceIds);
-      const selectedSources = sources.filter((source) => allowedSourceIds.has(source));
 
-      return selectedSources.length ? selectedSources : crmSourceIds;
+      // Если пользователь явно выбрал источники — фильтруем по доступным
+      if (sources.length > 0) {
+        const selectedSources = sources.filter((source) => allowedSourceIds.has(source));
+        return selectedSources.length ? selectedSources : crmSourceIds;
+      }
+
+      // Если источники не выбраны — подставляем разумный набор по умолчанию
+      // (пересечение DEFAULT_SOURCE_IDS с реально доступными на портале источниками)
+      const defaultSources = DEFAULT_SOURCE_IDS.filter((id) => allowedSourceIds.has(id));
+      return defaultSources.length > 0 ? defaultSources : crmSourceIds;
     },
     [crmSourceIds],
   );

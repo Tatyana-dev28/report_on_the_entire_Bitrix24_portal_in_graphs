@@ -724,20 +724,95 @@ def resolve_selected_sources(selected_sources: list[str]) -> list[dict]:
     )
 
 
+def _default_portal_sources(portal: Any) -> list[dict]:
+    """Возвращает разумный набор источников по умолчанию для портала.
+
+    Когда пользователь не выбрал источники явно, подставляются:
+    - Все статические/виртуальные источники (lead, invoice, telephony, activity, quote, company, contact, task, crm-form)
+    - Один основной источник сделок (первый доступный deal)
+    - Один смарт-процесс (приоритет: entityTypeId=140 или 128, иначе первый попавшийся)
+
+    Это гарантирует, что при пустом selectedSources отчёт включает
+    все основные метрики, но не перегружает портал лишними источниками.
+    """
+    result = [dict(source) for source in REPORT_SOURCES]
+    seen_types = {s["type"] for s in result}
+
+    portal_sources = CrmSource.objects.filter(
+        portal=portal,
+        is_active=True,
+        is_available=True,
+    ).order_by("source_type", "category_id")
+
+    for source in portal_sources:
+        source_type = source.source_type
+
+        if source_type == CrmSource.SourceType.DEAL and "deal" not in seen_types:
+            result.append(_crm_source_to_report_source(source))
+            seen_types.add("deal")
+
+        elif source_type == CrmSource.SourceType.SMART_PROCESS and "smartProcess" not in seen_types:
+            if source.entity_type_id in (140, 128):
+                result.append(_crm_source_to_report_source(source))
+                seen_types.add("smartProcess")
+
+    if "smartProcess" not in seen_types:
+        for source in portal_sources:
+            if source.source_type == CrmSource.SourceType.SMART_PROCESS:
+                result.append(_crm_source_to_report_source(source))
+                seen_types.add("smartProcess")
+                break
+
+    return result
+
+
+def _ensure_essential_source_types(
+    result: list[dict],
+    portal_sources: list[CrmSource],
+) -> None:
+    """Дополняет список источников необходимыми типами, если их нет.
+
+    Если в result нет ни одного deal — добавляет первый доступный.
+    Если в result нет ни одного smartProcess — добавляет первый (приоритет: 140, 128).
+    """
+    seen_types = {s["type"] for s in result}
+
+    if "deal" not in seen_types:
+        for source in portal_sources:
+            if source.source_type == CrmSource.SourceType.DEAL:
+                result.append(_crm_source_to_report_source(source))
+                seen_types.add("deal")
+                break
+
+    if "smartProcess" not in seen_types:
+        for source in portal_sources:
+            if source.source_type == CrmSource.SourceType.SMART_PROCESS:
+                if source.entity_type_id in (140, 128):
+                    result.append(_crm_source_to_report_source(source))
+                    seen_types.add("smartProcess")
+                    break
+        if "smartProcess" not in seen_types:
+            for source in portal_sources:
+                if source.source_type == CrmSource.SourceType.SMART_PROCESS:
+                    result.append(_crm_source_to_report_source(source))
+                    seen_types.add("smartProcess")
+                    break
+
+
 def resolve_selected_sources_for_portal(portal: Any, selected_sources: list[str]) -> list[dict]:
     if not selected_sources:
-        return resolve_selected_sources(selected_sources)
+        return _default_portal_sources(portal)
 
     normalized_values = {str(value).strip() for value in selected_sources if str(value).strip()}
 
     result = []
     seen_ids = set()
 
-    portal_sources = CrmSource.objects.filter(
+    portal_sources = list(CrmSource.objects.filter(
         portal=portal,
         is_active=True,
         is_available=True,
-    )
+    ))
 
     for source in portal_sources:
         if source.external_key not in normalized_values:
@@ -762,6 +837,8 @@ def resolve_selected_sources_for_portal(portal: Any, selected_sources: list[str]
         seen_ids.add(source["id"])
 
     if result:
+        # Дополняем необходимыми типами (deal, smartProcess), если их нет
+        _ensure_essential_source_types(result, portal_sources)
         return result
 
     for source in portal_sources:
@@ -795,6 +872,7 @@ def resolve_selected_sources_for_portal(portal: Any, selected_sources: list[str]
         seen_ids.add(source["id"])
 
     if result:
+        _ensure_essential_source_types(result, portal_sources)
         return result
 
     return resolve_selected_sources(selected_sources)

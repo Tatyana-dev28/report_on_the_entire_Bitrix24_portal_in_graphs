@@ -136,6 +136,29 @@ export const createDefaultSchedule = (): ScheduleFilters => ({
   weekendDayIds: [...defaultSchedule.weekendDayIds],
 });
 
+/**
+ * Источники по умолчанию, которые выбираются при первом запуске отчёта.
+ *
+ * Содержит только статические/виртуальные источники, которые есть на любом портале.
+ * Конкретные deal и smart-process ID добавляются автоматически на бэкенде
+ * через _default_portal_sources(), поэтому их не нужно указывать здесь.
+ *
+ * Это гарантирует, что при пустом selectedSources:
+ * - На графике отображаются только основные источники (не все 60+)
+ * - Основные метрики (сделки, звонки, задачи, email, производство) работают сразу
+ */
+export const DEFAULT_SOURCE_IDS: string[] = [
+  'lead-default',
+  'invoice-default',
+  'telephony-default',
+  'activity-default',
+  'quote-default',
+  'company-default',
+  'contact-default',
+  'task-default',
+  'crm-form-default',
+];
+
 export const createDefaultFilters = (): ReportFilters => ({
   period: 'days',
   dateRange: defaultDateRange as DateRange,

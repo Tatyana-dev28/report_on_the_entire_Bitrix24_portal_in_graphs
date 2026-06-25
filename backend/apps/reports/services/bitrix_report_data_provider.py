@@ -58,6 +58,24 @@ SUPPORTED_SOURCE_TYPES = {
 }
 DEFAULT_REPORT_MESSAGE = "Отчет построен по данным Bitrix24."
 logger = logging.getLogger(__name__)
+ESSENTIAL_STATIC_SOURCE_IDS = {
+    "lead-default",
+    "invoice-default",
+    "telephony-default",
+    "activity-default",
+    "quote-default",
+    "company-default",
+    "contact-default",
+    "task-default",
+    "crm-form-default",
+}
+SALES_NEW_STAGES = {"NEW", "PREPARATION"}
+SALES_TALK_STAGES = {"PREPAYMENT_INVOICE", "EXECUTING"}
+SALES_NUMERIC_STAGE_BUCKETS = {
+    "new": {"1", "2", "3", "4"},
+    "talk": {"5", "6", "7"},
+    "invoice": {"8"},
+}
 
 
 @dataclass(frozen=True)
@@ -772,10 +790,26 @@ def _ensure_essential_source_types(
 ) -> None:
     """Дополняет список источников необходимыми типами, если их нет.
 
+    Если не выбраны базовые виртуальные источники из REPORT_SOURCES —
+    добавляет их, чтобы включенные метрики не считались по пустому набору.
     Если в result нет ни одного deal — добавляет первый доступный.
     Если в result нет ни одного smartProcess — добавляет первый (приоритет: 140, 128).
     """
+    seen_ids = {str(source.get("id") or "") for source in result}
     seen_types = {s["type"] for s in result}
+
+    for source in REPORT_SOURCES:
+        source_id = str(source.get("id") or "")
+
+        if source_id not in ESSENTIAL_STATIC_SOURCE_IDS:
+            continue
+
+        if source_id in seen_ids or source["type"] in seen_types:
+            continue
+
+        result.append(dict(source))
+        seen_ids.add(source_id)
+        seen_types.add(source["type"])
 
     if "deal" not in seen_types:
         for source in portal_sources:
@@ -1105,17 +1139,13 @@ def _build_bucket_values(
         values["leads_created"] - values["lead_new"] - values["lead_qualified"] - values["lead_bad_stage"],
     )
 
-    sales_new_rows = [
-        row for row in deal_rows if _stage_suffix(row.get("STAGE_ID")) in {"NEW", "PREPARATION"}
-    ]
+    sales_new_rows = [row for row in deal_rows if _is_sales_new_stage(row.get("STAGE_ID"))]
     sales_talk_rows = [
         row
         for row in deal_rows
-        if _stage_suffix(row.get("STAGE_ID")) in {"PREPAYMENT_INVOICE", "EXECUTING"}
+        if _is_sales_talk_stage(row.get("STAGE_ID"))
     ]
-    sales_invoice_rows = [
-        row for row in deal_rows if "INVOICE" in _stage_suffix(row.get("STAGE_ID"))
-    ]
+    sales_invoice_rows = [row for row in deal_rows if _is_sales_invoice_stage(row.get("STAGE_ID"))]
 
     values["sales_new"] = len(sales_new_rows)
     values["sales_talk"] = len(sales_talk_rows)
@@ -1580,6 +1610,42 @@ def _conversion(success: int | float, total: int | float) -> float:
 
 def _stage_suffix(value: Any) -> str:
     return str(value or "").split(":")[-1].upper()
+
+
+def _stage_category(value: Any) -> str:
+    text = str(value or "")
+
+    if ":" not in text:
+        return ""
+
+    return text.split(":", 1)[0].upper()
+
+
+def _is_sales_new_stage(value: Any) -> bool:
+    suffix = _stage_suffix(value)
+
+    return suffix in SALES_NEW_STAGES or (
+        _stage_category(value) == "C31"
+        and suffix in SALES_NUMERIC_STAGE_BUCKETS["new"]
+    )
+
+
+def _is_sales_talk_stage(value: Any) -> bool:
+    suffix = _stage_suffix(value)
+
+    return suffix in SALES_TALK_STAGES or (
+        _stage_category(value) == "C31"
+        and suffix in SALES_NUMERIC_STAGE_BUCKETS["talk"]
+    )
+
+
+def _is_sales_invoice_stage(value: Any) -> bool:
+    suffix = _stage_suffix(value)
+
+    return "INVOICE" in suffix or (
+        _stage_category(value) == "C31"
+        and suffix in SALES_NUMERIC_STAGE_BUCKETS["invoice"]
+    )
 
 
 def _is_won_stage(value: Any) -> bool:

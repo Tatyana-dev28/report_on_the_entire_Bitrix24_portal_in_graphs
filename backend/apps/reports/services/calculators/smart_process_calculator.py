@@ -292,6 +292,7 @@ def is_production_ready(row: SmartProcessRow) -> bool:
             "FINAL",
             "COMPLETE",
             "COMPLETED",
+            "UC_1RXT3D",
         }
         or "READY" in stage
         or "DONE" in stage

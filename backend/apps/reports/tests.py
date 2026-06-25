@@ -8,7 +8,10 @@ from django.urls import reverse
 from apps.bitrix.models import BitrixPortal
 from apps.bitrix.services.rest_client import BitrixRestError
 from apps.reports.models import CrmSource, ReportBuild, ReportSession
-from apps.reports.services.bitrix_report_data_provider import BitrixReportDataProvider
+from apps.reports.services.bitrix_report_data_provider import (
+    BitrixReportDataProvider,
+    resolve_selected_sources_for_portal,
+)
 from apps.reports.services.data_providers import ReportDataProviderContext
 from apps.reports.services.report_catalog import build_report_catalog
 
@@ -800,6 +803,62 @@ class FakeMonthlyTaskBitrixRestClient:
         return []
 
 
+class FakeNumericDealStageBitrixRestClient:
+    def __init__(self, portal):
+        self.portal = portal
+
+    def call_list(self, method, params=None, *, max_pages=None):
+        if method == "crm.deal.list":
+            return [
+                {
+                    "ID": "deal-stage-1",
+                    "TITLE": "Numeric new stage",
+                    "DATE_CREATE": "2026-05-01T09:00:00+03:00",
+                    "STAGE_ID": "C31:1",
+                    "OPPORTUNITY": "100",
+                },
+                {
+                    "ID": "deal-stage-5",
+                    "TITLE": "Numeric talk stage",
+                    "DATE_CREATE": "2026-05-01T10:00:00+03:00",
+                    "STAGE_ID": "C31:5",
+                    "OPPORTUNITY": "200",
+                },
+                {
+                    "ID": "deal-stage-8",
+                    "TITLE": "Numeric invoice stage",
+                    "DATE_CREATE": "2026-05-01T11:00:00+03:00",
+                    "STAGE_ID": "C31:8",
+                    "OPPORTUNITY": "300",
+                },
+            ]
+
+        return []
+
+
+class FakeProductionReadyStageBitrixRestClient:
+    def __init__(self, portal):
+        self.portal = portal
+
+    def call_list(self, method, params=None, *, max_pages=None):
+        if method == "crm.item.list":
+            return [
+                {
+                    "id": 14001,
+                    "title": "GR configured",
+                    "createdTime": "2026-05-01T09:00:00+03:00",
+                    "stageId": "DT140_53:UC_1RXT3D",
+                    "stageSemanticId": "P",
+                    "opportunity": "0",
+                    "currencyId": "RUB",
+                    "assignedById": 42,
+                    "categoryId": 53,
+                }
+            ]
+
+        return []
+
+
 class FakeCatalogBitrixRestClient:
     def __init__(self, portal):
         self.portal = portal
@@ -915,6 +974,43 @@ class BitrixReportDataProviderTests(TestCase):
             status=BitrixPortal.Status.ACTIVE,
         )
 
+    def test_selected_sources_are_extended_with_essential_sources(self):
+        CrmSource.objects.create(
+            portal=self.portal,
+            external_key="deal-31",
+            source_type=CrmSource.SourceType.DEAL,
+            entity_type_id=2,
+            category_id=31,
+            title="Main sales pipeline",
+            source_label="Main sales pipeline",
+            is_available=True,
+        )
+        CrmSource.objects.create(
+            portal=self.portal,
+            external_key="smart-140-53",
+            source_type=CrmSource.SourceType.SMART_PROCESS,
+            entity_type_id=140,
+            category_id=53,
+            title="Production",
+            source_label="Production",
+            is_available=True,
+        )
+
+        sources = resolve_selected_sources_for_portal(self.portal, ["task-default"])
+        source_ids = {source["id"] for source in sources}
+
+        self.assertIn("task-default", source_ids)
+        self.assertIn("deal-31", source_ids)
+        self.assertIn("smart-140-53", source_ids)
+        self.assertIn("lead-default", source_ids)
+        self.assertIn("invoice-default", source_ids)
+        self.assertIn("telephony-default", source_ids)
+        self.assertIn("activity-default", source_ids)
+        self.assertIn("quote-default", source_ids)
+        self.assertIn("company-default", source_ids)
+        self.assertIn("contact-default", source_ids)
+        self.assertIn("crm-form-default", source_ids)
+
     def test_provider_loads_tasks_by_month_for_long_periods(self):
         provider = BitrixReportDataProvider(rest_client_factory=FakeMonthlyTaskBitrixRestClient)
 
@@ -940,6 +1036,57 @@ class BitrixReportDataProviderTests(TestCase):
         self.assertEqual(result.data[0]["values"]["tasks_done"], 0)
         self.assertEqual(result.data[1]["values"]["tasks_created"], 1)
         self.assertEqual(result.data[1]["values"]["tasks_done"], 1)
+
+    def test_provider_classifies_numeric_deal_stages_for_sales_funnel(self):
+        provider = BitrixReportDataProvider(rest_client_factory=FakeNumericDealStageBitrixRestClient)
+
+        result = provider.build_preview(
+            filters={
+                "period": "days",
+                "dateRange": {"from": "2026-05-01", "to": "2026-05-01"},
+                "selectedSources": ["deal-sales"],
+                "selectedMetricIds": ["sales_new", "sales_talk", "sales_invoice"],
+                "metricMode": "count",
+                "chartDisplayMode": "sum",
+            },
+            context=ReportDataProviderContext(
+                portal=self.portal,
+                user=None,
+                bitrix_user_id="42",
+                user_name="",
+            ),
+        )
+
+        values = result.data[0]["values"]
+
+        self.assertEqual(values["sales_new"], 1)
+        self.assertEqual(values["sales_talk"], 1)
+        self.assertEqual(values["sales_invoice"], 1)
+
+    def test_provider_classifies_uc_stage_as_production_ready(self):
+        provider = BitrixReportDataProvider(rest_client_factory=FakeProductionReadyStageBitrixRestClient)
+
+        result = provider.build_preview(
+            filters={
+                "period": "days",
+                "dateRange": {"from": "2026-05-01", "to": "2026-05-01"},
+                "selectedSources": ["smart-production"],
+                "selectedMetricIds": ["production_ready", "production_work"],
+                "metricMode": "count",
+                "chartDisplayMode": "sum",
+            },
+            context=ReportDataProviderContext(
+                portal=self.portal,
+                user=None,
+                bitrix_user_id="42",
+                user_name="",
+            ),
+        )
+
+        values = result.data[0]["values"]
+
+        self.assertEqual(values["production_ready"], 1)
+        self.assertEqual(values["production_work"], 0)
 
     def test_provider_builds_daily_deal_and_lead_metrics(self):
         provider = BitrixReportDataProvider(rest_client_factory=FakeBitrixRestClient)
@@ -1075,7 +1222,7 @@ class BitrixReportDataProviderTests(TestCase):
         )
 
         self.assertEqual(result.status, "ready")
-        self.assertEqual(result.metadata["loadedSources"], ["Счета"])
+        self.assertIn("Счета", result.metadata["loadedSources"])
         self.assertEqual(result.metadata["unsupportedSources"], [])
 
         first_day = result.data[0]["values"]
@@ -1121,7 +1268,7 @@ class BitrixReportDataProviderTests(TestCase):
         )
 
         self.assertEqual(result.status, "ready")
-        self.assertEqual(result.metadata["loadedSources"], ["Счета"])
+        self.assertIn("Счета", result.metadata["loadedSources"])
         self.assertEqual(result.metadata["unsupportedSources"], [])
 
         values = result.data[0]["values"]
@@ -1136,9 +1283,9 @@ class BitrixReportDataProviderTests(TestCase):
     def test_provider_builds_smart_process_metrics_from_dynamic_source(self):
         CrmSource.objects.create(
             portal=self.portal,
-            external_key="smart-180-4",
+            external_key="smart-140-4",
             source_type=CrmSource.SourceType.SMART_PROCESS,
-            entity_type_id=180,
+            entity_type_id=140,
             category_id=4,
             title="Новые заявки",
             source_label="Новые заявки",
@@ -1172,7 +1319,7 @@ class BitrixReportDataProviderTests(TestCase):
         )
 
         self.assertEqual(result.status, "ready")
-        self.assertEqual(result.metadata["loadedSources"], ["Новые заявки"])
+        self.assertIn("Новые заявки", result.metadata["loadedSources"])
         self.assertEqual(result.metadata["unsupportedSources"], [])
 
         first_day = result.data[0]["values"]
@@ -1220,7 +1367,7 @@ class BitrixReportDataProviderTests(TestCase):
         )
 
         self.assertEqual(result.status, "ready")
-        self.assertEqual(result.metadata["loadedSources"], ["Телефония"])
+        self.assertIn("Телефония", result.metadata["loadedSources"])
         self.assertEqual(result.metadata["unsupportedSources"], [])
         self.assertEqual(len(result.data), 2)
 
@@ -1422,7 +1569,7 @@ class BitrixReportDataProviderTests(TestCase):
 
         self.assertEqual(result.status, "ready")
         self.assertEqual(result.metadata["unsupportedSources"], [])
-        self.assertEqual(first_day["meetings_created"], 1)
+        self.assertEqual(first_day["meetings_created"], 2)
         self.assertEqual(first_day["contracts_created"], 3)
         self.assertEqual(first_day["contracts_sent"], 1)
         self.assertEqual(first_day["contracts_signed"], 1)

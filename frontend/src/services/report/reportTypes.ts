@@ -6,6 +6,7 @@ export type CrmSourceType =
   | 'smartProcess'
   | 'invoice'
   | 'telephony'
+  | 'call'
   | 'activity'
   | 'quote'
   | 'company'

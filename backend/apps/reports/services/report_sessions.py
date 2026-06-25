@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
+from django.utils import timezone
+
 from apps.reports.models import ReportBuild, ReportSession
 from apps.reports.services.builders import ReportBuildContext, ReportBuilder
+from apps.reports.services.background_jobs import enqueue_report_build
 from apps.reports.services.cache_repository import ReportCacheRepository
 from apps.reports.services.exceptions import ReportPreviewSessionError
 from apps.reports.services.filters import normalize_report_filters
 from apps.reports.services.report_context import resolve_portal, resolve_user
+
+
+PENDING_REQUEUE_AFTER = timedelta(seconds=45)
+RUNNING_REQUEUE_AFTER = timedelta(minutes=20)
 
 
 def create_report_preview_session(request, payload: dict) -> dict:
@@ -76,6 +85,12 @@ def get_report_preview_session_status(request, session_key: str) -> dict:
             "message": session.error_message or (build.error_message if build else "") or "Не удалось построить отчет.",
         }
 
+    if _should_requeue_build(build):
+        build.status = ReportBuild.Status.PENDING
+        build.error_message = ""
+        build.celery_task_id = enqueue_report_build(build.id)
+        build.save(update_fields=["status", "error_message", "celery_task_id", "updated_at"])
+
     build_status = build.status if build else ReportBuild.Status.PENDING
     status = "running" if build_status == ReportBuild.Status.RUNNING else "queued"
 
@@ -92,3 +107,18 @@ def get_report_preview_session_status(request, session_key: str) -> dict:
         "metadata": session.metadata or {},
         "message": "Отчет строится. Данные появятся автоматически после завершения.",
     }
+
+
+def _should_requeue_build(build: ReportBuild | None) -> bool:
+    if build is None:
+        return False
+
+    now = timezone.now()
+
+    if build.status == ReportBuild.Status.PENDING:
+        return (now - build.updated_at) > PENDING_REQUEUE_AFTER
+
+    if build.status == ReportBuild.Status.RUNNING:
+        return (now - build.updated_at) > RUNNING_REQUEUE_AFTER
+
+    return False

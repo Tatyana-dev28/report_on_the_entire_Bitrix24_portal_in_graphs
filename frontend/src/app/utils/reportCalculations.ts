@@ -231,6 +231,10 @@ export const getChartSeriesValue = (
     return 0;
   }
 
+  if (isCompanySource || isContactSource || isTaskSource || isCrmFormSource) {
+    return 0;
+  }
+
   if (isProductionSource) {
     return values.smart_process_success_sum;
   }

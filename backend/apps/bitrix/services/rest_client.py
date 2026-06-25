@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+import time
 from typing import Any
 from urllib.parse import urlencode
 
@@ -77,6 +78,14 @@ class BitrixRestClient:
         self.portal = portal
         self.timeout = int(getattr(settings, "BITRIX_REST_TIMEOUT_SECONDS", 30))
         self.max_list_pages = int(getattr(settings, "BITRIX_REST_MAX_LIST_PAGES", 200))
+        self.retry_attempts = max(
+            1,
+            int(getattr(settings, "BITRIX_REST_RETRY_ATTEMPTS", 3)),
+        )
+        self.retry_delay_seconds = max(
+            0.0,
+            float(getattr(settings, "BITRIX_REST_RETRY_DELAY_SECONDS", 1)),
+        )
 
     @property
     def auth_token(self) -> BitrixAuthToken:
@@ -308,27 +317,44 @@ class BitrixRestClient:
 
     def _post_json(self, *, method: str, payload: dict[str, Any]) -> dict[str, Any]:
         endpoint = self._method_url(method)
+        response_payload: dict[str, Any] | None = None
 
-        try:
-            response = requests.post(
-                endpoint,
-                json=payload,
-                timeout=self.timeout,
-                headers={
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                },
+        for attempt in range(1, self.retry_attempts + 1):
+            try:
+                response = requests.post(
+                    endpoint,
+                    json=payload,
+                    timeout=self.timeout,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                )
+
+                if self._should_retry_http_status(response.status_code, attempt):
+                    self._sleep_before_retry(attempt)
+                    continue
+
+                response.raise_for_status()
+                response_payload = response.json()
+                break
+            except requests.RequestException as error:
+                if attempt < self.retry_attempts:
+                    self._sleep_before_retry(attempt)
+                    continue
+
+                raise BitrixRestError(
+                    f"HTTP-ошибка Bitrix24 REST method={method}: {error}"
+                ) from error
+            except ValueError as error:
+                raise BitrixRestError(
+                    f"Bitrix24 REST method={method} вернул некорректный JSON."
+                ) from error
+
+        if response_payload is None:
+            raise BitrixRestError(
+                f"Bitrix24 REST method={method} не вернул ответ."
             )
-            response.raise_for_status()
-            response_payload = response.json()
-        except requests.RequestException as error:
-            raise BitrixRestError(
-                f"HTTP-ошибка Bitrix24 REST method={method}: {error}"
-            ) from error
-        except ValueError as error:
-            raise BitrixRestError(
-                f"Bitrix24 REST method={method} вернул некорректный JSON."
-            ) from error
 
         if not isinstance(response_payload, dict):
             raise BitrixRestError(
@@ -336,6 +362,18 @@ class BitrixRestClient:
             )
 
         return response_payload
+
+    def _should_retry_http_status(self, status_code: int, attempt: int) -> bool:
+        if attempt >= self.retry_attempts:
+            return False
+
+        return status_code == 429 or 500 <= status_code < 600
+
+    def _sleep_before_retry(self, attempt: int) -> None:
+        if self.retry_delay_seconds <= 0:
+            return
+
+        time.sleep(self.retry_delay_seconds * attempt)
 
     def _method_url(self, method: str) -> str:
         base = self.portal.client_endpoint or f"{self.portal.base_url}/rest/"

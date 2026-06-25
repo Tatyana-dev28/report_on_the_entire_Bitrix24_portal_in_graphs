@@ -207,8 +207,9 @@ def is_declined_quote(row: dict) -> bool:
     status = _status(row)
 
     return (
-        status in {"DECLINED", "REJECTED", "LOSE", "LOST", "FAIL", "FAILED"}
+        status in {"DECLINED", "DECLAINED", "REJECTED", "LOSE", "LOST", "FAIL", "FAILED"}
         or "DECLIN" in status
+        or "DECLAIN" in status
         or "REJECT" in status
         or "LOSE" in status
         or "LOST" in status

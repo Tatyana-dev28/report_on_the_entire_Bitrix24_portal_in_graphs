@@ -27,6 +27,13 @@ SMART_PROCESS_SELECT_FIELDS = [
     "categoryId",
 ]
 
+# EntityTypeId smart-процессов, которые считаются "производством".
+# 128 — дефолтный ID из catalog.py (smart-production).
+# 140 — реальный ID production-воронки на этом портале (DYNAMIC_140).
+# Если на другом портале production имеет другой entityTypeId,
+# его нужно добавить сюда.
+PRODUCTION_ENTITY_TYPE_IDS: set[int] = {128, 140}
+
 
 def load_smart_process_rows(
     *,
@@ -80,39 +87,55 @@ def apply_smart_process_metrics(
     if rows is None:
         rows = kwargs.get("rows") or kwargs.get("smart_process_rows") or []
 
-    successful_rows = [row for row in rows if is_success_smart_process(row)]
-    failed_rows = [row for row in rows if is_failed_smart_process(row)]
-    check_rows = [row for row in rows if is_production_check(row)]
-    ready_rows = [row for row in rows if is_production_ready(row)]
+    # Production-метрики считаем ТОЛЬКО для строк из production-воронок
+    # (entityTypeId входит в PRODUCTION_ENTITY_TYPE_IDS).
+    # Остальные smart-process воронки (HR, кандидаты, долги и т.д.)
+    # не должны влиять на production_accepted/work/check/ready/closed.
+    production_rows = [
+        row
+        for row in rows
+        if row.get("ENTITY_TYPE_ID") in PRODUCTION_ENTITY_TYPE_IDS
+    ]
+
+    successful_rows = [row for row in production_rows if is_success_smart_process(row)]
+    failed_rows = [row for row in production_rows if is_failed_smart_process(row)]
+    check_rows = [row for row in production_rows if is_production_check(row)]
+    ready_rows = [row for row in production_rows if is_production_ready(row)]
 
     values["production_accepted"] = len(
-        [row for row in rows if is_production_accepted(row)]
+        [row for row in production_rows if is_production_accepted(row)]
     )
     values["production_work"] = len(
-        [row for row in rows if is_production_work(row)]
+        [row for row in production_rows if is_production_work(row)]
     )
     values["production_check"] = len(check_rows)
     values["production_ready"] = len(ready_rows)
     values["production_closed"] = len(successful_rows)
 
-    values["smart_process_total"] = len(rows)
-    values["smart_process_success"] = len(successful_rows)
-    values["smart_process_failed"] = len(failed_rows)
-    values["smart_process_success_sum"] = _sum_opportunity(successful_rows)
+    # smart_process_total/success/failed/sum считаем по ВСЕМ smart-process строкам
+    all_successful = [row for row in rows if is_success_smart_process(row)]
+    all_failed = [row for row in rows if is_failed_smart_process(row)]
 
-    intermediate_rows = [
-        row
-        for row in rows
-        if not is_production_accepted(row)
-        and not is_success_smart_process(row)
-        and not is_failed_smart_process(row)
-    ]
-    if intermediate_rows and not any([check_rows, ready_rows]):
-        logger.warning(
-            "Smart-process rows exist but production_check/production_ready were not classified. "
-            "Available STAGE_ID/STAGE_SEMANTIC_ID pairs: %s",
-            _sample_stage_pairs(intermediate_rows),
-        )
+    values["smart_process_total"] = len(rows)
+    values["smart_process_success"] = len(all_successful)
+    values["smart_process_failed"] = len(all_failed)
+    values["smart_process_success_sum"] = _sum_opportunity(all_successful)
+
+    # Диагностика — только для production-строк
+    if production_rows:
+        intermediate_rows = [
+            row
+            for row in production_rows
+            if not is_production_accepted(row)
+            and not is_success_smart_process(row)
+            and not is_failed_smart_process(row)
+        ]
+        if intermediate_rows and not any([check_rows, ready_rows]):
+            logger.warning(
+                "Production rows exist but production_check/production_ready were not classified. "
+                "Available STAGE_ID/STAGE_SEMANTIC_ID pairs: %s",
+                _sample_stage_pairs(intermediate_rows),
+            )
 
     return values
 

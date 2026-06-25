@@ -1153,6 +1153,8 @@ def _crm_source_to_report_source(source: CrmSource) -> dict:
         source_type = "activity"
     elif source.external_key.startswith("quote-"):
         source_type = "quote"
+    elif source.external_key.startswith("crm-form-"):
+        source_type = "crm_form"
 
     return {
         "id": source.external_key,

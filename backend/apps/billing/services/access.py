@@ -374,7 +374,16 @@ def activate_paid_subscription(
     pro_plan = get_pro_monthly_plan()
 
     if paid_until is None:
-        paid_until = now + timedelta(days=30)
+        starts_at = now
+
+        if (
+            subscription.status == Subscription.Status.ACTIVE
+            and subscription.paid_until
+            and subscription.paid_until > now
+        ):
+            starts_at = subscription.paid_until
+
+        paid_until = starts_at + timedelta(days=30)
 
     if pro_plan:
         subscription.plan = pro_plan

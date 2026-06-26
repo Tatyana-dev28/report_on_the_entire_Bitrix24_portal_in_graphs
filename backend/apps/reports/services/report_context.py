@@ -1,12 +1,53 @@
 from __future__ import annotations
 
 from django.conf import settings
+from django.core import signing
 
 from apps.bitrix.models import BitrixPortal, PortalUser
+from apps.bitrix.services.portal_tokens import (
+    get_portal_token_from_request,
+    load_portal_api_token,
+)
 from apps.reports.services.exceptions import ReportPreviewSessionError
 
 
 def resolve_portal(request, payload: dict) -> BitrixPortal:
+    portal_token = get_portal_token_from_request(request, payload)
+
+    if portal_token:
+        try:
+            token_payload = load_portal_api_token(portal_token)
+        except signing.BadSignature as error:
+            raise ReportPreviewSessionError(
+                "Не удалось подтвердить доступ к порталу Bitrix24. Откройте приложение заново из Bitrix24.",
+                status=403,
+            ) from error
+
+        member_id = str(token_payload.get("member_id") or "").strip()
+        domain = str(token_payload.get("domain") or "").strip()
+
+        if not member_id:
+            raise ReportPreviewSessionError(
+                "В токене портала нет идентификатора Bitrix24.",
+                status=403,
+            )
+
+        portal = BitrixPortal.objects.filter(member_id=member_id).first()
+
+        if not portal or (domain and portal.domain.lower() != domain.lower()):
+            raise ReportPreviewSessionError(
+                "Токен портала не соответствует сохраненному порталу Bitrix24.",
+                status=403,
+            )
+
+        return portal
+
+    if not settings.DEBUG:
+        raise ReportPreviewSessionError(
+            "Не удалось подтвердить доступ к порталу Bitrix24. Откройте приложение заново из Bitrix24.",
+            status=403,
+        )
+
     member_id = (
         payload.get("memberId")
         or payload.get("member_id")

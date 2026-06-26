@@ -61,6 +61,7 @@ ALLOW_IFRAME_EMBED=true
 
 BITRIX_CLIENT_ID=<bitrix-app-client-id>
 BITRIX_CLIENT_SECRET=<bitrix-app-client-secret>
+BITRIX_PORTAL_TOKEN_MAX_AGE_SECONDS=43200
 REPORT_DATA_PROVIDER=bitrix
 FRONTEND_URL=https://example.com
 

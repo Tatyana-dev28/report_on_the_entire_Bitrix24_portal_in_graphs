@@ -13,6 +13,7 @@ from apps.bitrix.services.install import (
     BitrixInstallError,
     create_or_update_portal_from_bitrix_payload,
 )
+from apps.bitrix.services.portal_tokens import make_portal_api_token
 
 
 def parse_bitrix_request_payload(request: HttpRequest) -> dict:
@@ -118,6 +119,10 @@ def build_frontend_redirect_url(*, portal, mode: str) -> str:
         "memberId": portal.member_id,
         "domain": portal.domain,
         "bitrixUserId": portal.installed_by_user_id or "",
+        "portalToken": make_portal_api_token(
+            portal=portal,
+            bitrix_user_id=portal.installed_by_user_id or "",
+        ),
     }
 
     return f"{frontend_url}/?{urlencode(query)}"

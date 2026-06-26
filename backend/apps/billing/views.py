@@ -3,7 +3,8 @@ import os
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured, ValidationError
+from django.core.exceptions import ImproperlyConfigured, PermissionDenied, ValidationError
+from django.core import signing
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.csrf import csrf_exempt
@@ -17,6 +18,11 @@ from apps.billing.services.robokassa import (
     process_robokassa_result,
 )
 from apps.bitrix.models import BitrixPortal
+from apps.bitrix.services.portal_tokens import (
+    get_portal_token_from_request,
+    load_portal_api_token,
+    make_portal_api_token,
+)
 
 
 def _json_error(message: str, status: int = 400, details: dict | None = None) -> JsonResponse:
@@ -68,6 +74,11 @@ def _frontend_payment_redirect(payment_status: str, payment: Payment | None = No
                 "paymentId": str(payment.public_id),
                 "memberId": payment.portal.member_id,
                 "domain": payment.portal.domain,
+                "bitrixUserId": payment.portal.installed_by_user_id or "",
+                "portalToken": make_portal_api_token(
+                    portal=payment.portal,
+                    bitrix_user_id=payment.portal.installed_by_user_id or "",
+                ),
             }
         )
 
@@ -75,6 +86,36 @@ def _frontend_payment_redirect(payment_status: str, payment: Payment | None = No
 
 
 def _resolve_billing_portal(request: HttpRequest, payload: dict) -> BitrixPortal:
+    portal_token = get_portal_token_from_request(request, payload)
+
+    if portal_token:
+        try:
+            token_payload = load_portal_api_token(portal_token)
+        except signing.BadSignature as error:
+            raise PermissionDenied(
+                "Не удалось подтвердить доступ к порталу Bitrix24. Откройте приложение заново из Bitrix24."
+            ) from error
+
+        member_id = str(token_payload.get("member_id") or "").strip()
+        domain = str(token_payload.get("domain") or "").strip()
+
+        if not member_id:
+            raise PermissionDenied("В токене портала нет идентификатора Bitrix24.")
+
+        portal = BitrixPortal.objects.filter(member_id=member_id).first()
+
+        if not portal or (domain and portal.domain.lower() != domain.lower()):
+            raise PermissionDenied(
+                "Токен портала не соответствует сохраненному порталу Bitrix24."
+            )
+
+        return portal
+
+    if not settings.DEBUG:
+        raise PermissionDenied(
+            "Не удалось подтвердить доступ к порталу Bitrix24. Откройте приложение заново из Bitrix24."
+        )
+
     member_id = (
         payload.get("memberId")
         or payload.get("member_id")
@@ -105,6 +146,8 @@ def _resolve_billing_portal(request: HttpRequest, payload: dict) -> BitrixPortal
 def billing_access_view(request: HttpRequest):
     try:
         portal = _resolve_billing_portal(request, request.GET.dict())
+    except PermissionDenied as error:
+        return _json_error(str(error), status=403)
     except ValidationError as error:
         return _json_error(str(error), status=400)
 
@@ -132,6 +175,8 @@ def create_payment_view(request: HttpRequest):
             plan_code=str(payload.get("planCode") or "pro_monthly"),
             customer_email=str(payload.get("customerEmail") or ""),
         )
+    except PermissionDenied as error:
+        return _json_error(str(error), status=403)
     except (ImproperlyConfigured, ValidationError) as error:
         return _json_error(str(error), status=400)
 

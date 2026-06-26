@@ -1,10 +1,11 @@
 from decimal import Decimal
 from urllib.parse import parse_qs, urlparse
 
+from django.utils import timezone
 from django.test import TestCase, override_settings
 
 from apps.billing.management.commands.seed_plans import Command as SeedPlansCommand
-from apps.billing.models import Payment, PortalAccess
+from apps.billing.models import Payment, PortalAccess, Subscription
 from apps.billing.services.robokassa import (
     create_robokassa_payment,
     make_signature,
@@ -52,6 +53,13 @@ class RobokassaBillingTests(TestCase):
             make_signature("demo-shop", out_sum, inv_id, "password-1"),
         )
 
+    def test_create_payment_reuses_pending_unexpired_invoice(self):
+        first_payment = create_robokassa_payment(portal=self.portal)
+        second_payment = create_robokassa_payment(portal=self.portal)
+
+        self.assertEqual(first_payment.id, second_payment.id)
+        self.assertEqual(Payment.objects.filter(portal=self.portal).count(), 1)
+
     def test_result_url_activates_paid_subscription(self):
         payment = create_robokassa_payment(portal=self.portal)
         out_sum = "990.00"
@@ -69,3 +77,29 @@ class RobokassaBillingTests(TestCase):
         self.assertEqual(payment.status, Payment.Status.SUCCEEDED)
         self.assertTrue(access.has_pro)
         self.assertEqual(access.access_level, PortalAccess.AccessLevel.PRO)
+
+    def test_second_paid_invoice_extends_existing_period(self):
+        first_payment = create_robokassa_payment(portal=self.portal)
+        first_payload = {
+            "OutSum": "990.00",
+            "InvId": str(first_payment.id),
+            "SignatureValue": make_signature("990.00", str(first_payment.id), "password-2"),
+        }
+        process_robokassa_result(first_payload)
+
+        subscription = Subscription.objects.get(portal=self.portal)
+        first_paid_until = subscription.paid_until
+
+        first_payment.expires_at = timezone.now()
+        first_payment.save(update_fields=["expires_at", "updated_at"])
+        second_payment = create_robokassa_payment(portal=self.portal)
+        second_payload = {
+            "OutSum": "990.00",
+            "InvId": str(second_payment.id),
+            "SignatureValue": make_signature("990.00", str(second_payment.id), "password-2"),
+        }
+        process_robokassa_result(second_payload)
+
+        subscription.refresh_from_db()
+        self.assertGreater(subscription.paid_until, first_paid_until)
+        self.assertGreaterEqual((subscription.paid_until - first_paid_until).days, 29)

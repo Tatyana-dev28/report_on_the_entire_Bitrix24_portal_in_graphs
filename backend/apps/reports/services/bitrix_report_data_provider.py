@@ -840,7 +840,12 @@ def build_report_points(
                 "key": bucket.key,
                 "label": bucket.label,
                 "tooltipLabel": bucket.tooltip_label,
-                "indicator": _build_indicator_value(values, metric_catalog, metric_mode),
+                "indicator": _build_indicator_value(
+                    values,
+                    metric_catalog,
+                    metric_mode,
+                    source_ids=rows_by_source.keys(),
+                ),
                 "values": values,
             }
         )
@@ -852,7 +857,14 @@ def _build_indicator_value(
     values: dict[str, int | float],
     metric_catalog: list[dict],
     metric_mode: str,
+    source_ids=None,
 ) -> int | float:
+    if source_ids is not None:
+        return sum(
+            _build_source_indicator_value(values, str(source_id), metric_mode)
+            for source_id in source_ids
+        )
+
     if metric_mode == "count":
         metric_ids = [
             metric["id"]
@@ -867,6 +879,73 @@ def _build_indicator_value(
         ]
 
     return sum(values.get(metric_id, 0) for metric_id in metric_ids)
+
+
+def _build_source_indicator_value(
+    values: dict[str, int | float],
+    source_id: str,
+    metric_mode: str,
+) -> int | float:
+    if metric_mode == "count":
+        if source_id.startswith("company-"):
+            return values.get("companies_new", 0)
+        if source_id.startswith("contact-"):
+            return values.get("contacts_new", 0)
+        if source_id.startswith("task-"):
+            return values.get("tasks_created", 0)
+        if source_id.startswith("crm-form-"):
+            return values.get("crm_forms", 0)
+        if source_id.startswith("smart-170-"):
+            return values.get("contracts_created", 0)
+        if source_id.startswith("smart-1070-"):
+            return values.get("meetings_created", 0)
+        if source_id.startswith("lead-"):
+            return values.get("leads_created", 0)
+        if source_id.startswith("smart-"):
+            return (
+                values.get("smart_process_total", 0)
+                or values.get("production_accepted", 0)
+                + values.get("production_work", 0)
+                + values.get("production_check", 0)
+                + values.get("production_ready", 0)
+                + values.get("production_closed", 0)
+            )
+        if source_id.startswith("invoice-"):
+            return values.get("invoices_created", 0)
+        if source_id.startswith("deal-"):
+            return values.get("deals_created", 0)
+        if source_id.startswith("quote-"):
+            return values.get("quotes_created", 0)
+        if source_id.startswith("telephony-"):
+            return values.get("calls_total", 0)
+        if source_id.startswith("activity-"):
+            return values.get("activities_created", 0)
+
+        return values.get("deals_created", 0)
+
+    if source_id.startswith("lead-"):
+        return values.get("leads_quality_sum", 0)
+    if source_id.startswith("smart-170-"):
+        return values.get("contracts_signed_sum", 0)
+    if source_id.startswith("smart-1070-"):
+        return 0
+    if (
+        source_id.startswith("company-")
+        or source_id.startswith("contact-")
+        or source_id.startswith("task-")
+        or source_id.startswith("crm-form-")
+    ):
+        return 0
+    if source_id.startswith("smart-"):
+        return values.get("smart_process_success_sum", 0)
+    if source_id.startswith("invoice-"):
+        return values.get("invoices_won_sum", 0)
+    if source_id.startswith("deal-"):
+        return values.get("deals_won_sum", 0)
+    if source_id.startswith("quote-"):
+        return values.get("quotes_accepted_sum", 0)
+
+    return values.get("deals_won_sum", 0)
 
 
 def resolve_metric_catalog(selected_metric_ids: list[str] | None) -> list[dict]:

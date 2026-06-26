@@ -6,6 +6,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.bitrix.models import BitrixPortal
+from apps.bitrix.services.portal_tokens import make_portal_api_token
 from apps.bitrix.services.rest_client import BitrixRestError
 from apps.reports.models import CrmSource, ReportBuild, ReportSession
 from apps.reports.services.bitrix_report_data_provider import (
@@ -27,6 +28,7 @@ class ReportPreviewApiTests(TestCase):
             protocol=BitrixPortal.Protocol.HTTPS,
             status=BitrixPortal.Status.ACTIVE,
         )
+        self.portal_token = make_portal_api_token(portal=self.portal, bitrix_user_id="42")
 
     def test_preview_creates_session_build_and_cache_payload(self):
         response = self.client.post(
@@ -34,6 +36,7 @@ class ReportPreviewApiTests(TestCase):
             data=json.dumps(
                 {
                     "memberId": self.portal.member_id,
+                    "portalToken": self.portal_token,
                     "bitrixUserId": "42",
                     "period": "days",
                     "dateRange": {"start": "2026-05-01", "end": "2026-05-31"},
@@ -85,6 +88,7 @@ class ReportPreviewApiTests(TestCase):
             data=json.dumps(
                 {
                     "memberId": self.portal.member_id,
+                    "portalToken": self.portal_token,
                     "period": "years",
                     "selectedSources": [],
                 }
@@ -107,6 +111,7 @@ class ReportPreviewApiTests(TestCase):
             data=json.dumps(
                 {
                     "memberId": self.portal.member_id,
+                    "portalToken": self.portal_token,
                     "bitrixUserId": "42",
                     "period": "months",
                     "dateRange": {"start": "2020-01-01", "end": "2026-05-31"},
@@ -139,7 +144,7 @@ class ReportPreviewApiTests(TestCase):
 
         status_response = self.client.get(
             reverse("reports:preview-status", kwargs={"session_key": session.session_key}),
-            {"memberId": self.portal.member_id},
+            {"memberId": self.portal.member_id, "portalToken": self.portal_token},
         )
 
         self.assertEqual(status_response.status_code, 200)
@@ -156,6 +161,7 @@ class ReportPreviewBitrixProviderFailureTests(TestCase):
             protocol=BitrixPortal.Protocol.HTTPS,
             status=BitrixPortal.Status.ACTIVE,
         )
+        self.portal_token = make_portal_api_token(portal=self.portal, bitrix_user_id="42")
 
     def test_preview_keeps_failed_session_when_bitrix_token_is_missing(self):
         response = self.client.post(
@@ -163,6 +169,7 @@ class ReportPreviewBitrixProviderFailureTests(TestCase):
             data=json.dumps(
                 {
                     "memberId": self.portal.member_id,
+                    "portalToken": self.portal_token,
                     "bitrixUserId": "42",
                     "period": "days",
                     "dateRange": {"start": "2026-05-01", "end": "2026-05-02"},

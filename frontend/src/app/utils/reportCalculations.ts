@@ -193,7 +193,14 @@ export const getChartSeriesValue = (
     }
 
     if (isProductionSource) {
-      return values.smart_process_created || values.production_accepted + values.production_work + values.production_ready;
+      return (
+        values.smart_process_total ||
+        values.production_accepted +
+          values.production_work +
+          values.production_check +
+          values.production_ready +
+          values.production_closed
+      );
     }
 
     if (isInvoiceSource) {

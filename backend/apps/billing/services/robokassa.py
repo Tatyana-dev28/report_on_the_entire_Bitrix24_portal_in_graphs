@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
+import uuid
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
@@ -189,11 +191,29 @@ def create_robokassa_payment(
         raise ValidationError("Pro monthly plan price must be greater than zero.")
 
     subscription = get_or_create_portal_subscription(portal)
+    existing_payment = (
+        Payment.objects.select_for_update()
+        .filter(
+            portal=portal,
+            plan=plan,
+            provider=Payment.Provider.ROBOKASSA,
+            status=Payment.Status.PENDING,
+            amount=plan.price,
+            currency=plan.currency,
+            expires_at__gt=timezone.now(),
+        )
+        .order_by("-created_at")
+        .first()
+    )
+
+    if existing_payment:
+        return existing_payment
+
     payment = Payment.objects.create(
         portal=portal,
         subscription=subscription,
         plan=plan,
-        order_id=f"pro-{portal.id}-{timezone.now():%Y%m%d%H%M%S%f}",
+        order_id=f"pro-{portal.id}-{uuid.uuid4().hex[:20]}",
         provider=Payment.Provider.ROBOKASSA,
         status=Payment.Status.PENDING,
         amount=plan.price,
@@ -240,7 +260,7 @@ def verify_result_signature(payload: dict, config: RobokassaConfig | None = None
 
     expected_signature = make_signature(out_sum, inv_id, config.password2)
 
-    return expected_signature.lower() == signature
+    return hmac.compare_digest(expected_signature.lower(), signature)
 
 
 @transaction.atomic
@@ -281,6 +301,20 @@ def process_robokassa_result(payload: dict) -> tuple[PaymentWebhookEvent, Paymen
         event.processed_at = timezone.now()
         event.save()
         raise ValidationError("Payment was not found.") from error
+
+    if not event.pk:
+        duplicate = PaymentWebhookEvent.objects.filter(
+            idempotency_key_hash=event.idempotency_key_hash,
+        ).first()
+
+        if duplicate and duplicate.status == PaymentWebhookEvent.Status.PROCESSED and duplicate.payment:
+            return duplicate, duplicate.payment
+
+        if duplicate:
+            event = duplicate
+            event.attempts_count += 1
+            event.payload = sanitize_payload(payload)
+            event.set_signature(signature, save=False)
 
     event.payment = payment
     event.portal = payment.portal

@@ -55,6 +55,7 @@ const getBitrixContext = () => {
     const memberId = params.get('member_id') || params.get('memberId');
     const domain = params.get('DOMAIN') || params.get('domain');
     const userId = params.get('user_id') || params.get('USER_ID') || params.get('bitrixUserId');
+    const portalToken = params.get('portal_token') || params.get('portalToken');
 
     if (memberId) {
         context.memberId = memberId;
@@ -66,6 +67,10 @@ const getBitrixContext = () => {
 
     if (userId) {
         context.bitrixUserId = userId;
+    }
+
+    if (portalToken) {
+        context.portalToken = portalToken;
     }
 
     return context;

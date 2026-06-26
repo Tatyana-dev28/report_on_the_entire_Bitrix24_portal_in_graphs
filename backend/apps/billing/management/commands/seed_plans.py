@@ -8,7 +8,15 @@ from apps.billing.models import Plan
 class Command(BaseCommand):
     help = "Create or update default billing plans."
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--reset-defaults",
+            action="store_true",
+            help="Overwrite existing plans with default values. Use only for local reset.",
+        )
+
     def handle(self, *args, **options):
+        reset_defaults = options.get("reset_defaults", False)
         plans = [
             {
                 "code": "free",
@@ -94,12 +102,17 @@ class Command(BaseCommand):
         ]
 
         for plan_data in plans:
-            plan, created = Plan.objects.update_or_create(
+            plan, created = Plan.objects.get_or_create(
                 code=plan_data["code"],
                 defaults=plan_data["defaults"],
             )
 
-            action = "Created" if created else "Updated"
+            if not created and reset_defaults:
+                for field, value in plan_data["defaults"].items():
+                    setattr(plan, field, value)
+                plan.save(update_fields=[*plan_data["defaults"].keys(), "updated_at"])
+
+            action = "Created" if created else ("Reset" if reset_defaults else "Kept")
             self.stdout.write(self.style.SUCCESS(f"{action} plan: {plan.code}"))
 
         self.stdout.write(self.style.SUCCESS("Default billing plans are ready."))

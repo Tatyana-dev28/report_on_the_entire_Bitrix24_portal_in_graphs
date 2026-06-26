@@ -87,22 +87,22 @@ export const detailColumns: Array<{
   label: string;
   minWidth: number;
 }> = [
-  { key: 'rowNumber', label: '№', minWidth: 60 },
-  { key: 'entityId', label: 'ID', minWidth: 90 },
-  { key: 'title', label: 'Название', minWidth: 220 },
-  { key: 'responsibleName', label: 'Ответственный', minWidth: 180 },
-  { key: 'createdAt', label: 'Дата создания', minWidth: 160 },
+  { key: 'rowNumber', label: '№', minWidth: 48 },
+  { key: 'entityId', label: 'ID', minWidth: 78 },
+  { key: 'title', label: 'Название', minWidth: 180 },
+  { key: 'responsibleName', label: 'Ответственный', minWidth: 150 },
+  { key: 'createdAt', label: 'Дата создания', minWidth: 132 },
 ];
 
 export const defaultDetailColumnWidths: Record<DetailColumnKey, number> = {
-  rowNumber: 72,
-  entityId: 130,
-  title: 320,
-  responsibleName: 210,
-  createdAt: 190,
+  rowNumber: 56,
+  entityId: 104,
+  title: 240,
+  responsibleName: 170,
+  createdAt: 148,
 };
 
-export const DETAIL_COLUMN_STORAGE_KEY = 'sapp24-detail-column-widths';
+export const DETAIL_COLUMN_STORAGE_KEY = 'sapp24-detail-column-widths-v2';
 export const SAVED_VIEWS_STORAGE_KEY = 'sapp24-saved-report-views';
 export const APP_SETTINGS_STORAGE_KEY = 'sapp24-app-settings';
 

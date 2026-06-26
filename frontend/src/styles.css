@@ -694,9 +694,11 @@ button {
   flex: 0 1 auto;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 0 15px;
+  gap: 6px;
+  padding: 0 12px;
   color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 650;
   white-space: nowrap;
 }
 
@@ -704,6 +706,7 @@ button {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1;
   white-space: nowrap;
 }
 
@@ -774,7 +777,8 @@ button {
   }
 
   .action-button {
-    padding-inline: 12px;
+    padding-inline: 10px;
+    font-size: 12px;
   }
 }
 
@@ -2500,6 +2504,17 @@ button {
   line-height: 1.45;
 }
 
+.modal-error-text {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #fecdca;
+  border-radius: 8px;
+  color: #b42318;
+  background: #fffbfa;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .pro-inline-link {
   border: 0;
   background: transparent;
@@ -2794,7 +2809,7 @@ button {
   background: #ffffff;
   color: #2b3038;
   font: inherit;
-  padding: 0 12px;
+  padding: 0 9px;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;

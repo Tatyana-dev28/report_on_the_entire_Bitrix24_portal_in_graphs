@@ -1,0 +1,184 @@
+:root {
+  --sapp-bg: #f6f8fb;
+  --sapp-panel: #ffffff;
+  --sapp-text: #172033;
+  --sapp-muted: #667085;
+  --sapp-border: #d9e1ec;
+  --sapp-primary: #155eef;
+  --sapp-primary-dark: #0f3f9e;
+  --sapp-success-bg: #ecfdf3;
+  --sapp-success-text: #027a48;
+  --sapp-warning-bg: #fffaeb;
+  --sapp-warning-text: #b54708;
+  --sapp-danger-bg: #fef3f2;
+  --sapp-danger-text: #b42318;
+  --sapp-info-bg: #eff8ff;
+  --sapp-info-text: #175cd3;
+  --sapp-neutral-bg: #f2f4f7;
+  --sapp-neutral-text: #344054;
+}
+
+body {
+  background: var(--sapp-bg);
+  color: var(--sapp-text);
+}
+
+#header {
+  background: #111827;
+  color: #fff;
+  box-shadow: 0 1px 0 rgba(17, 24, 39, 0.16);
+}
+
+#branding h1,
+#branding h1 a:link,
+#branding h1 a:visited,
+#site-name a:link,
+#site-name a:visited {
+  color: #fff;
+  font-weight: 750;
+  letter-spacing: 0;
+}
+
+#user-tools,
+#user-tools a,
+#user-tools a:visited {
+  color: #dbeafe;
+}
+
+div.breadcrumbs {
+  background: #1f2937;
+  color: #d1d5db;
+}
+
+div.breadcrumbs a {
+  color: #ffffff;
+}
+
+.module,
+.inline-group,
+#content-related {
+  border: 1px solid var(--sapp-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+}
+
+.module h2,
+.module caption,
+.inline-group h2 {
+  background: #eef4ff;
+  color: #172033;
+  font-weight: 700;
+}
+
+#changelist {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+#changelist table thead th {
+  background: #f8fafc;
+  color: #344054;
+}
+
+#changelist table tbody tr:hover {
+  background: #f9fbff;
+}
+
+a:link,
+a:visited {
+  color: var(--sapp-primary);
+}
+
+.button,
+input[type="submit"],
+input[type="button"],
+.submit-row input,
+a.button {
+  background: var(--sapp-primary);
+  border-radius: 7px;
+  border: 0;
+  font-weight: 700;
+}
+
+.button:hover,
+input[type="submit"]:hover,
+input[type="button"]:hover,
+.submit-row input:hover,
+a.button:hover {
+  background: var(--sapp-primary-dark);
+}
+
+.button.default,
+input[type="submit"].default,
+.submit-row input.default {
+  background: var(--sapp-primary);
+}
+
+.product-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.product-badge--success {
+  background: var(--sapp-success-bg);
+  color: var(--sapp-success-text);
+}
+
+.product-badge--warning {
+  background: var(--sapp-warning-bg);
+  color: var(--sapp-warning-text);
+}
+
+.product-badge--danger {
+  background: var(--sapp-danger-bg);
+  color: var(--sapp-danger-text);
+}
+
+.product-badge--info {
+  background: var(--sapp-info-bg);
+  color: var(--sapp-info-text);
+}
+
+.product-badge--neutral {
+  background: var(--sapp-neutral-bg);
+  color: var(--sapp-neutral-text);
+}
+
+.product-money {
+  font-weight: 750;
+  color: #101828;
+}
+
+.aligned label {
+  color: #344054;
+  font-weight: 650;
+}
+
+.help,
+p.help,
+form p.help,
+div.help,
+form div.help,
+div.help li {
+  color: var(--sapp-muted);
+}
+
+textarea,
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="number"],
+input[type="url"],
+select,
+.vTextField {
+  border-color: var(--sapp-border);
+  border-radius: 7px;
+}

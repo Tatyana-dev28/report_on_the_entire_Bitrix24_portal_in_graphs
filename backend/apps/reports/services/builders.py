@@ -53,7 +53,7 @@ class ReportBuilder:
 
     def build_preview(self, *, filters: dict, context: ReportBuildContext) -> dict:
         filters_hash = make_filters_hash(filters)
-        ttl_seconds = int(getattr(settings, "REPORT_SESSION_CACHE_TTL_SECONDS", 7200))
+        ttl_seconds = int(getattr(settings, "REPORT_SESSION_CACHE_TTL_SECONDS", 1800))
         now = timezone.now()
         expires_at = now + timedelta(seconds=ttl_seconds)
 

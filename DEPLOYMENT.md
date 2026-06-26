@@ -44,7 +44,7 @@ MYSQL_PORT=3306
 
 CACHE_BACKEND=redis
 REDIS_URL=redis://127.0.0.1:6379/1
-REPORT_SESSION_CACHE_TTL_SECONDS=7200
+REPORT_SESSION_CACHE_TTL_SECONDS=1800
 REPORT_BACKGROUND_BACKEND=celery
 CELERY_BROKER_URL=redis://127.0.0.1:6379/2
 CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/2
@@ -62,6 +62,13 @@ ALLOW_IFRAME_EMBED=true
 BITRIX_CLIENT_ID=<bitrix-app-client-id>
 BITRIX_CLIENT_SECRET=<bitrix-app-client-secret>
 REPORT_DATA_PROVIDER=bitrix
+FRONTEND_URL=https://example.com
+
+ROBOKASSA_MERCHANT_LOGIN=<robokassa-merchant-login>
+ROBOKASSA_PASSWORD1=<robokassa-password-1>
+ROBOKASSA_PASSWORD2=<robokassa-password-2>
+ROBOKASSA_TEST_MODE=false
+ROBOKASSA_PAYMENT_URL=https://auth.robokassa.ru/Merchant/Index.aspx
 ```
 
 Enable HSTS only after HTTPS is verified:
@@ -133,3 +140,17 @@ a test portal and check:
 - preview builds through `POST /api/reports/preview/`
 - OAuth token errors are shown clearly in the frontend
 - report results are stored in Redis, while MySQL keeps session metadata
+
+## Robokassa settings
+
+In the Robokassa cabinet, set the URLs to the public backend domain:
+
+```text
+Result URL:  https://api.example.com/api/billing/robokassa/result/
+Success URL: https://api.example.com/api/billing/robokassa/success/
+Fail URL:    https://api.example.com/api/billing/robokassa/fail/
+```
+
+Use `POST` for Result URL if the cabinet asks for a method. Keep
+`ROBOKASSA_TEST_MODE=true` until the full payment loop is verified, then switch
+it to `false` and restart the backend.

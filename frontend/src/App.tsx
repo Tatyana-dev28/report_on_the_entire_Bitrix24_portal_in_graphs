@@ -80,7 +80,6 @@ import {
   DEFAULT_SOURCE_IDS,
   detailColumnMinWidthSum,
   detailColumns,
-  isProUser,
   scheduleTimeOptions,
   serializeFilters,
   deserializeFilters,
@@ -172,6 +171,11 @@ import {
   ProVersionModal,
   SaveViewModal,
 } from './app/components/modals';
+import {
+  createProPayment,
+  loadBillingState,
+  type BillingPlan,
+} from './services/api/billingApiClient';
 import {
   ConfigureChartMenu,
   DateRangePicker,
@@ -327,6 +331,10 @@ function App() {
   const [isInstructionOpen, setIsInstructionOpen] = useState(false);
   const [isAppSettingsOpen, setIsAppSettingsOpen] = useState(false);
   const [isFreeLimitOpen, setIsFreeLimitOpen] = useState(false);
+  const [billingHasPro, setBillingHasPro] = useState(false);
+  const [billingPlan, setBillingPlan] = useState<BillingPlan | null>(null);
+  const [billingError, setBillingError] = useState('');
+  const [paymentLoading, setPaymentLoading] = useState(false);
   const [editingViewId, setEditingViewId] = useState<string | null>(null);
   const [deleteViewId, setDeleteViewId] = useState<string | null>(null);
   const [notification, setNotification] = useState('');
@@ -368,6 +376,7 @@ function App() {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     () => new Set(metricSections.map((section) => section.id)),
   );
+  const isProUser = billingHasPro;
 
   const horizontalScrollbarRef = useRef<HTMLDivElement>(null);
   const reportCardRef = useRef<HTMLElement>(null);
@@ -403,6 +412,43 @@ function App() {
     const timeoutId = window.setTimeout(() => setNotification(''), 2400);
     return () => window.clearTimeout(timeoutId);
   }, [notification]);
+
+  const refreshBillingState = useCallback(() => {
+    setBillingError('');
+
+    return loadBillingState()
+      .then((state) => {
+        setBillingHasPro(Boolean(state.access?.hasPro));
+        setBillingPlan(state.plans.find((plan) => plan.code === 'pro_monthly') ?? null);
+      })
+      .catch((error) => {
+        console.warn('[Billing] state was not loaded', error);
+        setBillingError(error instanceof Error ? error.message : 'Не удалось загрузить статус подписки.');
+      });
+  }, []);
+
+  useEffect(() => {
+    refreshBillingState();
+  }, [refreshBillingState]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const paymentStatus = params.get('paymentStatus');
+
+    if (paymentStatus === 'success') {
+      setNotification('Оплата получена. Обновляем доступ к ПРО версии.');
+      refreshBillingState();
+    }
+
+    if (paymentStatus === 'fail') {
+      setNotification('Оплата не завершена.');
+      refreshBillingState();
+    }
+  }, [refreshBillingState]);
 
   useEffect(() => {
     let isActive = true;
@@ -1460,7 +1506,7 @@ function App() {
     setEditingViewId(null);
     setNewViewName('');
     setIsSaveOpen(true);
-  }, [savedViews]);
+  }, [isProUser, savedViews]);
 
   const applySavedViewState = useCallback((state: SavedReportViewState) => {
     setDraftFilters(deserializeFilters(state.draftFilters));
@@ -1538,6 +1584,29 @@ function App() {
     window.localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
     setNotification('Настройки приложения сохранены');
     setIsAppSettingsOpen(false);
+  }, []);
+
+  const handleCreateProPayment = useCallback(() => {
+    setPaymentLoading(true);
+    setBillingError('');
+
+    createProPayment()
+      .then((response) => {
+        const paymentUrl = response.payment.paymentUrl;
+
+        if (!paymentUrl) {
+          throw new Error('Backend did not return Robokassa payment URL.');
+        }
+
+        window.top?.location.assign(paymentUrl);
+      })
+      .catch((error) => {
+        console.warn('[Billing] payment was not created', error);
+        setBillingError(error instanceof Error ? error.message : 'Не удалось создать платеж.');
+      })
+      .finally(() => {
+        setPaymentLoading(false);
+      });
   }, []);
 
   const saveCurrentView = () => {
@@ -2394,7 +2463,13 @@ function App() {
       )}
 
       {isProOpen && (
-        <ProVersionModal onClose={() => setIsProOpen(false)} />
+        <ProVersionModal
+          onClose={() => setIsProOpen(false)}
+          onSubscribe={handleCreateProPayment}
+          isLoading={paymentLoading}
+          plan={billingPlan}
+          error={billingError}
+        />
       )}
 
       {detailContext && (

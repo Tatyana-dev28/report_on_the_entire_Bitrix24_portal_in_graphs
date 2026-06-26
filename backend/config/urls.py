@@ -17,8 +17,13 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
+admin.site.site_header = "SAPP x Bitrix24"
+admin.site.site_title = "SAPP admin"
+admin.site.index_title = "Панель управления продуктом"
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path("bitrix/", include("apps.bitrix.urls")),
+    path("api/billing/", include("apps.billing.urls")),
     path("api/reports/", include("apps.reports.urls")),
 ]

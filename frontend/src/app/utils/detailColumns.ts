@@ -58,10 +58,7 @@ export const normalizeDetailColumnWidths = (
   }
 
   if (currentSum < targetWidth) {
-    return {
-      ...safeWidths,
-      title: safeWidths.title + targetWidth - currentSum,
-    };
+    return safeWidths;
   }
 
   const { widths: reducedWidths } = shrinkDetailColumns(safeWidths, null, currentSum - targetWidth);

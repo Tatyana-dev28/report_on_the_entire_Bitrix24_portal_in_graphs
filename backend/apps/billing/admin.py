@@ -2,8 +2,12 @@ from datetime import timedelta
 
 from django.contrib import admin, messages
 from django.utils import timezone
-from django.utils.html import format_html
 
+from apps.common.admin_ui import (
+    feature_summary_badges,
+    money_display,
+    status_badge as product_status_badge,
+)
 from apps.billing.models import (
     Payment,
     PaymentWebhookEvent,
@@ -24,7 +28,7 @@ from apps.billing.services.access import (
 
 
 def status_badge(text, color):
-    return format_html('<span style="color: {};">{}</span>', color, text)
+    return product_status_badge(text, color)
 
 
 def yes_no_badge(value):
@@ -43,8 +47,15 @@ class PlanAdmin(admin.ModelAdmin):
         "currency",
         "billing_period",
         "duration_months",
+        "features_summary",
         "is_public",
         "is_default",
+        "is_active",
+        "sort_order",
+    )
+    list_editable = (
+        "price",
+        "is_public",
         "is_active",
         "sort_order",
     )
@@ -70,6 +81,15 @@ class PlanAdmin(admin.ModelAdmin):
         "price",
         "name",
     )
+    list_per_page = 50
+    save_on_top = True
+
+    @admin.display(description="Возможности")
+    def features_summary(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+
+        return feature_summary_badges(obj.features)
 
     fieldsets = (
         (
@@ -141,7 +161,7 @@ class SubscriptionAdmin(admin.ModelAdmin):
     list_display = (
         "portal",
         "plan",
-        "status",
+        "status_display",
         "provider",
         "pro_status",
         "trial_period",
@@ -185,6 +205,8 @@ class SubscriptionAdmin(admin.ModelAdmin):
         "-created_at",
     )
     date_hierarchy = "created_at"
+    list_per_page = 50
+    save_on_top = True
     actions = (
         "sync_access",
         "activate_trial_14_days",
@@ -285,6 +307,25 @@ class SubscriptionAdmin(admin.ModelAdmin):
             return status_badge("Заблокирована", "#b42318")
 
         return status_badge("Нет Pro", "#b42318")
+
+    @admin.display(description="Статус", ordering="status")
+    def status_display(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+
+        tone_by_status = {
+            Subscription.Status.ACTIVE: "#027a48",
+            Subscription.Status.TRIAL: "#175cd3",
+            Subscription.Status.FREE: "#475467",
+            Subscription.Status.PAST_DUE: "#b54708",
+            Subscription.Status.CANCELED: "#b54708",
+            Subscription.Status.EXPIRED: "#b42318",
+            Subscription.Status.BLOCKED: "#b42318",
+        }
+        return status_badge(
+            obj.get_status_display(),
+            tone_by_status.get(obj.status, "#475467"),
+        )
 
     @admin.display(description="Trial")
     def trial_period(self, obj):
@@ -416,9 +457,8 @@ class PaymentAdmin(admin.ModelAdmin):
         "portal",
         "plan",
         "provider",
-        "status",
-        "amount",
-        "currency",
+        "status_display",
+        "amount_display",
         "paid_at",
         "expires_at",
         "created_at",
@@ -455,6 +495,8 @@ class PaymentAdmin(admin.ModelAdmin):
         "-created_at",
     )
     date_hierarchy = "created_at"
+    list_per_page = 50
+    save_on_top = True
     actions = (
         "mark_as_succeeded_manual",
         "mark_as_canceled",
@@ -537,6 +579,30 @@ class PaymentAdmin(admin.ModelAdmin):
         ),
     )
 
+    @admin.display(description="Статус", ordering="status")
+    def status_display(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+
+        tone_by_status = {
+            Payment.Status.SUCCEEDED: "#027a48",
+            Payment.Status.PENDING: "#175cd3",
+            Payment.Status.CANCELED: "#b54708",
+            Payment.Status.FAILED: "#b42318",
+            Payment.Status.REFUNDED: "#475467",
+        }
+        return status_badge(
+            obj.get_status_display(),
+            tone_by_status.get(obj.status, "#475467"),
+        )
+
+    @admin.display(description="Сумма", ordering="amount")
+    def amount_display(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+
+        return money_display(obj.amount, obj.currency)
+
     @admin.action(description="Пометить как успешно оплаченные вручную")
     def mark_as_succeeded_manual(self, request, queryset):
         count = 0
@@ -601,7 +667,7 @@ class PaymentWebhookEventAdmin(admin.ModelAdmin):
         "received_at",
         "provider",
         "event_type",
-        "status",
+        "status_display",
         "payment",
         "portal",
         "signature_status",
@@ -645,6 +711,7 @@ class PaymentWebhookEventAdmin(admin.ModelAdmin):
         "-received_at",
     )
     date_hierarchy = "received_at"
+    list_per_page = 50
 
     fieldsets = (
         (
@@ -722,6 +789,23 @@ class PaymentWebhookEventAdmin(admin.ModelAdmin):
 
         return status_badge("Не проверена / неверна", "#b42318")
 
+    @admin.display(description="Статус", ordering="status")
+    def status_display(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+
+        tone_by_status = {
+            PaymentWebhookEvent.Status.PROCESSED: "#027a48",
+            PaymentWebhookEvent.Status.RECEIVED: "#175cd3",
+            PaymentWebhookEvent.Status.PROCESSING: "#175cd3",
+            PaymentWebhookEvent.Status.FAILED: "#b42318",
+            PaymentWebhookEvent.Status.IGNORED: "#475467",
+        }
+        return status_badge(
+            obj.get_status_display(),
+            tone_by_status.get(obj.status, "#475467"),
+        )
+
     @admin.display(description="Idempotency fingerprint")
     def idempotency_key_fingerprint_display(self, obj):
         if not obj or not obj.pk:
@@ -741,7 +825,7 @@ class PaymentWebhookEventAdmin(admin.ModelAdmin):
 class PortalAccessAdmin(admin.ModelAdmin):
     list_display = (
         "portal",
-        "access_level",
+        "access_level_display",
         "has_pro_display",
         "is_lifetime",
         "valid_until",
@@ -775,6 +859,8 @@ class PortalAccessAdmin(admin.ModelAdmin):
     ordering = (
         "portal",
     )
+    list_per_page = 50
+    save_on_top = True
     actions = (
         "sync_selected_access",
         "set_selected_free",
@@ -835,6 +921,23 @@ class PortalAccessAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+    @admin.display(description="Доступ", ordering="access_level")
+    def access_level_display(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+
+        tone_by_level = {
+            PortalAccess.AccessLevel.PRO: "#027a48",
+            PortalAccess.AccessLevel.TRIAL: "#175cd3",
+            PortalAccess.AccessLevel.INTERNAL: "#175cd3",
+            PortalAccess.AccessLevel.FREE: "#475467",
+            PortalAccess.AccessLevel.BLOCKED: "#b42318",
+        }
+        return status_badge(
+            obj.get_access_level_display(),
+            tone_by_level.get(obj.access_level, "#475467"),
+        )
 
     @admin.display(description="Pro")
     def has_pro_display(self, obj):

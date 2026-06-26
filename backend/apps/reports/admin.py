@@ -1,7 +1,7 @@
 from django.contrib import admin, messages
 from django.utils import timezone
-from django.utils.html import format_html
 
+from apps.common.admin_ui import status_badge
 from apps.reports.models import (
     CrmSource,
     Metric,
@@ -491,13 +491,13 @@ class ReportSessionAdmin(admin.ModelAdmin):
     @admin.display(description="Статус сессии")
     def session_status(self, obj):
         if obj.is_expired:
-            return format_html('<span style="color: #b42318;">Истекла</span>')
+            return status_badge("Истекла", "#b42318")
 
         if obj.is_open:
-            return format_html('<span style="color: #027a48;">Открыта</span>')
+            return status_badge("Открыта", "#027a48")
 
         if obj.status == ReportSession.Status.CLOSED:
-            return format_html('<span style="color: #475467;">Закрыта</span>')
+            return status_badge("Закрыта", "#475467")
 
         return obj.get_status_display()
 

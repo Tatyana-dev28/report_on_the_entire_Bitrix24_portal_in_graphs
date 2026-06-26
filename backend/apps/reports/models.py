@@ -482,9 +482,9 @@ class ReportSession(BaseModel):
     )
 
     cache_ttl_seconds = models.PositiveIntegerField(
-        default=7200,
+        default=1800,
         verbose_name="TTL кеша в секундах",
-        help_text="По умолчанию 2 часа.",
+        help_text="По умолчанию 30 минут.",
     )
 
     opened_at = models.DateTimeField(

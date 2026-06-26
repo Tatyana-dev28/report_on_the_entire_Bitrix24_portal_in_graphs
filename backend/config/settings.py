@@ -107,7 +107,7 @@ CORS_ALLOWED_HEADERS = [
 ]
 
 REPORT_SESSION_CACHE_TTL_SECONDS = int(
-    get_env("REPORT_SESSION_CACHE_TTL_SECONDS", default="7200")
+    get_env("REPORT_SESSION_CACHE_TTL_SECONDS", default="1800")
 )
 
 # Application definition
@@ -147,7 +147,7 @@ ROOT_URLCONF = 'config.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / "templates"],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -252,7 +252,7 @@ if CACHE_BACKEND == "redis":
                 "CLIENT_CLASS": "django_redis.client.DefaultClient",
                 "IGNORE_EXCEPTIONS": False,
             },
-            "TIMEOUT": get_int_env("REPORT_SESSION_CACHE_TTL_SECONDS", default=7200),
+            "TIMEOUT": get_int_env("REPORT_SESSION_CACHE_TTL_SECONDS", default=1800),
         }
     }
 elif CACHE_BACKEND == "locmem":
@@ -260,7 +260,7 @@ elif CACHE_BACKEND == "locmem":
         "default": {
             "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
             "LOCATION": "bitrix-report-local-cache",
-            "TIMEOUT": get_int_env("REPORT_SESSION_CACHE_TTL_SECONDS", default=7200),
+            "TIMEOUT": get_int_env("REPORT_SESSION_CACHE_TTL_SECONDS", default=1800),
         }
     }
 else:
@@ -281,6 +281,18 @@ BITRIX_REPORT_SOURCE_LOAD_WORKERS = get_int_env("BITRIX_REPORT_SOURCE_LOAD_WORKE
 BITRIX_REPORT_TASK_MONTH_LOAD_WORKERS = get_int_env("BITRIX_REPORT_TASK_MONTH_LOAD_WORKERS", default=3)
 REPORT_DATA_PROVIDER = get_env("REPORT_DATA_PROVIDER", default="bitrix").lower()
 REPORT_BACKGROUND_BACKEND = get_env("REPORT_BACKGROUND_BACKEND", default="thread").lower()
+
+FRONTEND_URL = get_env("FRONTEND_URL", default="")
+BITRIX_FRONTEND_URL = get_env("BITRIX_FRONTEND_URL", default=FRONTEND_URL)
+
+ROBOKASSA_MERCHANT_LOGIN = get_env("ROBOKASSA_MERCHANT_LOGIN", default="")
+ROBOKASSA_PASSWORD1 = get_env("ROBOKASSA_PASSWORD1", default="")
+ROBOKASSA_PASSWORD2 = get_env("ROBOKASSA_PASSWORD2", default="")
+ROBOKASSA_TEST_MODE = get_bool_env("ROBOKASSA_TEST_MODE", default=True)
+ROBOKASSA_PAYMENT_URL = get_env(
+    "ROBOKASSA_PAYMENT_URL",
+    default="https://auth.robokassa.ru/Merchant/Index.aspx",
+)
 
 CELERY_BROKER_URL = get_env(
     "CELERY_BROKER_URL",

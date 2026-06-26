@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.utils import timezone
-from django.utils.html import format_html
 
+from apps.common.admin_ui import status_badge as product_status_badge
 from apps.billing.models import Payment, PortalAccess, Subscription
 from apps.bitrix.models import (
     BitrixAuthToken,
@@ -14,7 +14,7 @@ from apps.reports.models import CrmSource, ReportPreset, ReportSession, ReportSt
 
 
 def status_badge(text, color):
-    return format_html('<span style="color: {};">{}</span>', color, text)
+    return product_status_badge(text, color)
 
 
 def yes_no_badge(value):

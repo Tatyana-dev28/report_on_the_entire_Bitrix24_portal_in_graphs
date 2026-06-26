@@ -15,6 +15,7 @@ import { bitrixEntityLabels, openBitrixEntity, openBitrixUser } from '../utils/b
 import { normalizeDetailColumnWidths, resizeDetailColumnWidths, sumDetailColumnWidths } from '../utils/detailColumns';
 import { compareDetailValues } from '../utils/detailRows';
 import { loadDetailColumnWidths } from '../storage';
+import type { BillingPlan } from '../../services/api/billingApiClient';
 
 export function SaveViewModal({
   value,
@@ -132,7 +133,33 @@ export function FreeSaveLimitModal({
   );
 }
 
-export function ProVersionModal({ onClose }: { onClose: () => void }) {
+const formatPlanPrice = (plan: BillingPlan | null) => {
+  if (!plan) {
+    return 'ПРО на месяц';
+  }
+
+  const price = Number(plan.price);
+
+  if (!Number.isFinite(price)) {
+    return 'ПРО на месяц';
+  }
+
+  return `${new Intl.NumberFormat('ru-RU').format(price)} ${plan.currency} / месяц`;
+};
+
+export function ProVersionModal({
+  onClose,
+  onSubscribe,
+  isLoading,
+  plan,
+  error,
+}: {
+  onClose: () => void;
+  onSubscribe: () => void;
+  isLoading: boolean;
+  plan: BillingPlan | null;
+  error: string;
+}) {
   return (
     <div className="modal-layer pro-modal-layer" role="presentation">
       <div
@@ -180,7 +207,7 @@ export function ProVersionModal({ onClose }: { onClose: () => void }) {
             <section className="pro-plan-card is-featured">
               <div className="pro-plan-head">
                 <span>Расширенный доступ</span>
-                <h3>ПРО на месяц</h3>
+                <h3>{formatPlanPrice(plan)}</h3>
                 <p>Для регулярной работы команды с сохраненными настройками отчета.</p>
               </div>
               <ul>
@@ -198,13 +225,18 @@ export function ProVersionModal({ onClose }: { onClose: () => void }) {
               После подключения команда сможет пользоваться расширенными настройками без повторной настройки отчета.
             </span>
           </div>
+          {error && (
+            <p className="modal-error-text" role="alert">
+              {error}
+            </p>
+          )}
 
           <div className="pro-modal-actions">
             <button className="secondary-button" type="button" onClick={onClose}>
               Не сейчас
             </button>
-            <button className="primary-button" type="button" disabled>
-              Подключить подписку
+            <button className="primary-button" type="button" onClick={onSubscribe} disabled={isLoading}>
+              {isLoading ? 'Создаем платеж...' : 'Подключить подписку'}
             </button>
           </div>
         </div>
@@ -842,8 +874,8 @@ export function DetailModal({
           </div>
         ) : (
           <div className="detail-empty-state">
-            <p>Детализация пока недоступна</p>
-            <span>Backend уже вернул агрегированные значения, но строки CRM-сущностей для этой метрики еще не подключены.</span>
+            <p>По этому значению нет строк для просмотра</p>
+            <span>Сейчас здесь нечего раскрывать: за выбранный период и показатель нет отдельных CRM-элементов. Если значение больше нуля, нажмите на него в таблице отчета.</span>
           </div>
         )}
       </section>

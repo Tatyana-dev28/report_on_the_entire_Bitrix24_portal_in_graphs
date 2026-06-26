@@ -1,3 +1,200 @@
-from django.shortcuts import render
+import json
+import os
+from urllib.parse import urlencode
 
-# Create your views here.
+from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured, ValidationError
+from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.shortcuts import redirect
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_GET, require_http_methods
+
+from apps.billing.models import Payment
+from apps.billing.services.robokassa import (
+    create_robokassa_payment,
+    get_billing_state,
+    get_request_payload,
+    process_robokassa_result,
+)
+from apps.bitrix.models import BitrixPortal
+
+
+def _json_error(message: str, status: int = 400, details: dict | None = None) -> JsonResponse:
+    payload: dict = {
+        "ok": False,
+        "error": message,
+    }
+
+    if details:
+        payload["details"] = details
+
+    return JsonResponse(payload, status=status, json_dumps_params={"ensure_ascii": False})
+
+
+def _parse_json_body(request: HttpRequest) -> tuple[dict, JsonResponse | None]:
+    if not request.body:
+        return {}, None
+
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except json.JSONDecodeError as error:
+        return {}, _json_error(
+            "Некорректный JSON в теле запроса.",
+            details={"message": str(error)},
+        )
+
+    if not isinstance(payload, dict):
+        return {}, _json_error("Тело запроса должно быть JSON-объектом.")
+
+    return payload, None
+
+
+def _frontend_payment_redirect(payment_status: str, payment: Payment | None = None):
+    frontend_url = (
+        getattr(settings, "FRONTEND_URL", "")
+        or getattr(settings, "BITRIX_FRONTEND_URL", "")
+        or os.environ.get("FRONTEND_URL", "")
+        or os.environ.get("BITRIX_FRONTEND_URL", "")
+        or "https://portal-analytics.sappapp1b24.ru"
+    ).rstrip("/")
+
+    query = {
+        "paymentStatus": payment_status,
+    }
+
+    if payment:
+        query.update(
+            {
+                "paymentId": str(payment.public_id),
+                "memberId": payment.portal.member_id,
+                "domain": payment.portal.domain,
+            }
+        )
+
+    return redirect(f"{frontend_url}/?{urlencode(query)}")
+
+
+def _resolve_billing_portal(request: HttpRequest, payload: dict) -> BitrixPortal:
+    member_id = (
+        payload.get("memberId")
+        or payload.get("member_id")
+        or request.headers.get("X-Bitrix-Member-Id")
+    )
+    domain = (
+        payload.get("domain")
+        or payload.get("DOMAIN")
+        or request.headers.get("X-Bitrix-Domain")
+    )
+
+    if member_id:
+        portal = BitrixPortal.objects.filter(member_id=str(member_id)).first()
+
+        if portal:
+            return portal
+
+    if domain:
+        portal = BitrixPortal.objects.filter(domain=str(domain)).first()
+
+        if portal:
+            return portal
+
+    raise ValidationError("Не удалось определить портал для оплаты.")
+
+
+@require_GET
+def billing_access_view(request: HttpRequest):
+    try:
+        portal = _resolve_billing_portal(request, request.GET.dict())
+    except ValidationError as error:
+        return _json_error(str(error), status=400)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            **get_billing_state(portal),
+        },
+        json_dumps_params={"ensure_ascii": False},
+    )
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def create_payment_view(request: HttpRequest):
+    payload, error_response = _parse_json_body(request)
+
+    if error_response:
+        return error_response
+
+    try:
+        portal = _resolve_billing_portal(request, payload)
+        payment = create_robokassa_payment(
+            portal=portal,
+            plan_code=str(payload.get("planCode") or "pro_monthly"),
+            customer_email=str(payload.get("customerEmail") or ""),
+        )
+    except (ImproperlyConfigured, ValidationError) as error:
+        return _json_error(str(error), status=400)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "payment": {
+                "id": str(payment.public_id),
+                "orderId": payment.order_id,
+                "status": payment.status,
+                "amount": str(payment.amount),
+                "currency": payment.currency,
+                "paymentUrl": payment.payment_url,
+                "expiresAt": payment.expires_at.isoformat() if payment.expires_at else None,
+            },
+        },
+        json_dumps_params={"ensure_ascii": False},
+    )
+
+
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def robokassa_result_view(request: HttpRequest):
+    payload = get_request_payload(request)
+
+    try:
+        _event, payment = process_robokassa_result(payload)
+    except (ImproperlyConfigured, ValidationError) as error:
+        return HttpResponse(str(error), status=400, content_type="text/plain; charset=utf-8")
+
+    return HttpResponse(f"OK{payment.id}", content_type="text/plain; charset=utf-8")
+
+
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def robokassa_success_view(request: HttpRequest):
+    payload = get_request_payload(request)
+    payment = None
+
+    try:
+        inv_id = int(str(payload.get("InvId", "")))
+        payment = Payment.objects.filter(id=inv_id).select_related("portal").first()
+    except (TypeError, ValueError):
+        payment = None
+
+    return _frontend_payment_redirect("success", payment=payment)
+
+
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def robokassa_fail_view(request: HttpRequest):
+    payload = get_request_payload(request)
+    payment = None
+
+    try:
+        inv_id = int(str(payload.get("InvId", "")))
+        payment = Payment.objects.filter(id=inv_id).select_related("portal").first()
+
+        if payment and payment.status == Payment.Status.PENDING:
+            payment.status = Payment.Status.CANCELED
+            payment.raw_provider_payload = payload
+            payment.save(update_fields=["status", "raw_provider_payload", "updated_at"])
+    except (TypeError, ValueError):
+        payment = None
+
+    return _frontend_payment_redirect("fail", payment=payment)

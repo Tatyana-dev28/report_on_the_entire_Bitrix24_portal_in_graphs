@@ -1589,6 +1589,7 @@ function App() {
   const handleCreateProPayment = useCallback(() => {
     setPaymentLoading(true);
     setBillingError('');
+    const paymentWindow = window.open('', '_blank');
 
     createProPayment()
       .then((response) => {
@@ -1598,9 +1599,16 @@ function App() {
           throw new Error('Backend did not return Robokassa payment URL.');
         }
 
-        window.top?.location.assign(paymentUrl);
+        if (paymentWindow) {
+          paymentWindow.opener = null;
+          paymentWindow.location.href = paymentUrl;
+          return;
+        }
+
+        window.location.assign(paymentUrl);
       })
       .catch((error) => {
+        paymentWindow?.close();
         console.warn('[Billing] payment was not created', error);
         setBillingError(error instanceof Error ? error.message : 'Не удалось создать платеж.');
       })

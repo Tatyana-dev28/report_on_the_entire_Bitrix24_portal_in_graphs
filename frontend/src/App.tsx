@@ -332,6 +332,8 @@ function App() {
   const [isAppSettingsOpen, setIsAppSettingsOpen] = useState(false);
   const [isFreeLimitOpen, setIsFreeLimitOpen] = useState(false);
   const [billingHasPro, setBillingHasPro] = useState(false);
+  const [billingValidUntil, setBillingValidUntil] = useState<string | null>(null);
+  const [billingIsLifetime, setBillingIsLifetime] = useState(false);
   const [billingPlan, setBillingPlan] = useState<BillingPlan | null>(null);
   const [billingError, setBillingError] = useState('');
   const [paymentLoading, setPaymentLoading] = useState(false);
@@ -419,6 +421,8 @@ function App() {
     return loadBillingState()
       .then((state) => {
         setBillingHasPro(Boolean(state.access?.hasPro));
+        setBillingValidUntil(state.access?.validUntil ?? null);
+        setBillingIsLifetime(Boolean(state.access?.isLifetime));
         setBillingPlan(state.plans.find((plan) => plan.code === 'pro_monthly') ?? null);
       })
       .catch((error) => {
@@ -429,6 +433,26 @@ function App() {
 
   useEffect(() => {
     refreshBillingState();
+  }, [refreshBillingState]);
+
+  useEffect(() => {
+    const handleBillingRefresh = () => {
+      refreshBillingState();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshBillingState();
+      }
+    };
+
+    window.addEventListener('focus', handleBillingRefresh);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', handleBillingRefresh);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [refreshBillingState]);
 
   useEffect(() => {
@@ -1587,6 +1611,12 @@ function App() {
   }, []);
 
   const handleCreateProPayment = useCallback(() => {
+    if (isProUser) {
+      setNotification('PRO-подписка уже активна для этого портала.');
+      refreshBillingState();
+      return;
+    }
+
     setPaymentLoading(true);
     setBillingError('');
     const paymentWindow = window.open('', '_blank');
@@ -1615,7 +1645,7 @@ function App() {
       .finally(() => {
         setPaymentLoading(false);
       });
-  }, []);
+  }, [isProUser, refreshBillingState]);
 
   const saveCurrentView = () => {
     const name = newViewName.trim();
@@ -2476,6 +2506,9 @@ function App() {
           onSubscribe={handleCreateProPayment}
           isLoading={paymentLoading}
           plan={billingPlan}
+          hasPro={billingHasPro}
+          validUntil={billingValidUntil}
+          isLifetime={billingIsLifetime}
           error={billingError}
         />
       )}

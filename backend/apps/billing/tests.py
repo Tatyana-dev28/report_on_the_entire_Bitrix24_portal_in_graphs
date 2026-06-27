@@ -1,6 +1,7 @@
 from decimal import Decimal
 from urllib.parse import parse_qs, urlparse
 
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.test import TestCase, override_settings
 
@@ -78,7 +79,7 @@ class RobokassaBillingTests(TestCase):
         self.assertTrue(access.has_pro)
         self.assertEqual(access.access_level, PortalAccess.AccessLevel.PRO)
 
-    def test_second_paid_invoice_extends_existing_period(self):
+    def test_active_pro_blocks_second_invoice(self):
         first_payment = create_robokassa_payment(portal=self.portal)
         first_payload = {
             "OutSum": "990.00",
@@ -87,19 +88,10 @@ class RobokassaBillingTests(TestCase):
         }
         process_robokassa_result(first_payload)
 
-        subscription = Subscription.objects.get(portal=self.portal)
-        first_paid_until = subscription.paid_until
-
         first_payment.expires_at = timezone.now()
         first_payment.save(update_fields=["expires_at", "updated_at"])
-        second_payment = create_robokassa_payment(portal=self.portal)
-        second_payload = {
-            "OutSum": "990.00",
-            "InvId": str(second_payment.id),
-            "SignatureValue": make_signature("990.00", str(second_payment.id), "password-2"),
-        }
-        process_robokassa_result(second_payload)
 
-        subscription.refresh_from_db()
-        self.assertGreater(subscription.paid_until, first_paid_until)
-        self.assertGreaterEqual((subscription.paid_until - first_paid_until).days, 29)
+        with self.assertRaisesMessage(ValidationError, "PRO-подписка уже активна"):
+            create_robokassa_payment(portal=self.portal)
+
+        self.assertEqual(Payment.objects.filter(portal=self.portal).count(), 1)

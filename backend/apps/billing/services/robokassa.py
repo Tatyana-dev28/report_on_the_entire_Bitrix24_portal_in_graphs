@@ -190,6 +190,11 @@ def create_robokassa_payment(
     if plan.price <= 0:
         raise ValidationError("Pro monthly plan price must be greater than zero.")
 
+    current_access = PortalAccess.objects.filter(portal=portal).first()
+
+    if current_access and current_access.is_pro_valid:
+        raise ValidationError("PRO-подписка уже активна для этого портала.")
+
     subscription = get_or_create_portal_subscription(portal)
     existing_payment = (
         Payment.objects.select_for_update()

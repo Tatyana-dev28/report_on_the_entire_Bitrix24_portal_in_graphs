@@ -6,7 +6,7 @@
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { ChevronDown, Crown, X } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Crown, X } from 'lucide-react';
 import { formatMetricValue } from '../../services/report/reportCatalog';
 import { DETAIL_COLUMN_STORAGE_KEY, detailColumnMinWidthSum, detailColumns } from '../constants';
 import type { AppSettings, DetailColumnKey, DetailContext, DetailRow, DetailSort, ReportEmployee } from '../types';
@@ -147,19 +147,49 @@ const formatPlanPrice = (plan: BillingPlan | null) => {
   return `${new Intl.NumberFormat('ru-RU').format(price)} ${plan.currency} / месяц`;
 };
 
+const formatAccessUntil = (validUntil: string | null, isLifetime: boolean) => {
+  if (isLifetime) {
+    return 'Доступ подключен бессрочно.';
+  }
+
+  if (!validUntil) {
+    return 'Доступ активен для этого портала.';
+  }
+
+  const date = new Date(validUntil);
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Доступ активен для этого портала.';
+  }
+
+  return `Доступ действует до ${new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  }).format(date)}.`;
+};
+
 export function ProVersionModal({
   onClose,
   onSubscribe,
   isLoading,
   plan,
+  hasPro,
+  validUntil,
+  isLifetime,
   error,
 }: {
   onClose: () => void;
   onSubscribe: () => void;
   isLoading: boolean;
   plan: BillingPlan | null;
+  hasPro: boolean;
+  validUntil: string | null;
+  isLifetime: boolean;
   error: string;
 }) {
+  const accessUntilText = formatAccessUntil(validUntil, isLifetime);
+
   return (
     <div className="modal-layer pro-modal-layer" role="presentation">
       <div
@@ -181,11 +211,12 @@ export function ProVersionModal({
           <div className="pro-modal-intro">
             <span className="pro-badge">
               <Crown size={15} />
-              Доступ для портала
+              {hasPro ? 'PRO уже активен' : 'Доступ для портала'}
             </span>
             <p>
-              Сейчас приложение работает по простой логике: при установке портал получает бесплатный доступ,
-              а расширенные возможности включаются через месячную ПРО подписку.
+              {hasPro
+                ? 'Этот портал уже пользуется расширенными возможностями. Повторно оплачивать подписку сейчас не нужно.'
+                : 'Сейчас приложение работает по простой логике: при установке портал получает бесплатный доступ, а расширенные возможности включаются через месячную ПРО подписку.'}
             </p>
           </div>
 
@@ -220,11 +251,22 @@ export function ProVersionModal({
           </div>
 
           <div className="pro-admin-note">
-            <p>Подписка подключается на весь портал.</p>
+            <p>{hasPro ? 'Подписка активна для всего портала.' : 'Подписка подключается на весь портал.'}</p>
             <span>
-              После подключения команда сможет пользоваться расширенными настройками без повторной настройки отчета.
+              {hasPro
+                ? accessUntilText
+                : 'После подключения команда сможет пользоваться расширенными настройками без повторной настройки отчета.'}
             </span>
           </div>
+          {hasPro && (
+            <div className="pro-active-status" role="status">
+              <CheckCircle2 size={18} />
+              <div>
+                <p>Оплата получена, PRO-доступ включен.</p>
+                <span>Сохраненные отображения и настройки доступа доступны пользователям портала.</span>
+              </div>
+            </div>
+          )}
           {error && (
             <p className="modal-error-text" role="alert">
               {error}
@@ -233,11 +275,13 @@ export function ProVersionModal({
 
           <div className="pro-modal-actions">
             <button className="secondary-button" type="button" onClick={onClose}>
-              Не сейчас
+              {hasPro ? 'Закрыть' : 'Не сейчас'}
             </button>
-            <button className="primary-button" type="button" onClick={onSubscribe} disabled={isLoading}>
-              {isLoading ? 'Создаем платеж...' : 'Подключить подписку'}
-            </button>
+            {!hasPro && (
+              <button className="primary-button" type="button" onClick={onSubscribe} disabled={isLoading}>
+                {isLoading ? 'Создаем платеж...' : 'Подключить подписку'}
+              </button>
+            )}
           </div>
         </div>
       </div>

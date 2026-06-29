@@ -173,6 +173,7 @@ def build_payment_url(payment: Payment, config: RobokassaConfig | None = None) -
         "InvId": str(payment.id),
         "Description": payment.description,
         "SignatureValue": signature,
+        "Receipt": receipt_encoded,
         "Culture": "ru",
         "Encoding": "utf-8",
     }
@@ -183,7 +184,7 @@ def build_payment_url(payment: Payment, config: RobokassaConfig | None = None) -
     if config.is_test:
         params["IsTest"] = "1"
 
-    return f"{config.payment_url}?{urlencode(params)}&Receipt={receipt_encoded}"
+    return f"{config.payment_url}?{urlencode(params)}"
 
 
 def get_or_create_portal_subscription(portal: BitrixPortal) -> Subscription:

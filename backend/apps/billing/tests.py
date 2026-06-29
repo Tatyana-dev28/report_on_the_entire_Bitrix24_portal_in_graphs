@@ -54,8 +54,10 @@ class RobokassaBillingTests(TestCase):
         self.assertEqual(query["MerchantLogin"][0], "demo-shop")
         self.assertEqual(query["IsTest"][0], "1")
         self.assertEqual(inv_id, str(payment.id))
-        self.assertIn(f"Receipt={receipt_encoded}", parsed_url.query)
-        self.assertIn("%257B", query["Receipt"][0])
+        # Проверяем двойное URL-кодирование Receipt в сырой строке запроса
+        self.assertIn("%257B", parsed_url.query)
+        # После декодирования parse_qs значение Receipt должно быть равно receipt_encoded
+        self.assertEqual(query["Receipt"][0], receipt_encoded)
         self.assertEqual(
             query["SignatureValue"][0],
             make_signature("demo-shop", out_sum, inv_id, receipt_encoded, "test-password-1"),

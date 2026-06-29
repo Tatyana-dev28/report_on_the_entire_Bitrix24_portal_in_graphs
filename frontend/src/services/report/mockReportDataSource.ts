@@ -5,6 +5,7 @@ import {
   periodOptions,
   type ReportPoint,
 } from './reportCatalog';
+import type { PortalEmployeeItem } from '../api/reportApiClient';
 import type {
   CrmSource,
   EmployeeMetricItem,
@@ -87,6 +88,10 @@ export const mockReportDataSource: ReportDataSource = {
   },
 
   async loadEmployeesMetric(_request: MetricDetailsRequest): Promise<EmployeeMetricItem[]> {
+    return [];
+  },
+
+  async loadPortalEmployees(): Promise<PortalEmployeeItem[]> {
     return [];
   },
 

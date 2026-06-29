@@ -60,6 +60,7 @@ import {
 } from './services/report/reportCatalog';
 import { reportDataSource } from './services/report/reportDataSource';
 import type { CrmSource, MetricDetailItem, ReportLoadFilters } from './services/report/reportTypes';
+import type { PortalEmployeeItem } from './services/api/reportApiClient';
 import {
   APP_SETTINGS_STORAGE_KEY,
   CHART_AXIS_WIDTH,
@@ -321,6 +322,7 @@ function App() {
     });
   });
   const [reportEmployees, setReportEmployees] = useState<ReportEmployee[]>([]);
+  const [portalEmployees, setPortalEmployees] = useState<PortalEmployeeItem[]>([]);
   const [reportDetails, setReportDetails] = useState<MetricDetailItem[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
@@ -484,8 +486,12 @@ function App() {
       reportDataSource.loadPeriods(),
       reportDataSource.loadMetricSections(),
       reportDataSource.loadMetrics(),
+      reportDataSource.loadPortalEmployees().catch((error) => {
+        console.warn('[Portal] Employees were not loaded', error);
+        return [];
+      }),
     ])
-      .then(([sources, periods, sections, nextMetrics]) => {
+      .then(([sources, periods, sections, nextMetrics, employees]) => {
         if (!isActive) {
           return;
         }
@@ -494,6 +500,7 @@ function App() {
         setPeriodOptions(periods);
         setMetricSections(sections);
         setMetrics(nextMetrics);
+        setPortalEmployees(employees);
         setSectionOrder(sections.map((section) => section.id));
         setMetricOrderBySection(
           sections.reduce<Record<string, string[]>>((acc, section) => {
@@ -2493,7 +2500,7 @@ function App() {
       {isAppSettingsOpen && (
         <AppSettingsModal
           settings={appSettings}
-          employees={reportEmployees}
+          employees={portalEmployees.length > 0 ? (portalEmployees as ReportEmployee[]) : reportEmployees}
           onSave={saveAppSettings}
           onClose={() => setIsAppSettingsOpen(false)}
           onOpenPro={() => setIsProOpen(true)}

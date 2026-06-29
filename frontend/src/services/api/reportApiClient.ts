@@ -26,6 +26,19 @@ export type ReportPreviewResponse = {
     details: MetricDetailItem[];
 };
 
+export type PortalEmployeeItem = {
+    id: string;
+    name: string;
+    firstName: string;
+    lastName: string;
+    avatarUrl: string | null;
+};
+
+export type PortalEmployeesResponse = {
+    ok: boolean;
+    employees: PortalEmployeeItem[];
+};
+
 const REPORT_PREVIEW_POLL_INTERVAL_MS = 1500;
 const REPORT_PREVIEW_MAX_POLL_ATTEMPTS = 800;
 
@@ -166,6 +179,11 @@ export const loadReportCatalog = () => {
 
     return reportCatalogPromise;
 };
+
+export const loadPortalEmployees = () =>
+    requestJson<PortalEmployeesResponse>(
+        appendQuery('/api/reports/employees/', getBitrixContext()),
+    ).then((response) => response.employees);
 
 export const loadReportPreview = (filters: ReportLoadFilters) =>
     requestJson<ReportPreviewResponse>('/api/reports/preview/', {

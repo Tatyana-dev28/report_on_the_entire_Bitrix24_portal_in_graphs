@@ -1,4 +1,5 @@
 import type { DateRange, MetricRow, MetricSection, Period, ReportPoint } from './reportCatalog';
+import type { PortalEmployeeItem } from '../api/reportApiClient';
 
 export type CrmSourceType =
   | 'lead'
@@ -93,6 +94,7 @@ export type ReportDataSource = {
   loadReportPreview: (filters: ReportLoadFilters) => Promise<ReportPreviewPayload>;
   loadMetricDetails: (request: MetricDetailsRequest) => Promise<MetricDetailItem[]>;
   loadEmployeesMetric: (request: EmployeeMetricRequest) => Promise<EmployeeMetricItem[]>;
+  loadPortalEmployees: () => Promise<PortalEmployeeItem[]>;
   getInitialCrmSources: () => CrmSource[];
   getInitialReportData: (filters: ReportLoadFilters) => ReportPoint[];
 };

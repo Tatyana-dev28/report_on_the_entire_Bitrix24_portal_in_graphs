@@ -1,4 +1,5 @@
-﻿import { loadReportCatalog, loadReportPreview } from '../api/reportApiClient';
+﻿import { loadPortalEmployees, loadReportCatalog, loadReportPreview } from '../api/reportApiClient';
+import type { PortalEmployeeItem } from '../api/reportApiClient';
 import { periodOptions, type ReportPoint } from './reportCatalog';
 import type {
   CrmSource,
@@ -185,6 +186,10 @@ export const bitrixReportDataSource: ReportDataSource = {
 
   getInitialCrmSources() {
     return initialCrmSources;
+  },
+
+  async loadPortalEmployees(): Promise<PortalEmployeeItem[]> {
+    return loadPortalEmployees();
   },
 
   getInitialReportData(_filters: ReportLoadFilters): ReportPoint[] {

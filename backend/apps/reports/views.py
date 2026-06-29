@@ -5,6 +5,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 from apps.reports.services.exceptions import ReportPreviewSessionError
+from apps.reports.services.portal_employees import load_portal_employees
 from apps.reports.services.report_catalog import build_report_catalog
 from apps.reports.services.report_context import resolve_portal
 from apps.reports.services.report_sessions import (
@@ -80,6 +81,24 @@ def report_preview_view(request):
         {
             "ok": True,
             **preview,
+        },
+        json_dumps_params={"ensure_ascii": False},
+    )
+
+
+@require_GET
+def report_employees_view(request):
+    try:
+        portal = resolve_portal(request, request.GET.dict())
+    except ReportPreviewSessionError:
+        return _json_error("Не удалось подтвердить доступ к порталу.", status=403)
+
+    employees = load_portal_employees(portal)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "employees": employees,
         },
         json_dumps_params={"ensure_ascii": False},
     )

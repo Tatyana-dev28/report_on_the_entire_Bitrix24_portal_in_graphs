@@ -3,7 +3,7 @@ import os
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.http import HttpRequest, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -129,7 +129,7 @@ def build_frontend_redirect_url(*, portal, mode: str) -> str:
 
 
 @csrf_exempt
-@require_http_methods(["GET", "POST"])
+@require_http_methods(["GET", "POST", "HEAD"])
 def bitrix_install_view(request: HttpRequest):
     """
     Endpoint установки приложения Bitrix24.
@@ -144,6 +144,9 @@ def bitrix_install_view(request: HttpRequest):
     - для обычного Bitrix24 iframe редиректит на frontend;
     - для тестов/debug может вернуть безопасный JSON.
     """
+
+    if request.method == "HEAD":
+        return HttpResponse(status=200)
 
     payload = parse_bitrix_request_payload(request)
 
@@ -183,7 +186,7 @@ def bitrix_install_view(request: HttpRequest):
 
 
 @csrf_exempt
-@require_http_methods(["GET", "POST"])
+@require_http_methods(["GET", "POST", "HEAD"])
 def bitrix_app_view(request: HttpRequest):
     """
     Endpoint открытия приложения из Bitrix24.
@@ -197,6 +200,9 @@ def bitrix_app_view(request: HttpRequest):
     - для обычного Bitrix24 iframe редиректит на frontend;
     - для тестов/debug может вернуть безопасный JSON.
     """
+
+    if request.method == "HEAD":
+        return HttpResponse(status=200)
 
     payload = parse_bitrix_request_payload(request)
 

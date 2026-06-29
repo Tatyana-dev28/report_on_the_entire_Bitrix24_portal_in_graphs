@@ -21,6 +21,8 @@ ROBOKASSA_TEST_SETTINGS = {
     "ROBOKASSA_MERCHANT_LOGIN": "demo-shop",
     "ROBOKASSA_PASSWORD1": "password-1",
     "ROBOKASSA_PASSWORD2": "password-2",
+    "ROBOKASSA_TEST_PASSWORD1": "test-password-1",
+    "ROBOKASSA_TEST_PASSWORD2": "test-password-2",
     "ROBOKASSA_TEST_MODE": True,
     "ROBOKASSA_PAYMENT_URL": "https://auth.robokassa.ru/Merchant/Index.aspx",
 }
@@ -63,7 +65,7 @@ class RobokassaBillingTests(TestCase):
         self.assertEqual(receipt_payload["items"][0]["tax"], "none")
         self.assertEqual(
             query["SignatureValue"][0],
-            make_signature("demo-shop", out_sum, inv_id, receipt, "password-1"),
+            make_signature("demo-shop", out_sum, inv_id, receipt, "test-password-1"),
         )
 
     def test_create_payment_adds_customer_email_to_reused_invoice(self):
@@ -96,7 +98,7 @@ class RobokassaBillingTests(TestCase):
         payload = {
             "OutSum": out_sum,
             "InvId": str(payment.id),
-            "SignatureValue": make_signature(out_sum, str(payment.id), "password-2"),
+            "SignatureValue": make_signature(out_sum, str(payment.id), "test-password-2"),
         }
 
         event, payment = process_robokassa_result(payload)
@@ -117,7 +119,7 @@ class RobokassaBillingTests(TestCase):
         payload = {
             "OutSum": "990.00",
             "InvId": str(payment.id),
-            "SignatureValue": make_signature("990.00", str(payment.id), "password-2"),
+            "SignatureValue": make_signature("990.00", str(payment.id), "test-password-2"),
         }
 
         process_robokassa_result(payload)
@@ -134,7 +136,7 @@ class RobokassaBillingTests(TestCase):
         first_payload = {
             "OutSum": "990.00",
             "InvId": str(first_payment.id),
-            "SignatureValue": make_signature("990.00", str(first_payment.id), "password-2"),
+            "SignatureValue": make_signature("990.00", str(first_payment.id), "test-password-2"),
         }
         process_robokassa_result(first_payload)
 

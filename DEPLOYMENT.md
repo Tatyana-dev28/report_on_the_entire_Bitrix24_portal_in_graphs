@@ -68,6 +68,8 @@ FRONTEND_URL=https://example.com
 ROBOKASSA_MERCHANT_LOGIN=<robokassa-merchant-login>
 ROBOKASSA_PASSWORD1=<robokassa-password-1>
 ROBOKASSA_PASSWORD2=<robokassa-password-2>
+ROBOKASSA_TEST_PASSWORD1=<robokassa-test-password-1>
+ROBOKASSA_TEST_PASSWORD2=<robokassa-test-password-2>
 ROBOKASSA_TEST_MODE=false
 ROBOKASSA_PAYMENT_URL=https://auth.robokassa.ru/Merchant/Index.aspx
 ROBOKASSA_RECEIPT_TAX=none
@@ -157,6 +159,12 @@ Fail URL:    https://api.example.com/api/billing/robokassa/fail/
 Use `POST` for Result URL if the cabinet asks for a method. Keep
 `ROBOKASSA_TEST_MODE=true` until the full payment loop is verified, then switch
 it to `false` and restart the backend.
+
+When `ROBOKASSA_TEST_MODE=true`, payment links are signed with
+`ROBOKASSA_TEST_PASSWORD1` and Result URL callbacks are checked with
+`ROBOKASSA_TEST_PASSWORD2`. When `ROBOKASSA_TEST_MODE=false`, production
+`ROBOKASSA_PASSWORD1` and `ROBOKASSA_PASSWORD2` are used. Do not mix test mode
+with production passwords.
 
 Set `ROBOKASSA_RECEIPT_TAX` to the VAT code that matches the seller's tax
 settings in Robokassa. The default `none` means VAT is not charged. Fill

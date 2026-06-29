@@ -42,20 +42,25 @@ class RobokassaConfig:
 
 def get_robokassa_config() -> RobokassaConfig:
     merchant_login = getattr(settings, "ROBOKASSA_MERCHANT_LOGIN", "")
-    password1 = getattr(settings, "ROBOKASSA_PASSWORD1", "")
-    password2 = getattr(settings, "ROBOKASSA_PASSWORD2", "")
+    is_test = getattr(settings, "ROBOKASSA_TEST_MODE", True)
+    live_password1 = getattr(settings, "ROBOKASSA_PASSWORD1", "")
+    live_password2 = getattr(settings, "ROBOKASSA_PASSWORD2", "")
+    test_password1 = getattr(settings, "ROBOKASSA_TEST_PASSWORD1", "")
+    test_password2 = getattr(settings, "ROBOKASSA_TEST_PASSWORD2", "")
+    password1 = test_password1 if is_test else live_password1
+    password2 = test_password2 if is_test else live_password2
 
     if not merchant_login or not password1 or not password2:
         raise ImproperlyConfigured(
-            "Robokassa is not configured. Set ROBOKASSA_MERCHANT_LOGIN, "
-            "ROBOKASSA_PASSWORD1 and ROBOKASSA_PASSWORD2."
+            "Robokassa is not configured. Set ROBOKASSA_MERCHANT_LOGIN and "
+            "passwords for the selected ROBOKASSA_TEST_MODE."
         )
 
     return RobokassaConfig(
         merchant_login=merchant_login,
         password1=password1,
         password2=password2,
-        is_test=getattr(settings, "ROBOKASSA_TEST_MODE", True),
+        is_test=is_test,
         payment_url=getattr(settings, "ROBOKASSA_PAYMENT_URL", ROBOKASSA_PAY_URL),
     )
 

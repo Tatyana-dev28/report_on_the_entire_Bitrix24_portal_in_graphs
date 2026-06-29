@@ -426,7 +426,7 @@ function App() {
       return undefined;
     }
 
-    const timeoutId = window.setTimeout(() => setNotification(''), 2400);
+    const timeoutId = window.setTimeout(() => setNotification(''), 5200);
     return () => window.clearTimeout(timeoutId);
   }, [notification]);
 
@@ -439,10 +439,12 @@ function App() {
         setBillingValidUntil(state.access?.validUntil ?? null);
         setBillingIsLifetime(Boolean(state.access?.isLifetime));
         setBillingPlan(state.plans.find((plan) => plan.code === 'pro_monthly') ?? null);
+        return state;
       })
       .catch((error) => {
         console.warn('[Billing] state was not loaded', error);
         setBillingError(error instanceof Error ? error.message : 'Не удалось загрузить статус подписки.');
+        return null;
       });
   }, []);
 
@@ -489,8 +491,25 @@ function App() {
     const paymentStatus = params.get('paymentStatus');
 
     if (paymentStatus === 'success') {
-      setNotification('Оплата получена. Обновляем доступ к ПРО версии.');
-      refreshBillingState();
+      setNotification('Возврат из Robokassa получен. Проверяем подтверждение оплаты.');
+      refreshBillingState().then((state) => {
+        if (!state) {
+          return;
+        }
+
+        if (state.access?.hasPro) {
+          const validUntil = state.access.validUntil ? new Date(state.access.validUntil) : null;
+          const validUntilText =
+            validUntil && !Number.isNaN(validUntil.getTime())
+              ? ` Доступ действует до ${new Intl.DateTimeFormat('ru-RU').format(validUntil)}.`
+              : '';
+
+          setNotification(`Оплата подтверждена, PRO включен.${validUntilText}`);
+          return;
+        }
+
+        setNotification('Платеж ожидает подтверждения Robokassa. PRO включится после webhook.');
+      });
     }
 
     if (paymentStatus === 'fail') {

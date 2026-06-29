@@ -1,10 +1,12 @@
 import json
+import logging
 import os
 from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured, PermissionDenied, ValidationError
 from django.core import signing
+from django.core.validators import validate_email
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.csrf import csrf_exempt
@@ -23,6 +25,9 @@ from apps.bitrix.services.portal_tokens import (
     load_portal_api_token,
     make_portal_api_token,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def _json_error(message: str, status: int = 400, details: dict | None = None) -> JsonResponse:
@@ -169,15 +174,27 @@ def create_payment_view(request: HttpRequest):
         return error_response
 
     try:
+        customer_email = str(payload.get("customerEmail") or "").strip()
+
+        if not customer_email:
+            raise ValidationError("Email for receipt is required.")
+
+        validate_email(customer_email)
+
         portal = _resolve_billing_portal(request, payload)
         payment = create_robokassa_payment(
             portal=portal,
             plan_code=str(payload.get("planCode") or "pro_monthly"),
-            customer_email=str(payload.get("customerEmail") or ""),
+            customer_email=customer_email,
         )
     except PermissionDenied as error:
+        logger.warning("Payment creation denied: %s", error)
         return _json_error(str(error), status=403)
-    except (ImproperlyConfigured, ValidationError) as error:
+    except ImproperlyConfigured as error:
+        logger.exception("Payment creation failed because Robokassa is not configured.")
+        return _json_error(str(error), status=400)
+    except ValidationError as error:
+        logger.warning("Payment creation validation failed: %s", error)
         return _json_error(str(error), status=400)
 
     return JsonResponse(
@@ -205,6 +222,7 @@ def robokassa_result_view(request: HttpRequest):
     try:
         _event, payment = process_robokassa_result(payload)
     except (ImproperlyConfigured, ValidationError) as error:
+        logger.warning("Robokassa result processing failed: %s", error)
         return HttpResponse(str(error), status=400, content_type="text/plain; charset=utf-8")
 
     return HttpResponse(f"OK{payment.id}", content_type="text/plain; charset=utf-8")

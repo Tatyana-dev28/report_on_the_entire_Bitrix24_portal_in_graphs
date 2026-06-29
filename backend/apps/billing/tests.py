@@ -1,6 +1,6 @@
 from decimal import Decimal
 import json
-from urllib.parse import parse_qs, urlparse, unquote
+from urllib.parse import parse_qs, urlparse
 
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -47,12 +47,13 @@ class RobokassaBillingTests(TestCase):
         query = parse_qs(parsed_url.query)
         out_sum = query["OutSum"][0]
         inv_id = query["InvId"][0]
-        receipt = query["Receipt"][0]
-        receipt_payload = json.loads(unquote(receipt))
+        receipt = build_robokassa_receipt(payment)
+        receipt_payload = json.loads(query["Receipt"][0])
 
         self.assertEqual(query["MerchantLogin"][0], "demo-shop")
         self.assertEqual(query["IsTest"][0], "1")
         self.assertEqual(inv_id, str(payment.id))
+        self.assertIn(f"Receipt={receipt}", parsed_url.query)
         self.assertEqual(
             receipt_payload["items"][0]["name"],
             'Подписка ПРО на 1 месяц в приложении "Аналитика портала Битрикс24 в графиках"',
@@ -80,7 +81,7 @@ class RobokassaBillingTests(TestCase):
         self.assertEqual(payment.id, reused_payment.id)
         self.assertEqual(reused_payment.customer_email, "buyer@example.com")
         self.assertEqual(query["Email"][0], "buyer@example.com")
-        self.assertEqual(query["Receipt"][0], build_robokassa_receipt(reused_payment))
+        self.assertIn(f"Receipt={build_robokassa_receipt(reused_payment)}", parsed_url.query)
 
     def test_create_payment_reuses_pending_unexpired_invoice(self):
         first_payment = create_robokassa_payment(portal=self.portal)
@@ -106,6 +107,27 @@ class RobokassaBillingTests(TestCase):
         self.assertEqual(payment.status, Payment.Status.SUCCEEDED)
         self.assertTrue(access.has_pro)
         self.assertEqual(access.access_level, PortalAccess.AccessLevel.PRO)
+        self.assertEqual(
+            payment.metadata["subscription_paid_until"],
+            payment.subscription.paid_until.isoformat(),
+        )
+
+    def test_repeated_result_does_not_extend_subscription_twice(self):
+        payment = create_robokassa_payment(portal=self.portal)
+        payload = {
+            "OutSum": "990.00",
+            "InvId": str(payment.id),
+            "SignatureValue": make_signature("990.00", str(payment.id), "password-2"),
+        }
+
+        process_robokassa_result(payload)
+        payment.refresh_from_db()
+        first_paid_until = payment.subscription.paid_until
+
+        process_robokassa_result(payload)
+        payment.subscription.refresh_from_db()
+
+        self.assertEqual(payment.subscription.paid_until, first_paid_until)
 
     def test_active_pro_blocks_second_invoice(self):
         first_payment = create_robokassa_payment(portal=self.portal)

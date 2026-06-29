@@ -70,6 +70,8 @@ ROBOKASSA_PASSWORD1=<robokassa-password-1>
 ROBOKASSA_PASSWORD2=<robokassa-password-2>
 ROBOKASSA_TEST_MODE=false
 ROBOKASSA_PAYMENT_URL=https://auth.robokassa.ru/Merchant/Index.aspx
+ROBOKASSA_RECEIPT_TAX=none
+ROBOKASSA_RECEIPT_SNO=
 ```
 
 Enable HSTS only after HTTPS is verified:
@@ -155,3 +157,8 @@ Fail URL:    https://api.example.com/api/billing/robokassa/fail/
 Use `POST` for Result URL if the cabinet asks for a method. Keep
 `ROBOKASSA_TEST_MODE=true` until the full payment loop is verified, then switch
 it to `false` and restart the backend.
+
+Set `ROBOKASSA_RECEIPT_TAX` to the VAT code that matches the seller's tax
+settings in Robokassa. The default `none` means VAT is not charged. Fill
+`ROBOKASSA_RECEIPT_SNO` only when Robokassa requires the taxation system for
+fiscal receipts.

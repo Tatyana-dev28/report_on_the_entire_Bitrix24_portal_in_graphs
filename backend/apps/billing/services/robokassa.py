@@ -168,7 +168,6 @@ def build_payment_url(payment: Payment, config: RobokassaConfig | None = None) -
         "OutSum": out_sum,
         "InvId": str(payment.id),
         "Description": payment.description,
-        "Receipt": receipt,
         "SignatureValue": signature,
         "Culture": "ru",
         "Encoding": "utf-8",
@@ -180,7 +179,7 @@ def build_payment_url(payment: Payment, config: RobokassaConfig | None = None) -
     if config.is_test:
         params["IsTest"] = "1"
 
-    return f"{config.payment_url}?{urlencode(params)}"
+    return f"{config.payment_url}?{urlencode(params)}&Receipt={receipt}"
 
 
 def get_or_create_portal_subscription(portal: BitrixPortal) -> Subscription:
@@ -252,10 +251,11 @@ def create_robokassa_payment(
     )
 
     if existing_payment:
-        if customer_email and existing_payment.customer_email != customer_email:
+        if customer_email:
             existing_payment.customer_email = customer_email
-            existing_payment.payment_url = build_payment_url(existing_payment)
-            existing_payment.save(update_fields=["customer_email", "payment_url", "updated_at"])
+
+        existing_payment.payment_url = build_payment_url(existing_payment)
+        existing_payment.save(update_fields=["customer_email", "payment_url", "updated_at"])
 
         return existing_payment
 
@@ -386,6 +386,13 @@ def process_robokassa_result(payload: dict) -> tuple[PaymentWebhookEvent, Paymen
         event.save()
         raise ValidationError("Payment amount does not match.")
 
+    if payment.status == Payment.Status.SUCCEEDED:
+        event.status = PaymentWebhookEvent.Status.PROCESSED
+        event.error_message = "Payment was already processed."
+        event.processed_at = timezone.now()
+        event.save()
+        return event, payment
+
     payment.status = Payment.Status.SUCCEEDED
     payment.paid_at = payment.paid_at or timezone.now()
     payment.provider_invoice_id = str(payload.get("InvId", "")) or payment.provider_invoice_id
@@ -401,8 +408,18 @@ def process_robokassa_result(payload: dict) -> tuple[PaymentWebhookEvent, Paymen
     )
 
     if payment.subscription:
-        activate_paid_subscription(payment.subscription)
+        access = activate_paid_subscription(payment.subscription)
         sync_portal_access_from_subscription(payment.subscription)
+        payment.metadata = {
+            **payment.metadata,
+            "subscription_paid_until": (
+                payment.subscription.paid_until.isoformat()
+                if payment.subscription.paid_until
+                else None
+            ),
+            "access_valid_until": access.valid_until.isoformat() if access.valid_until else None,
+        }
+        payment.save(update_fields=["metadata", "updated_at"])
 
     event.status = PaymentWebhookEvent.Status.PROCESSED
     event.error_message = ""

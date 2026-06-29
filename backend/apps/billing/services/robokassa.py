@@ -151,20 +151,19 @@ def build_robokassa_receipt(payment: Payment) -> str:
     if sno:
         receipt["sno"] = sno
 
-    receipt_json = json.dumps(receipt, ensure_ascii=False, separators=(",", ":"))
-
-    return quote(receipt_json, safe="")
+    return json.dumps(receipt, ensure_ascii=False, separators=(",", ":"))
 
 
 def build_payment_url(payment: Payment, config: RobokassaConfig | None = None) -> str:
     config = config or get_robokassa_config()
     out_sum = format_robokassa_amount(payment.amount)
-    receipt = build_robokassa_receipt(payment)
+    receipt_json = build_robokassa_receipt(payment)
+    receipt_encoded = quote(receipt_json, safe="")
     signature = make_signature(
         config.merchant_login,
         out_sum,
         str(payment.id),
-        receipt,
+        receipt_encoded,
         config.password1,
     )
 
@@ -184,7 +183,7 @@ def build_payment_url(payment: Payment, config: RobokassaConfig | None = None) -
     if config.is_test:
         params["IsTest"] = "1"
 
-    return f"{config.payment_url}?{urlencode(params)}&Receipt={receipt}"
+    return f"{config.payment_url}?{urlencode(params)}&Receipt={receipt_encoded}"
 
 
 def get_or_create_portal_subscription(portal: BitrixPortal) -> Subscription:

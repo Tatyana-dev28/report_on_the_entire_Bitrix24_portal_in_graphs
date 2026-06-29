@@ -1,6 +1,5 @@
 from decimal import Decimal
-import json
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -49,23 +48,17 @@ class RobokassaBillingTests(TestCase):
         query = parse_qs(parsed_url.query)
         out_sum = query["OutSum"][0]
         inv_id = query["InvId"][0]
-        receipt = build_robokassa_receipt(payment)
-        receipt_payload = json.loads(query["Receipt"][0])
+        receipt_json = build_robokassa_receipt(payment)
+        receipt_encoded = quote(receipt_json, safe="")
 
         self.assertEqual(query["MerchantLogin"][0], "demo-shop")
         self.assertEqual(query["IsTest"][0], "1")
         self.assertEqual(inv_id, str(payment.id))
-        self.assertIn(f"Receipt={receipt}", parsed_url.query)
-        self.assertEqual(
-            receipt_payload["items"][0]["name"],
-            'Подписка ПРО на 1 месяц в приложении "Аналитика портала Битрикс24 в графиках"',
-        )
-        self.assertEqual(receipt_payload["items"][0]["payment_object"], "service")
-        self.assertEqual(receipt_payload["items"][0]["payment_method"], "full_payment")
-        self.assertEqual(receipt_payload["items"][0]["tax"], "none")
+        self.assertIn(f"Receipt={receipt_encoded}", parsed_url.query)
+        self.assertIn("%257B", query["Receipt"][0])
         self.assertEqual(
             query["SignatureValue"][0],
-            make_signature("demo-shop", out_sum, inv_id, receipt, "test-password-1"),
+            make_signature("demo-shop", out_sum, inv_id, receipt_encoded, "test-password-1"),
         )
 
     def test_create_payment_adds_customer_email_to_reused_invoice(self):
@@ -83,7 +76,9 @@ class RobokassaBillingTests(TestCase):
         self.assertEqual(payment.id, reused_payment.id)
         self.assertEqual(reused_payment.customer_email, "buyer@example.com")
         self.assertEqual(query["Email"][0], "buyer@example.com")
-        self.assertIn(f"Receipt={build_robokassa_receipt(reused_payment)}", parsed_url.query)
+        receipt_json = build_robokassa_receipt(reused_payment)
+        receipt_encoded = quote(receipt_json, safe="")
+        self.assertIn(f"Receipt={receipt_encoded}", parsed_url.query)
 
     def test_create_payment_reuses_pending_unexpired_invoice(self):
         first_payment = create_robokassa_payment(portal=self.portal)

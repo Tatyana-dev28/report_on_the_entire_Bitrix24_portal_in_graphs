@@ -297,6 +297,8 @@ ROBOKASSA_PAYMENT_URL = get_env(
     "ROBOKASSA_PAYMENT_URL",
     default="https://auth.robokassa.ru/Merchant/Index.aspx",
 )
+ROBOKASSA_RECEIPT_TAX = get_env("ROBOKASSA_RECEIPT_TAX", default="none")
+ROBOKASSA_RECEIPT_SNO = get_env("ROBOKASSA_RECEIPT_SNO", default="")
 
 CELERY_BROKER_URL = get_env(
     "CELERY_BROKER_URL",

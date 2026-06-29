@@ -2177,6 +2177,18 @@ button {
   line-height: 1.45;
 }
 
+.pro-email-field {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 13px 14px;
+}
+
+.pro-email-field span {
+  color: #111827;
+  font-weight: 800;
+}
+
 .pro-active-status {
   display: flex;
   align-items: flex-start;

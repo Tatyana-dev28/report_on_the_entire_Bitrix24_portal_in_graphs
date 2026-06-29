@@ -178,6 +178,8 @@ export function ProVersionModal({
   validUntil,
   isLifetime,
   error,
+  customerEmail,
+  onCustomerEmailChange,
 }: {
   onClose: () => void;
   onSubscribe: () => void;
@@ -187,6 +189,8 @@ export function ProVersionModal({
   validUntil: string | null;
   isLifetime: boolean;
   error: string;
+  customerEmail: string;
+  onCustomerEmailChange: (value: string) => void;
 }) {
   const accessUntilText = formatAccessUntil(validUntil, isLifetime);
 
@@ -258,6 +262,19 @@ export function ProVersionModal({
                 : 'После подключения команда сможет пользоваться расширенными настройками без повторной настройки отчета.'}
             </span>
           </div>
+          {!hasPro && (
+            <label className="field-label pro-email-field">
+              <span>Email для чека</span>
+              <input
+                type="email"
+                value={customerEmail}
+                onChange={(event) => onCustomerEmailChange(event.target.value)}
+                placeholder="billing@example.com"
+                autoComplete="email"
+                required
+              />
+            </label>
+          )}
           {hasPro && (
             <div className="pro-active-status" role="status">
               <CheckCircle2 size={18} />

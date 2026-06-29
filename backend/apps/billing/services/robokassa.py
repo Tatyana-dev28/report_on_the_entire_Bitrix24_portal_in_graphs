@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured, ValidationError
@@ -25,6 +26,9 @@ from apps.common.services.sanitizers import sanitize_payload
 
 
 ROBOKASSA_PAY_URL = "https://auth.robokassa.ru/Merchant/Index.aspx"
+ROBOKASSA_PRO_MONTHLY_RECEIPT_ITEM_NAME = (
+    'Подписка ПРО на 1 месяц в приложении "Аналитика портала Битрикс24 в графиках"'
+)
 
 
 @dataclass(frozen=True)
@@ -114,13 +118,48 @@ def make_signature(*parts: str) -> str:
     return hashlib.md5(source.encode("utf-8")).hexdigest()
 
 
+def get_receipt_item_name(payment: Payment) -> str:
+    if payment.plan.code == "pro_monthly":
+        return ROBOKASSA_PRO_MONTHLY_RECEIPT_ITEM_NAME
+
+    return payment.plan.name or payment.description or "PRO subscription"
+
+
+def build_robokassa_receipt(payment: Payment) -> str:
+    tax = getattr(settings, "ROBOKASSA_RECEIPT_TAX", "none")
+    sno = getattr(settings, "ROBOKASSA_RECEIPT_SNO", "")
+    item_name = get_receipt_item_name(payment)
+
+    receipt: dict = {
+        "items": [
+            {
+                "name": item_name[:128],
+                "quantity": 1,
+                "sum": format_robokassa_amount(payment.amount),
+                "tax": tax,
+                "payment_method": "full_payment",
+                "payment_object": "service",
+            }
+        ],
+    }
+
+    if sno:
+        receipt["sno"] = sno
+
+    receipt_json = json.dumps(receipt, ensure_ascii=False, separators=(",", ":"))
+
+    return quote(receipt_json, safe="")
+
+
 def build_payment_url(payment: Payment, config: RobokassaConfig | None = None) -> str:
     config = config or get_robokassa_config()
     out_sum = format_robokassa_amount(payment.amount)
+    receipt = build_robokassa_receipt(payment)
     signature = make_signature(
         config.merchant_login,
         out_sum,
         str(payment.id),
+        receipt,
         config.password1,
     )
 
@@ -129,6 +168,7 @@ def build_payment_url(payment: Payment, config: RobokassaConfig | None = None) -
         "OutSum": out_sum,
         "InvId": str(payment.id),
         "Description": payment.description,
+        "Receipt": receipt,
         "SignatureValue": signature,
         "Culture": "ru",
         "Encoding": "utf-8",
@@ -212,6 +252,11 @@ def create_robokassa_payment(
     )
 
     if existing_payment:
+        if customer_email and existing_payment.customer_email != customer_email:
+            existing_payment.customer_email = customer_email
+            existing_payment.payment_url = build_payment_url(existing_payment)
+            existing_payment.save(update_fields=["customer_email", "payment_url", "updated_at"])
+
         return existing_payment
 
     payment = Payment.objects.create(

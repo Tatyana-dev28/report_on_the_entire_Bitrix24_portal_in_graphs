@@ -338,6 +338,7 @@ function App() {
   const [billingIsLifetime, setBillingIsLifetime] = useState(false);
   const [billingPlan, setBillingPlan] = useState<BillingPlan | null>(null);
   const [billingError, setBillingError] = useState('');
+  const [billingCustomerEmail, setBillingCustomerEmail] = useState('');
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [editingViewId, setEditingViewId] = useState<string | null>(null);
   const [deleteViewId, setDeleteViewId] = useState<string | null>(null);
@@ -381,6 +382,18 @@ function App() {
     () => new Set(metricSections.map((section) => section.id)),
   );
   const isProUser = billingHasPro;
+
+  const settingsEmployees = useMemo<ReportEmployee[]>(
+    () =>
+      portalEmployees.length > 0
+        ? portalEmployees.map((employee) => ({
+            ...employee,
+            userId: Number(employee.id) || 0,
+            avatarUrl: employee.avatarUrl ?? undefined,
+          }))
+        : reportEmployees,
+    [portalEmployees, reportEmployees],
+  );
 
   const horizontalScrollbarRef = useRef<HTMLDivElement>(null);
   const reportCardRef = useRef<HTMLElement>(null);
@@ -430,6 +443,16 @@ function App() {
       .catch((error) => {
         console.warn('[Billing] state was not loaded', error);
         setBillingError(error instanceof Error ? error.message : 'Не удалось загрузить статус подписки.');
+      });
+  }, []);
+
+  const refreshPortalEmployees = useCallback(() => {
+    return reportDataSource.loadPortalEmployees()
+      .then((employees) => {
+        setPortalEmployees(employees);
+      })
+      .catch((error) => {
+        console.warn('[Portal] Employees were not loaded', error);
       });
   }, []);
 
@@ -486,12 +509,9 @@ function App() {
       reportDataSource.loadPeriods(),
       reportDataSource.loadMetricSections(),
       reportDataSource.loadMetrics(),
-      reportDataSource.loadPortalEmployees().catch((error) => {
-        console.warn('[Portal] Employees were not loaded', error);
-        return [];
-      }),
+      refreshPortalEmployees().then(() => []),
     ])
-      .then(([sources, periods, sections, nextMetrics, employees]) => {
+      .then(([sources, periods, sections, nextMetrics]) => {
         if (!isActive) {
           return;
         }
@@ -500,7 +520,6 @@ function App() {
         setPeriodOptions(periods);
         setMetricSections(sections);
         setMetrics(nextMetrics);
-        setPortalEmployees(employees);
         setSectionOrder(sections.map((section) => section.id));
         setMetricOrderBySection(
           sections.reduce<Record<string, string[]>>((acc, section) => {
@@ -531,7 +550,7 @@ function App() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [refreshPortalEmployees]);
 
   useEffect(() => {
     if (!hasBuiltReport) {
@@ -1624,11 +1643,18 @@ function App() {
       return;
     }
 
+    const normalizedEmail = billingCustomerEmail.trim();
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setBillingError('Введите email для отправки чека.');
+      return;
+    }
+
     setPaymentLoading(true);
     setBillingError('');
     const paymentWindow = window.open('', '_blank');
 
-    createProPayment()
+    createProPayment(normalizedEmail)
       .then((response) => {
         const paymentUrl = response.payment.paymentUrl;
 
@@ -1652,7 +1678,12 @@ function App() {
       .finally(() => {
         setPaymentLoading(false);
       });
-  }, [isProUser, refreshBillingState]);
+  }, [billingCustomerEmail, isProUser, refreshBillingState]);
+
+  const openAppSettings = useCallback(() => {
+    setIsAppSettingsOpen(true);
+    refreshPortalEmployees();
+  }, [refreshPortalEmployees]);
 
   const saveCurrentView = () => {
     const name = newViewName.trim();
@@ -1942,7 +1973,7 @@ function App() {
             />
             <TooltipButton
               label="Настроить приложение"
-              onClick={() => setIsAppSettingsOpen(true)}
+              onClick={openAppSettings}
             >
               <Cog size={18} />
             </TooltipButton>
@@ -2500,7 +2531,7 @@ function App() {
       {isAppSettingsOpen && (
         <AppSettingsModal
           settings={appSettings}
-          employees={portalEmployees.length > 0 ? (portalEmployees as ReportEmployee[]) : reportEmployees}
+          employees={settingsEmployees}
           onSave={saveAppSettings}
           onClose={() => setIsAppSettingsOpen(false)}
           onOpenPro={() => setIsProOpen(true)}
@@ -2517,6 +2548,8 @@ function App() {
           validUntil={billingValidUntil}
           isLifetime={billingIsLifetime}
           error={billingError}
+          customerEmail={billingCustomerEmail}
+          onCustomerEmailChange={setBillingCustomerEmail}
         />
       )}
 

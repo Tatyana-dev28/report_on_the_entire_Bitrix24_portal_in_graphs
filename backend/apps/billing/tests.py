@@ -1,5 +1,6 @@
 from decimal import Decimal
-from urllib.parse import parse_qs, urlparse
+import json
+from urllib.parse import parse_qs, urlparse, unquote
 
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -8,6 +9,7 @@ from django.test import TestCase, override_settings
 from apps.billing.management.commands.seed_plans import Command as SeedPlansCommand
 from apps.billing.models import Payment, PortalAccess, Subscription
 from apps.billing.services.robokassa import (
+    build_robokassa_receipt,
     create_robokassa_payment,
     make_signature,
     process_robokassa_result,
@@ -45,14 +47,40 @@ class RobokassaBillingTests(TestCase):
         query = parse_qs(parsed_url.query)
         out_sum = query["OutSum"][0]
         inv_id = query["InvId"][0]
+        receipt = query["Receipt"][0]
+        receipt_payload = json.loads(unquote(receipt))
 
         self.assertEqual(query["MerchantLogin"][0], "demo-shop")
         self.assertEqual(query["IsTest"][0], "1")
         self.assertEqual(inv_id, str(payment.id))
         self.assertEqual(
-            query["SignatureValue"][0],
-            make_signature("demo-shop", out_sum, inv_id, "password-1"),
+            receipt_payload["items"][0]["name"],
+            'Подписка ПРО на 1 месяц в приложении "Аналитика портала Битрикс24 в графиках"',
         )
+        self.assertEqual(receipt_payload["items"][0]["payment_object"], "service")
+        self.assertEqual(receipt_payload["items"][0]["payment_method"], "full_payment")
+        self.assertEqual(receipt_payload["items"][0]["tax"], "none")
+        self.assertEqual(
+            query["SignatureValue"][0],
+            make_signature("demo-shop", out_sum, inv_id, receipt, "password-1"),
+        )
+
+    def test_create_payment_adds_customer_email_to_reused_invoice(self):
+        payment = create_robokassa_payment(portal=self.portal)
+
+        self.assertEqual(payment.customer_email, "")
+
+        reused_payment = create_robokassa_payment(
+            portal=self.portal,
+            customer_email="buyer@example.com",
+        )
+        parsed_url = urlparse(reused_payment.payment_url)
+        query = parse_qs(parsed_url.query)
+
+        self.assertEqual(payment.id, reused_payment.id)
+        self.assertEqual(reused_payment.customer_email, "buyer@example.com")
+        self.assertEqual(query["Email"][0], "buyer@example.com")
+        self.assertEqual(query["Receipt"][0], build_robokassa_receipt(reused_payment))
 
     def test_create_payment_reuses_pending_unexpired_invoice(self):
         first_payment = create_robokassa_payment(portal=self.portal)

@@ -2062,8 +2062,9 @@ function App() {
             <TooltipButton
               label={isProUser ? 'PRO-подписка активна' : 'Активировать ПРО версию чтобы сохранять разные отображения отчета'}
               onClick={() => setIsProOpen(true)}
+              className="pro-crown-button"
             >
-              <Crown size={18} className={`pro-crown-icon${isProUser ? ' pro-crown-icon--active' : ''}`} />
+              <Crown size={18} className={`pro-crown-icon${!isProUser ? ' pro-crown-icon--promo' : ''}`} />
             </TooltipButton>
             <TooltipButton
               label="Построить отчет"

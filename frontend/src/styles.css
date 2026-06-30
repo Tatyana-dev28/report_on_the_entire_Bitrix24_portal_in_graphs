@@ -3294,15 +3294,38 @@ button {
 }
 
 .pro-crown-icon {
-  color: #64748b;
+  color: #1c1c1e;
+  filter:
+    drop-shadow(0 0 3px rgba(245, 166, 35, 0.45))
+    drop-shadow(0 0 8px rgba(245, 166, 35, 0.20));
   transition:
     color 220ms ease,
     filter 220ms ease;
 }
 
-.pro-crown-icon--active {
+.pro-crown-icon--promo {
   color: #f5a623;
   filter:
-    drop-shadow(0 0 3px rgba(245, 166, 35, 0.45))
-    drop-shadow(0 0 8px rgba(245, 166, 35, 0.20));
+    drop-shadow(0 0 3px rgba(245, 166, 35, 0.60))
+    drop-shadow(0 0 10px rgba(245, 166, 35, 0.35));
+}
+
+.pro-crown-button {
+  border-color: #f5a623;
+  box-shadow:
+    0 0 3px rgba(245, 166, 35, 0.45),
+    0 0 8px rgba(245, 166, 35, 0.20);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.pro-crown-button:hover {
+  border-color: #e0961a;
+  box-shadow:
+    0 0 4px rgba(245, 166, 35, 0.55),
+    0 0 10px rgba(245, 166, 35, 0.30);
+  background: #f8fafc;
 }

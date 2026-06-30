@@ -493,14 +493,14 @@ export function SectionMetricsMenu({
   onToggleMetric: (metricId: string) => void;
   onSelectAll: () => void;
   onReset: () => void;
-  onApply: () => void;
+  onApply: (sectionId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
 
   const handleApply = () => {
-    onApply();
+    onApply(section.id);
     setOpen(false);
   };
 

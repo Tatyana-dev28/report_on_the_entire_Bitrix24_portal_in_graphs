@@ -1352,6 +1352,19 @@ function App() {
     );
   }, [draftFilters.enabledSectionIds, enabledMetricIdsBySection]);
 
+  const applySectionMetrics = useCallback((sectionId: string) => {
+    setAppliedEnabledMetricIdsBySection((current) => {
+      const draftMetricIds = enabledMetricIdsBySection[sectionId];
+      if (!draftMetricIds) {
+        return current;
+      }
+      return {
+        ...current,
+        [sectionId]: new Set(draftMetricIds),
+      };
+    });
+  }, [enabledMetricIdsBySection]);
+
   const buildReport = useCallback(() => {
     const selectedSources = normalizeSelectedSources(draftFilters.selectedSources);
 
@@ -2359,7 +2372,7 @@ function App() {
                           onToggleMetric={(metricId) => toggleEnabledMetric(row.sectionId, metricId)}
                           onSelectAll={() => selectAllSectionMetrics(row.sectionId)}
                           onReset={() => resetSectionMetrics(row.sectionId)}
-                          onApply={applyTableSettings}
+                          onApply={applySectionMetrics}
                         />
                       )}
                     </div>

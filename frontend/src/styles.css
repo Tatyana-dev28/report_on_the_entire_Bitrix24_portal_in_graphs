@@ -841,6 +841,19 @@ button {
   background: #eef3f8;
 }
 
+.table-settings-actions .apply-settings-button {
+  background: #1f8b4c;
+  border-color: #1f8b4c;
+  color: #fff;
+}
+
+.table-settings-actions .apply-settings-button:hover,
+.table-settings-actions .apply-settings-button:focus-visible {
+  background: #16703e;
+  border-color: #16703e;
+  color: #fff;
+}
+
 .table-settings-popover .settings-list {
   max-height: none;
   min-height: 0;

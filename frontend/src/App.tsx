@@ -368,6 +368,13 @@ function App() {
         return acc;
       }, {}),
   );
+  const [appliedEnabledMetricIdsBySection, setAppliedEnabledMetricIdsBySection] = useState<Record<string, Set<string>>>(
+    () =>
+      metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
+        acc[section.id] = new Set(section.metricIds);
+        return acc;
+      }, {}),
+  );
   const [sectionOrder, setSectionOrder] = useState<string[]>(
     () => metricSections.map((section) => section.id),
   );
@@ -582,7 +589,7 @@ function App() {
         return [];
       }
 
-      const enabledMetricIds = enabledMetricIdsBySection[section.id] ?? new Set(section.metricIds);
+      const enabledMetricIds = appliedEnabledMetricIdsBySection[section.id] ?? new Set(section.metricIds);
       return section.metricIds.filter((metricId) => enabledMetricIds.has(metricId));
     });
     const filters: ReportLoadFilters = {
@@ -636,7 +643,7 @@ function App() {
     appliedFilters.selectedSources,
     appliedFilters.enabledSectionIds,
     buildMoment,
-    enabledMetricIdsBySection,
+    appliedEnabledMetricIdsBySection,
     hasBuiltReport,
     metricSections,
   ]);
@@ -882,6 +889,10 @@ function App() {
     ? appliedFilters.enabledSectionIds
     : draftFilters.enabledSectionIds;
 
+  const visibleMetricIdsBySection = hasBuiltReport
+    ? appliedEnabledMetricIdsBySection
+    : enabledMetricIdsBySection;
+
   const visibleSections = useMemo(
     () => orderedSections.filter((section) => visibleSectionIds.has(section.id)),
     [orderedSections, visibleSectionIds],
@@ -903,7 +914,7 @@ function App() {
 
         const orderedMetricIds = metricOrderBySection[section.id] ?? section.metricIds;
 
-        const enabledMetricIds = enabledMetricIdsBySection[section.id] ?? new Set(section.metricIds);
+        const enabledMetricIds = visibleMetricIdsBySection[section.id] ?? new Set(section.metricIds);
 
         orderedMetricIds.forEach((metricId) => {
           if (!enabledMetricIds.has(metricId)) {
@@ -1328,6 +1339,19 @@ function App() {
     }));
   }, []);
 
+  const applyTableSettings = useCallback(() => {
+    setAppliedFilters((current) => ({
+      ...current,
+      enabledSectionIds: new Set(draftFilters.enabledSectionIds),
+    }));
+    setAppliedEnabledMetricIdsBySection(
+      Object.entries(enabledMetricIdsBySection).reduce<Record<string, Set<string>>>((acc, [sectionId, metricIds]) => {
+        acc[sectionId] = new Set(metricIds);
+        return acc;
+      }, {}),
+    );
+  }, [draftFilters.enabledSectionIds, enabledMetricIdsBySection]);
+
   const buildReport = useCallback(() => {
     const selectedSources = normalizeSelectedSources(draftFilters.selectedSources);
 
@@ -1348,8 +1372,14 @@ function App() {
       },
       enabledSectionIds: new Set(draftFilters.enabledSectionIds),
     });
+    setAppliedEnabledMetricIdsBySection(
+      Object.entries(enabledMetricIdsBySection).reduce<Record<string, Set<string>>>((acc, [sectionId, metricIds]) => {
+        acc[sectionId] = new Set(metricIds);
+        return acc;
+      }, {}),
+    );
     setBuildMoment(Date.now());
-  }, [draftFilters, normalizeSelectedSources]);
+  }, [draftFilters, normalizeSelectedSources, enabledMetricIdsBySection]);
 
   const openDetail = useCallback((
     metric: MetricRow,
@@ -1580,9 +1610,16 @@ function App() {
   const applySavedViewState = useCallback((state: SavedReportViewState) => {
     setDraftFilters(deserializeFilters(state.draftFilters));
     setAppliedFilters(deserializeFilters(state.appliedFilters));
-    setEnabledMetricIdsBySection(
+    const restoredMetricIds = Object.fromEntries(
+      Object.entries(state.enabledMetricIdsBySection).map(([sectionId, metricIds]) => [
+        sectionId,
+        new Set(metricIds),
+      ]),
+    );
+    setEnabledMetricIdsBySection(restoredMetricIds);
+    setAppliedEnabledMetricIdsBySection(
       Object.fromEntries(
-        Object.entries(state.enabledMetricIdsBySection).map(([sectionId, metricIds]) => [
+        Object.entries(restoredMetricIds).map(([sectionId, metricIds]) => [
           sectionId,
           new Set(metricIds),
         ]),
@@ -1989,6 +2026,7 @@ function App() {
               onToggleSection={toggleEnabledSection}
               onSelectAll={enableAllTableSettings}
               onReset={resetTableSettings}
+              onApply={applyTableSettings}
             />
             <TooltipButton
               label="Настроить приложение"
@@ -2080,6 +2118,7 @@ function App() {
                   onToggleSection={toggleEnabledSection}
                   onSelectAll={enableAllTableSettings}
                   onReset={resetTableSettings}
+                  onApply={applyTableSettings}
                   trigger="text"
                 />
                 <button className="left-panel-action-button left-build-button" type="button" onClick={buildReport}>
@@ -2320,6 +2359,7 @@ function App() {
                           onToggleMetric={(metricId) => toggleEnabledMetric(row.sectionId, metricId)}
                           onSelectAll={() => selectAllSectionMetrics(row.sectionId)}
                           onReset={() => resetSectionMetrics(row.sectionId)}
+                          onApply={applyTableSettings}
                         />
                       )}
                     </div>

@@ -485,6 +485,7 @@ export function SectionMetricsMenu({
   onToggleMetric,
   onSelectAll,
   onReset,
+  onApply,
 }: {
   section: (typeof metricSections)[number];
   metricMap: Map<string, MetricRow>;
@@ -492,10 +493,16 @@ export function SectionMetricsMenu({
   onToggleMetric: (metricId: string) => void;
   onSelectAll: () => void;
   onReset: () => void;
+  onApply: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
+
+  const handleApply = () => {
+    onApply();
+    setOpen(false);
+  };
 
   return (
     <div className={`section-metrics-shell ${open ? 'is-open' : ''}`} ref={ref}>
@@ -513,7 +520,7 @@ export function SectionMetricsMenu({
           open={open}
           className="settings-popover section-metrics-popover"
           expectedWidth={320}
-          expectedHeight={360}
+          expectedHeight={400}
         >
           <div className="section-metrics-head">
             <p>{section.label}</p>
@@ -532,6 +539,9 @@ export function SectionMetricsMenu({
             </button>
             <button type="button" onClick={onReset}>
               Сбросить
+            </button>
+            <button type="button" className="apply-settings-button" onClick={handleApply}>
+              Применить
             </button>
           </div>
           <div className="settings-list section-metrics-list">
@@ -565,17 +575,24 @@ export function TableSettingsMenu({
   onToggleSection,
   onSelectAll,
   onReset,
+  onApply,
   trigger = 'icon',
 }: {
   enabledSectionIds: Set<string>;
   onToggleSection: (sectionId: string) => void;
   onSelectAll: () => void;
   onReset: () => void;
+  onApply: () => void;
   trigger?: 'icon' | 'text';
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
+
+  const handleApply = () => {
+    onApply();
+    setOpen(false);
+  };
 
   return (
     <div className={`menu-button-shell ${open ? 'is-open' : ''}`} ref={ref}>
@@ -605,7 +622,7 @@ export function TableSettingsMenu({
           open={open}
           className="settings-popover table-settings-popover"
           expectedWidth={300}
-          expectedHeight={620}
+          expectedHeight={660}
         >
           <div className="table-settings-head">
             <p>Настройка таблицы</p>
@@ -624,6 +641,9 @@ export function TableSettingsMenu({
             </button>
             <button type="button" onClick={onReset}>
               Сбросить
+            </button>
+            <button type="button" className="apply-settings-button" onClick={handleApply}>
+              Применить
             </button>
           </div>
           <div className="settings-list">

@@ -3292,3 +3292,7 @@ button {
     left: calc(10px + var(--left-column-width));
   }
 }
+
+.pro-crown-icon {
+  color: #f5a623;
+}

@@ -2063,7 +2063,7 @@ function App() {
               label="Активировать ПРО версию чтобы сохранять разные отображения отчета"
               onClick={() => setIsProOpen(true)}
             >
-              <Crown size={18} />
+              <Crown size={18} className="pro-crown-icon" />
             </TooltipButton>
             <TooltipButton
               label="Построить отчет"

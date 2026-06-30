@@ -327,6 +327,7 @@ function App() {
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
+  const [reportElapsed, setReportElapsed] = useState('');
   const [reportError, setReportError] = useState('');
   const [isSaveOpen, setIsSaveOpen] = useState(false);
   const [isProOpen, setIsProOpen] = useState(false);
@@ -417,6 +418,7 @@ function App() {
   const canScrollForwardRef = useRef(false);
   const draggedMetricRef = useRef<{ sectionId: string; metricId: string } | null>(null);
   const draggedSectionRef = useRef<string | null>(null);
+  const reportStartTimeRef = useRef<number>(0);
 
   const upperThresholdNumber = useMemo(() => parseThreshold(mainThreshold.upper), [mainThreshold.upper]);
   const lowerThresholdNumber = useMemo(() => parseThreshold(mainThreshold.lower), [mainThreshold.lower]);
@@ -436,6 +438,27 @@ function App() {
     const timeoutId = window.setTimeout(() => setNotification(''), 5200);
     return () => window.clearTimeout(timeoutId);
   }, [notification]);
+
+  useEffect(() => {
+    if (!reportLoading) {
+      setReportElapsed('');
+      return undefined;
+    }
+
+    const tick = () => {
+      const elapsed = Date.now() - reportStartTimeRef.current;
+      const totalSeconds = Math.floor(elapsed / 1000);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      const padded = (n: number) => String(n).padStart(2, '0');
+      setReportElapsed(`${padded(hours)}:${padded(minutes)}:${padded(seconds)}`);
+    };
+
+    tick();
+    const intervalId = window.setInterval(tick, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [reportLoading]);
 
   const refreshBillingState = useCallback(() => {
     setBillingError('');
@@ -602,6 +625,7 @@ function App() {
     };
 
     setReportLoading(true);
+    reportStartTimeRef.current = Date.now();
     setReportError('');
     reportDataSource
       .loadReportPreview(filters)
@@ -2090,7 +2114,7 @@ function App() {
           <div className={`report-status-bar ${catalogError || reportError ? 'is-error' : ''}`}>
             {catalogLoading && <span>Загружаем настройки отчета из backend...</span>}
             {catalogError && <span>{catalogError}</span>}
-            {reportLoading && <span>Строим отчет по данным Bitrix24...</span>}
+            {reportLoading && <span>Отчет формируется {reportElapsed}</span>}
             {reportError && <span>{reportError}</span>}
             {hasBuiltReport && !reportLoading && !reportError && reportData.length === 0 && (
               <span>По выбранным фильтрам данных нет. Измените период, источники или метрики и постройте отчет заново.</span>

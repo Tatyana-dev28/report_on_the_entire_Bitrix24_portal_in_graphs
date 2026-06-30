@@ -2060,10 +2060,10 @@ function App() {
               <LifeBuoy size={18} />
             </TooltipButton>
             <TooltipButton
-              label="Активировать ПРО версию чтобы сохранять разные отображения отчета"
+              label={isProUser ? 'PRO-подписка активна' : 'Активировать ПРО версию чтобы сохранять разные отображения отчета'}
               onClick={() => setIsProOpen(true)}
             >
-              <Crown size={18} className="pro-crown-icon" />
+              <Crown size={18} className={`pro-crown-icon${isProUser ? ' pro-crown-icon--active' : ''}`} />
             </TooltipButton>
             <TooltipButton
               label="Построить отчет"

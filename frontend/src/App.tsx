@@ -35,6 +35,7 @@ import {
   GripVertical,
   X,
 } from 'lucide-react';
+import LoadingAnimation from './app/components/loadingAnimation';
 import {
   CartesianGrid,
   Line,
@@ -328,6 +329,7 @@ function App() {
   const [catalogError, setCatalogError] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
   const [reportElapsed, setReportElapsed] = useState('');
+  const [animationProgress, setAnimationProgress] = useState(0);
   const [reportError, setReportError] = useState('');
   const [isSaveOpen, setIsSaveOpen] = useState(false);
   const [isProOpen, setIsProOpen] = useState(false);
@@ -442,8 +444,12 @@ function App() {
   useEffect(() => {
     if (!reportLoading) {
       setReportElapsed('');
+      setAnimationProgress(0);
       return undefined;
     }
+
+    const startTime = Date.now();
+    const DURATION = 12000;
 
     const tick = () => {
       const elapsed = Date.now() - reportStartTimeRef.current;
@@ -453,10 +459,13 @@ function App() {
       const seconds = totalSeconds % 60;
       const padded = (n: number) => String(n).padStart(2, '0');
       setReportElapsed(`${padded(hours)}:${padded(minutes)}:${padded(seconds)}`);
+
+      const animProgress = Math.min((Date.now() - startTime) / DURATION, 1);
+      setAnimationProgress(animProgress);
     };
 
     tick();
-    const intervalId = window.setInterval(tick, 1000);
+    const intervalId = window.setInterval(tick, 500);
     return () => window.clearInterval(intervalId);
   }, [reportLoading]);
 
@@ -2174,6 +2183,14 @@ function App() {
             <div className="sync-viewport chart-viewport">
               <div className="sync-content chart-sync-content" style={syncedContentStyle} ref={chartContentRef}>
                 <div className="chart-wrap" ref={mainChartWrapRef}>
+                  {reportLoading && (
+                    <div className="chart-loading-overlay">
+                      <LoadingAnimation
+                        isLoading={reportLoading}
+                        targetProgress={animationProgress}
+                      />
+                    </div>
+                  )}
                   <ResponsiveContainer width="100%" height={280}>
                     <LineChart
                       data={chartData}

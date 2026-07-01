@@ -1,43 +1,24 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import carImage from '../../assets/report-loader-car.png';
 import './ReportBuildLoader.css';
 
-const STAGES = [
-  'Подключаем данные отчета',
-  'Загружаем фильтры',
-  'Получаем CRM-данные',
-  'Сверяем активность',
-  'Считаем метрики',
-  'Собираем график',
-  'Готовим отчет',
-];
-
 const CHECKPOINTS = [
-  { x: 122, y: 430, at: 0, label: 'start' },
-  { x: 194, y: 398, at: 0.12, label: 'filters' },
-  { x: 286, y: 418, at: 0.25, label: 'crm' },
-  { x: 372, y: 334, at: 0.39, label: 'activity' },
-  { x: 466, y: 352, at: 0.53, label: 'deals' },
-  { x: 556, y: 266, at: 0.68, label: 'metrics' },
-  { x: 646, y: 232, at: 0.83, label: 'charts' },
-  { x: 854, y: 136, at: 0.92, label: 'render' },
-  { x: 916, y: 118, at: 0.98, label: 'ready' },
+  { x: 72, y: 430, at: 0, label: 'start' },
+  { x: 172, y: 398, at: 0.12, label: 'filters' },
+  { x: 278, y: 418, at: 0.25, label: 'crm' },
+  { x: 382, y: 334, at: 0.39, label: 'activity' },
+  { x: 500, y: 352, at: 0.53, label: 'deals' },
+  { x: 620, y: 266, at: 0.68, label: 'metrics' },
+  { x: 750, y: 210, at: 0.82, label: 'charts' },
+  { x: 870, y: 154, at: 0.92, label: 'render' },
+  { x: 960, y: 118, at: 0.98, label: 'ready' },
 ];
 
 const LOOP_MS = 12800;
+const ROUTE_PATH = 'M72 430 L172 398 L278 418 L382 334 L500 352 L620 266 L750 210 L870 154 L960 118';
 
 type ReportBuildLoaderProps = {
   className?: string;
-};
-
-const formatElapsed = (elapsedMs: number) => {
-  const totalSeconds = Math.floor(elapsedMs / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  const padded = (value: number) => String(value).padStart(2, '0');
-
-  return `${padded(hours)}:${padded(minutes)}:${padded(seconds)}`;
 };
 
 export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderProps) {
@@ -57,18 +38,12 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
   }, []);
 
   const cycleProgress = (elapsedMs % LOOP_MS) / LOOP_MS;
-  const stageIndex = Math.min(STAGES.length - 1, Math.floor(cycleProgress * STAGES.length));
-  const progress = Math.min(99, Math.round(cycleProgress * 100));
-  const currentStage = STAGES[stageIndex];
   const rootClassName = ['report-loader', className].filter(Boolean).join(' ');
   const activatedCheckpointCount = Math.max(
     1,
     CHECKPOINTS.filter((point) => cycleProgress >= point.at).length,
   );
-  const carStyle = useMemo(
-    () => ({ animationDuration: `${LOOP_MS}ms` }),
-    [],
-  );
+  const animationStyle = { animationDuration: `${LOOP_MS}ms` };
 
   return (
     <div
@@ -91,14 +66,14 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
                 <stop offset="100%" stopColor="#78c7ff" stopOpacity="0" />
               </linearGradient>
             </defs>
-            <line className="report-loader__axis" x1="104" y1="456" x2="916" y2="456" />
-            <line className="report-loader__axis" x1="104" y1="118" x2="104" y2="456" />
-            <path className="report-loader__ghost-chart" d="M122 430 L194 398 L286 418 L372 334 L466 352 L556 266 L646 232 L742 176 L854 136 L916 118" />
-            <path className="report-loader__route-shadow" d="M122 430 L194 398 L286 418 L372 334 L466 352 L556 266 L646 232 L742 176 L854 136 L916 118" />
-            <path className="report-loader__route-base" d="M122 430 L194 398 L286 418 L372 334 L466 352 L556 266 L646 232 L742 176 L854 136 L916 118" />
-            <path className="report-loader__route-progress" d="M122 430 L194 398 L286 418 L372 334 L466 352 L556 266 L646 232 L742 176 L854 136 L916 118" />
-            <path className="report-loader__chart-area" d="M122 430 L194 398 L286 418 L372 334 L466 352 L556 266 L646 232 L742 176 L854 136 L916 118 L916 456 L122 456 Z" />
-            <path className="report-loader__chart-line" d="M122 430 L194 398 L286 418 L372 334 L466 352 L556 266 L646 232 L742 176 L854 136 L916 118" />
+            <line className="report-loader__axis" x1="72" y1="456" x2="960" y2="456" />
+            <line className="report-loader__axis" x1="72" y1="118" x2="72" y2="456" />
+            <path className="report-loader__ghost-chart" d={ROUTE_PATH} />
+            <path className="report-loader__route-shadow" d={ROUTE_PATH} />
+            <path className="report-loader__route-base" d={ROUTE_PATH} />
+            <path className="report-loader__route-progress" d={ROUTE_PATH} pathLength={1} />
+            <path className="report-loader__chart-area" d={`${ROUTE_PATH} L960 456 L72 456 Z`} />
+            <path className="report-loader__chart-line" d={ROUTE_PATH} />
 
             {CHECKPOINTS.map((point, index) => (
               <g
@@ -117,24 +92,19 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
           <span className="report-loader__trail report-loader__trail-a" />
           <span className="report-loader__trail report-loader__trail-b" />
           <span className="report-loader__trail report-loader__trail-c" />
-          <span className="report-loader__car-glow" style={carStyle} />
+          <span className="report-loader__car-glow" style={animationStyle} />
           <img
             className="report-loader__car"
             src={carImage}
             alt=""
             aria-hidden="true"
-            style={carStyle}
+            style={animationStyle}
           />
         </div>
 
         <div className="report-loader__bottom">
           <span className="report-loader__pulse" />
-          <span className="report-loader__status">{currentStage}</span>
-          <span className="report-loader__meter">
-            <span style={{ width: `${progress}%` }} />
-          </span>
-          <span className="report-loader__divider" />
-          <span className="report-loader__time">{formatElapsed(elapsedMs)}</span>
+          <span className="report-loader__status">Идет построение отчета</span>
         </div>
       </div>
     </div>

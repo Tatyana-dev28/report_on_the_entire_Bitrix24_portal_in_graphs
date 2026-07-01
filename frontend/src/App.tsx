@@ -2208,13 +2208,13 @@ function App() {
 
           <div className="scroll-column">
             <div className="sync-viewport chart-viewport">
+              {reportLoading && (
+                <div className="chart-loading-overlay">
+                  <ReportBuildLoader />
+                </div>
+              )}
               <div className="sync-content chart-sync-content" style={syncedContentStyle} ref={chartContentRef}>
                 <div className="chart-wrap" ref={mainChartWrapRef}>
-                  {reportLoading && (
-                    <div className="chart-loading-overlay">
-                      <ReportBuildLoader />
-                    </div>
-                  )}
                   <ResponsiveContainer width="100%" height={280}>
                     <LineChart
                       data={chartData}

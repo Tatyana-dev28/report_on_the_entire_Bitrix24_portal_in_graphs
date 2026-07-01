@@ -18,8 +18,8 @@ type Checkpoint = {
 
 const CHECKPOINTS: Checkpoint[] = [
   {
-    x: 72,
-    y: 430,
+    x: 150,
+    y: 420,
     at: 0,
     key: 'start',
     title: 'Портал',
@@ -29,8 +29,8 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 172,
-    y: 398,
+    x: 240,
+    y: 388,
     at: 0.12,
     key: 'filters',
     title: 'Фильтры',
@@ -40,8 +40,8 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 278,
-    y: 418,
+    x: 330,
+    y: 408,
     at: 0.25,
     key: 'crm',
     title: 'CRM',
@@ -51,8 +51,8 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 382,
-    y: 334,
+    x: 430,
+    y: 326,
     at: 0.39,
     key: 'activity',
     title: 'Активность',
@@ -62,8 +62,8 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 500,
-    y: 352,
+    x: 520,
+    y: 344,
     at: 0.53,
     key: 'deals',
     title: 'Сделки',
@@ -73,7 +73,7 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 620,
+    x: 610,
     y: 266,
     at: 0.68,
     key: 'metrics',
@@ -84,8 +84,8 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 750,
-    y: 210,
+    x: 700,
+    y: 220,
     at: 0.82,
     key: 'charts',
     title: 'Графики',
@@ -95,8 +95,8 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 870,
-    y: 154,
+    x: 790,
+    y: 170,
     at: 0.92,
     key: 'render',
     title: 'Рендер',
@@ -106,13 +106,13 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'end',
   },
   {
-    x: 960,
-    y: 118,
+    x: 870,
+    y: 138,
     at: 0.98,
     key: 'ready',
     title: 'Отчет',
     description: 'Почти готов',
-    labelX: -112,
+    labelX: -102,
     labelY: 26,
     align: 'end',
   },
@@ -130,7 +130,7 @@ const STAGES = [
 ];
 
 const LOOP_MS = 12800;
-const ROUTE_PATH = 'M72 430 L172 398 L278 418 L382 334 L500 352 L620 266 L750 210 L870 154 L960 118';
+const ROUTE_PATH = 'M150 420 L240 388 L330 408 L430 326 L520 344 L610 266 L700 220 L790 170 L870 138';
 
 type ReportBuildLoaderProps = {
   className?: string;
@@ -175,70 +175,72 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
     >
       <div className="report-loader__card">
         <div className="report-loader__stage" aria-hidden="true">
-          <svg className="report-loader__map" viewBox="0 0 1000 560" preserveAspectRatio="none">
-            <defs>
-              <linearGradient id="report-loader-route-gradient" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="#2274ff" />
-                <stop offset="54%" stopColor="#56b8ff" />
-                <stop offset="100%" stopColor="#4fd8d0" />
-              </linearGradient>
-              <linearGradient id="report-loader-area-gradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#78c7ff" stopOpacity=".3" />
-                <stop offset="100%" stopColor="#78c7ff" stopOpacity="0" />
-              </linearGradient>
-            </defs>
-            <line className="report-loader__axis" x1="72" y1="456" x2="960" y2="456" />
-            <line className="report-loader__axis" x1="72" y1="118" x2="72" y2="456" />
-            <path className="report-loader__ghost-chart" d={ROUTE_PATH} />
-            <path className="report-loader__route-shadow" d={ROUTE_PATH} />
-            <path className="report-loader__route-base" d={ROUTE_PATH} />
-            <path className="report-loader__route-progress" d={ROUTE_PATH} pathLength={1} />
-            <path className="report-loader__chart-area" d={`${ROUTE_PATH} L960 456 L72 456 Z`} />
-            <path className="report-loader__chart-line" d={ROUTE_PATH} />
+          <div className="report-loader__scene">
+            <svg className="report-loader__map" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet">
+              <defs>
+                <linearGradient id="report-loader-route-gradient" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor="#2274ff" />
+                  <stop offset="54%" stopColor="#56b8ff" />
+                  <stop offset="100%" stopColor="#4fd8d0" />
+                </linearGradient>
+                <linearGradient id="report-loader-area-gradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#78c7ff" stopOpacity=".3" />
+                  <stop offset="100%" stopColor="#78c7ff" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <line className="report-loader__axis" x1="140" y1="456" x2="880" y2="456" />
+              <line className="report-loader__axis" x1="140" y1="118" x2="140" y2="456" />
+              <path className="report-loader__ghost-chart" d={ROUTE_PATH} />
+              <path className="report-loader__route-shadow" d={ROUTE_PATH} />
+              <path className="report-loader__route-base" d={ROUTE_PATH} />
+              <path className="report-loader__route-progress" d={ROUTE_PATH} pathLength={1} />
+              <path className="report-loader__chart-area" d={`${ROUTE_PATH} L870 456 L150 456 Z`} />
+              <path className="report-loader__chart-line" d={ROUTE_PATH} />
 
-            {CHECKPOINTS.map((point, index) => (
-              <g
-                className={`report-loader__checkpoint ${index < activatedCheckpointCount ? 'is-active' : ''}`}
-                key={point.key}
-                transform={`translate(${point.x} ${point.y})`}
-              >
-                <circle className="report-loader__checkpoint-halo" r="15" />
-                <circle className="report-loader__checkpoint-ring" r="18" />
-                <circle className="report-loader__checkpoint-core" r="5.6" />
-                <path className="report-loader__checkpoint-tick" d="M-4 0 L-1 3 L5 -4" />
-                <foreignObject
-                  className="report-loader__checkpoint-label-wrap"
-                  x={point.labelX}
-                  y={point.labelY}
-                  width="132"
-                  height="54"
+              {CHECKPOINTS.map((point, index) => (
+                <g
+                  className={`report-loader__checkpoint ${index < activatedCheckpointCount ? 'is-active' : ''}`}
+                  key={point.key}
+                  transform={`translate(${point.x} ${point.y})`}
                 >
-                  <div
-                    className={`report-loader__checkpoint-label report-loader__checkpoint-label--${point.align}`}
+                  <circle className="report-loader__checkpoint-halo" r="15" />
+                  <circle className="report-loader__checkpoint-ring" r="18" />
+                  <circle className="report-loader__checkpoint-core" r="5.6" />
+                  <path className="report-loader__checkpoint-tick" d="M-4 0 L-1 3 L5 -4" />
+                  <foreignObject
+                    className="report-loader__checkpoint-label-wrap"
+                    x={point.labelX}
+                    y={point.labelY}
+                    width="132"
+                    height="54"
                   >
-                    <span className="report-loader__checkpoint-label-title">
-                      {point.title}
-                    </span>
-                    <span className="report-loader__checkpoint-label-description">
-                      {point.description}
-                    </span>
-                  </div>
-                </foreignObject>
-              </g>
-            ))}
-          </svg>
+                    <div
+                      className={`report-loader__checkpoint-label report-loader__checkpoint-label--${point.align}`}
+                    >
+                      <span className="report-loader__checkpoint-label-title">
+                        {point.title}
+                      </span>
+                      <span className="report-loader__checkpoint-label-description">
+                        {point.description}
+                      </span>
+                    </div>
+                  </foreignObject>
+                </g>
+              ))}
+            </svg>
 
-          <span className="report-loader__trail report-loader__trail-a" />
-          <span className="report-loader__trail report-loader__trail-b" />
-          <span className="report-loader__trail report-loader__trail-c" />
-          <span className="report-loader__car-glow" style={animationStyle} />
-          <img
-            className="report-loader__car"
-            src={carImage}
-            alt=""
-            aria-hidden="true"
-            style={animationStyle}
-          />
+            <span className="report-loader__trail report-loader__trail-a" />
+            <span className="report-loader__trail report-loader__trail-b" />
+            <span className="report-loader__trail report-loader__trail-c" />
+            <span className="report-loader__car-glow" style={animationStyle} />
+            <img
+              className="report-loader__car"
+              src={carImage}
+              alt=""
+              aria-hidden="true"
+              style={animationStyle}
+            />
+          </div>
         </div>
 
         <div className="report-loader__bottom">

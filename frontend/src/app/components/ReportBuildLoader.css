@@ -47,6 +47,19 @@
   overflow: visible;
 }
 
+/* ---------- compact scene ---------- */
+
+.report-loader__scene {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(820px, calc(100% - 64px));
+  aspect-ratio: 1000 / 560;
+  max-height: calc(100% - 56px);
+  overflow: visible;
+  transform: translate(-50%, -50%);
+}
+
 .report-loader__map {
   position: absolute;
   inset: 0;
@@ -159,7 +172,7 @@
   animation: report-loader__ring 1.2s ease-out;
 }
 
-/* ===== Checkpoint Labels ===== */
+/* ===== Compact Checkpoint Labels ===== */
 
 .report-loader__checkpoint-label-wrap {
   overflow: visible;
@@ -168,13 +181,13 @@
 
 .report-loader__checkpoint-label {
   display: inline-flex;
-  min-width: 104px;
-  max-width: 132px;
+  min-width: 88px;
+  max-width: 112px;
   flex-direction: column;
   gap: 2px;
-  padding: 7px 9px;
+  padding: 6px 8px;
   border: 1px solid rgba(148, 183, 219, 0.22);
-  border-radius: 12px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.88);
   box-shadow: 0 10px 22px rgba(95, 141, 188, 0.10);
   backdrop-filter: blur(10px);
@@ -199,7 +212,7 @@
 .report-loader__checkpoint-label-title {
   display: block;
   color: #143f68;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 750;
   line-height: 1.1;
   white-space: nowrap;
@@ -208,7 +221,7 @@
 .report-loader__checkpoint-label-description {
   display: block;
   color: #6d8aaa;
-  font-size: 9.5px;
+  font-size: 8.5px;
   font-weight: 600;
   line-height: 1.15;
   white-space: nowrap;
@@ -219,12 +232,14 @@
   align-items: flex-end;
 }
 
+/* ---------- car & glow ---------- */
+
 .report-loader__car,
 .report-loader__car-glow {
   position: absolute;
   z-index: 7;
-  left: 7.2%;
-  top: 76.8%;
+  left: 15%;
+  top: 75%;
   pointer-events: none;
   animation-name: report-loader__drive;
   animation-timing-function: linear;
@@ -233,15 +248,14 @@
 }
 
 .report-loader__car {
-  width: clamp(28px, 3.6vw, 46px);
+  width: clamp(24px, 3vw, 36px);
   height: auto;
-  transform: translate(-50%, -50%) rotate(72deg);
   filter: drop-shadow(0 0 8px rgba(86, 184, 255, 0.48)) drop-shadow(0 8px 14px rgba(90, 130, 170, 0.18));
 }
 
 .report-loader__car-glow {
-  width: 78px;
-  height: 32px;
+  width: 64px;
+  height: 26px;
   border-radius: 999px;
   background: radial-gradient(circle, rgba(86, 184, 255, 0.22), transparent 70%);
   filter: blur(8px);
@@ -260,19 +274,19 @@
 }
 
 .report-loader__trail-a {
-  left: 21%;
-  top: 70%;
+  left: 24%;
+  top: 69%;
 }
 
 .report-loader__trail-b {
-  left: 42%;
-  top: 60%;
+  left: 43%;
+  top: 58%;
   animation-delay: 420ms;
 }
 
 .report-loader__trail-c {
-  left: 64%;
-  top: 40%;
+  left: 61%;
+  top: 47%;
   animation-delay: 860ms;
 }
 
@@ -330,15 +344,15 @@
 }
 
 @keyframes report-loader__drive {
-  0% { left: 7.2%; top: 76.8%; transform: translate(-50%, -50%) rotate(72deg); }
-  10% { left: 17.2%; top: 71.1%; transform: translate(-50%, -50%) rotate(72deg); }
-  22% { left: 27.8%; top: 74.6%; transform: translate(-50%, -50%) rotate(104deg); }
-  34% { left: 38.2%; top: 59.6%; transform: translate(-50%, -50%) rotate(45deg); }
-  48% { left: 50%; top: 62.9%; transform: translate(-50%, -50%) rotate(100deg); }
-  62% { left: 62%; top: 47.5%; transform: translate(-50%, -50%) rotate(42deg); }
-  76% { left: 75%; top: 37.5%; transform: translate(-50%, -50%) rotate(66deg); }
-  86% { left: 87%; top: 27.5%; transform: translate(-50%, -50%) rotate(64deg); }
-  92%, 100% { left: 96%; top: 21.1%; transform: translate(-50%, -50%) rotate(68deg); }
+  0% { left: 15%; top: 75%; transform: translate(-50%, -50%) rotate(70deg); }
+  10% { left: 24%; top: 69.3%; transform: translate(-50%, -50%) rotate(70deg); }
+  22% { left: 33%; top: 72.9%; transform: translate(-50%, -50%) rotate(102deg); }
+  34% { left: 43%; top: 58.2%; transform: translate(-50%, -50%) rotate(45deg); }
+  48% { left: 52%; top: 61.4%; transform: translate(-50%, -50%) rotate(100deg); }
+  62% { left: 61%; top: 47.5%; transform: translate(-50%, -50%) rotate(42deg); }
+  76% { left: 70%; top: 39.3%; transform: translate(-50%, -50%) rotate(62deg); }
+  86% { left: 79%; top: 30.4%; transform: translate(-50%, -50%) rotate(64deg); }
+  92%, 100% { left: 87%; top: 24.6%; transform: translate(-50%, -50%) rotate(68deg); }
 }
 
 @keyframes report-loader__ghost {

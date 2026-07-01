@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import carImage from '../../assets/report-loader-car.png';
 import './ReportBuildLoader.css';
 
@@ -18,7 +18,7 @@ type Checkpoint = {
 
 const CHECKPOINTS: Checkpoint[] = [
   {
-    x: 150,
+    x: 120,
     y: 420,
     at: 0,
     key: 'start',
@@ -29,7 +29,7 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 240,
+    x: 220,
     y: 388,
     at: 0.12,
     key: 'filters',
@@ -40,7 +40,7 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 330,
+    x: 318,
     y: 408,
     at: 0.25,
     key: 'crm',
@@ -51,7 +51,7 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 430,
+    x: 426,
     y: 326,
     at: 0.39,
     key: 'activity',
@@ -62,7 +62,7 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 520,
+    x: 528,
     y: 344,
     at: 0.53,
     key: 'deals',
@@ -73,7 +73,7 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 610,
+    x: 638,
     y: 266,
     at: 0.68,
     key: 'metrics',
@@ -84,7 +84,7 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 700,
+    x: 748,
     y: 220,
     at: 0.82,
     key: 'charts',
@@ -95,7 +95,7 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 790,
+    x: 842,
     y: 170,
     at: 0.92,
     key: 'render',
@@ -106,7 +106,7 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'end',
   },
   {
-    x: 870,
+    x: 920,
     y: 138,
     at: 0.98,
     key: 'ready',
@@ -118,64 +118,119 @@ const CHECKPOINTS: Checkpoint[] = [
   },
 ];
 
-const STAGES = [
-  { at: 0, text: 'Подключаем портал Bitrix24' },
-  { at: 0.12, text: 'Загружаем каталог и фильтры' },
-  { at: 0.25, text: 'Получаем данные CRM' },
-  { at: 0.39, text: 'Подтягиваем звонки и задачи' },
-  { at: 0.53, text: 'Сверяем счета и сделки' },
-  { at: 0.68, text: 'Агрегируем метрики' },
-  { at: 0.82, text: 'Строим графики' },
-  { at: 0.92, text: 'Готовим отчет к показу' },
-];
-
 const LOOP_MS = 12800;
-const ROUTE_PATH = 'M150 420 L240 388 L330 408 L430 326 L520 344 L610 266 L700 220 L790 170 L870 138';
+const LOOP_HOLD_MS = 1200;
+const LOOK_AHEAD_LENGTH = 16;
+const ROUTE_PATH =
+  'M120 420 L220 388 L318 408 L426 326 L528 344 L638 266 L748 220 L842 170 L920 138';
 
 type ReportBuildLoaderProps = {
   className?: string;
 };
 
 export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderProps) {
-  const [elapsedMs, setElapsedMs] = useState(0);
+  const routeRef = useRef<SVGPathElement | null>(null);
+  const traceRef = useRef<SVGPathElement | null>(null);
+  const sceneRef = useRef<HTMLDivElement | null>(null);
+  const carRef = useRef<HTMLImageElement | null>(null);
+  const carGlowRef = useRef<HTMLSpanElement | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const [cycleProgress, setCycleProgress] = useState(0);
 
   useEffect(() => {
-    const startTime = Date.now();
-    setElapsedMs(0);
+    const route = routeRef.current;
+    const trace = traceRef.current;
+    const scene = sceneRef.current;
+    const car = carRef.current;
+    const glow = carGlowRef.current;
 
-    const intervalId = window.setInterval(() => {
-      setElapsedMs(Date.now() - startTime);
-    }, 250);
+    if (!route || !scene || !car || !glow) {
+      return undefined;
+    }
+
+    const length = route.getTotalLength();
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let startTime: number | null = null;
+    let lastCheckpointProgress = -1;
+
+    route.style.strokeDasharray = `${length}`;
+    route.style.strokeDashoffset = `${length}`;
+
+    if (trace) {
+      trace.style.strokeDasharray = `${length}`;
+      trace.style.strokeDashoffset = `${length}`;
+    }
+
+    const placeCar = (progress: number) => {
+      const currentLength = progress * length;
+      const point = route.getPointAtLength(currentLength);
+      const aheadPoint = route.getPointAtLength(Math.min(length, currentLength + LOOK_AHEAD_LENGTH));
+      const angle = Math.atan2(aheadPoint.y - point.y, aheadPoint.x - point.x) * (180 / Math.PI);
+      const sceneRect = scene.getBoundingClientRect();
+      const x = point.x * (sceneRect.width / 1000);
+      const y = point.y * (sceneRect.height / 560);
+
+      car.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) rotate(${angle + 90}deg)`;
+      glow.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+      route.style.strokeDashoffset = `${length * (1 - progress)}`;
+
+      if (trace) {
+        trace.style.strokeDashoffset = `${length * (1 - progress)}`;
+      }
+    };
+
+    if (prefersReducedMotion) {
+      placeCar(0.82);
+      setCycleProgress(1);
+      return undefined;
+    }
+
+    const animate = (timestamp: number) => {
+      if (startTime === null) {
+        startTime = timestamp;
+      }
+
+      const elapsed = timestamp - startTime;
+      const cycle = elapsed % (LOOP_MS + LOOP_HOLD_MS);
+      const rawProgress = Math.min(cycle / LOOP_MS, 1);
+      const progress =
+        rawProgress < 0.5
+          ? 2 * rawProgress * rawProgress
+          : 1 - Math.pow(-2 * rawProgress + 2, 2) / 2;
+
+      placeCar(progress);
+
+      if (rawProgress < lastCheckpointProgress || Math.abs(rawProgress - lastCheckpointProgress) > 0.018) {
+        lastCheckpointProgress = rawProgress;
+        setCycleProgress(rawProgress);
+      }
+
+      animationFrameRef.current = window.requestAnimationFrame(animate);
+    };
+
+    animationFrameRef.current = window.requestAnimationFrame(animate);
 
     return () => {
-      window.clearInterval(intervalId);
+      if (animationFrameRef.current !== null) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+      }
     };
   }, []);
 
-  const cycleProgress = (elapsedMs % LOOP_MS) / LOOP_MS;
   const rootClassName = ['report-loader', className].filter(Boolean).join(' ');
   const activatedCheckpointCount = Math.max(
     1,
-    CHECKPOINTS.filter((point) => cycleProgress >= point.at).length,
+    CHECKPOINTS.filter((point) => cycleProgress >= point.at - 0.018).length,
   );
 
-  const currentStage =
-    STAGES.reduce((current, stage) => {
-      return cycleProgress >= stage.at ? stage : current;
-    }, STAGES[0]);
-
-  const animationStyle = { animationDuration: `${LOOP_MS}ms` };
-
   return (
-    <div
-      className={rootClassName}
-      role="status"
-      aria-live="polite"
-      aria-label="Строим отчет"
-    >
+    <div className={rootClassName} role="status" aria-live="polite" aria-label="Строим отчет">
       <div className="report-loader__card">
+        <span className="report-loader__sr-status" aria-live="polite">
+          Строим отчет
+        </span>
         <div className="report-loader__stage" aria-hidden="true">
-          <div className="report-loader__scene">
+          <div className="report-loader__scene" ref={sceneRef}>
             <svg className="report-loader__map" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet">
               <defs>
                 <linearGradient id="report-loader-route-gradient" x1="0" y1="0" x2="1" y2="0">
@@ -188,14 +243,14 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
                   <stop offset="100%" stopColor="#78c7ff" stopOpacity="0" />
                 </linearGradient>
               </defs>
-              <line className="report-loader__axis" x1="140" y1="456" x2="880" y2="456" />
-              <line className="report-loader__axis" x1="140" y1="118" x2="140" y2="456" />
+              <line className="report-loader__axis" x1="112" y1="456" x2="928" y2="456" />
+              <line className="report-loader__axis" x1="112" y1="118" x2="112" y2="456" />
               <path className="report-loader__ghost-chart" d={ROUTE_PATH} />
               <path className="report-loader__route-shadow" d={ROUTE_PATH} />
               <path className="report-loader__route-base" d={ROUTE_PATH} />
-              <path className="report-loader__route-progress" d={ROUTE_PATH} pathLength={1} />
-              <path className="report-loader__chart-area" d={`${ROUTE_PATH} L870 456 L150 456 Z`} />
-              <path className="report-loader__chart-line" d={ROUTE_PATH} />
+              <path ref={routeRef} className="report-loader__route-progress" d={ROUTE_PATH} />
+              <path className="report-loader__chart-area" d={`${ROUTE_PATH} L920 456 L120 456 Z`} />
+              <path ref={traceRef} className="report-loader__chart-line" d={ROUTE_PATH} />
 
               {CHECKPOINTS.map((point, index) => (
                 <g
@@ -217,9 +272,7 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
                     <div
                       className={`report-loader__checkpoint-label report-loader__checkpoint-label--${point.align}`}
                     >
-                      <span className="report-loader__checkpoint-label-title">
-                        {point.title}
-                      </span>
+                      <span className="report-loader__checkpoint-label-title">{point.title}</span>
                       <span className="report-loader__checkpoint-label-description">
                         {point.description}
                       </span>
@@ -232,20 +285,9 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
             <span className="report-loader__trail report-loader__trail-a" />
             <span className="report-loader__trail report-loader__trail-b" />
             <span className="report-loader__trail report-loader__trail-c" />
-            <span className="report-loader__car-glow" style={animationStyle} />
-            <img
-              className="report-loader__car"
-              src={carImage}
-              alt=""
-              aria-hidden="true"
-              style={animationStyle}
-            />
+            <span className="report-loader__car-glow" ref={carGlowRef} />
+            <img ref={carRef} className="report-loader__car" src={carImage} alt="" aria-hidden="true" />
           </div>
-        </div>
-
-        <div className="report-loader__bottom">
-          <span className="report-loader__pulse" />
-          <span className="report-loader__status">{currentStage.text}</span>
         </div>
       </div>
     </div>

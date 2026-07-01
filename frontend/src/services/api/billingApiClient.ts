@@ -152,12 +152,12 @@ export const loadBillingState = () =>
         appendQuery('/api/billing/access/', getBitrixContext()),
     );
 
-export const createProPayment = (customerEmail: string) =>
+export const createProPayment = (customerEmail: string, planCode = 'pro_monthly') =>
     requestJson<CreatePaymentResponse>('/api/billing/payments/', {
         method: 'POST',
         body: JSON.stringify({
             ...getBitrixContext(),
-            planCode: 'pro_monthly',
+            planCode,
             customerEmail,
         }),
     });

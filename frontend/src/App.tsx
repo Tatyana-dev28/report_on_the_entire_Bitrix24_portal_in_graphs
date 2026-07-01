@@ -339,7 +339,7 @@ function App() {
   const [billingHasPro, setBillingHasPro] = useState(false);
   const [billingValidUntil, setBillingValidUntil] = useState<string | null>(null);
   const [billingIsLifetime, setBillingIsLifetime] = useState(false);
-  const [billingPlan, setBillingPlan] = useState<BillingPlan | null>(null);
+  const [billingPlans, setBillingPlans] = useState<BillingPlan[]>([]);
   const [billingError, setBillingError] = useState('');
   const [billingCustomerEmail, setBillingCustomerEmail] = useState('');
   const [paymentLoading, setPaymentLoading] = useState(false);
@@ -416,6 +416,7 @@ function App() {
   const pendingScrollLeftRef = useRef(0);
   const holdDelayRef = useRef<number | null>(null);
   const holdActiveRef = useRef(false);
+  const applyAutomaticThresholdsRef = useRef(false);
   const canScrollBackRef = useRef(false);
   const canScrollForwardRef = useRef(false);
   const draggedMetricRef = useRef<{ sectionId: string; metricId: string } | null>(null);
@@ -470,7 +471,7 @@ function App() {
         setBillingHasPro(Boolean(state.access?.hasPro));
         setBillingValidUntil(state.access?.validUntil ?? null);
         setBillingIsLifetime(Boolean(state.access?.isLifetime));
-        setBillingPlan(state.plans.find((plan) => plan.code === 'pro_monthly') ?? null);
+        setBillingPlans(state.plans);
         return state;
       })
       .catch((error) => {
@@ -636,6 +637,50 @@ function App() {
           setRawReportData(preview.data);
           setReportEmployees((preview.employees ?? []).map(toReportEmployee));
           setReportDetails(preview.details ?? []);
+
+          if (applyAutomaticThresholdsRef.current) {
+            const scheduledData = applyScheduleToReportData(preview.data, filters.period, appliedFilters.schedule);
+            const metricMode = filters.metricMode ?? appliedFilters.metricMode;
+            const separateChart = filters.selectedSources.length > 1 && filters.chartDisplayMode === 'separate';
+            const mainValues = separateChart
+              ? scheduledData.flatMap((point) =>
+                  filters.selectedSources.map((source) =>
+                    getChartSeriesValue(point, source, metricMode),
+                  ),
+                )
+              : scheduledData.map((point) => point.indicator);
+            const mainRecommended = calculateRecommendedThresholds(mainValues, metricMode);
+
+            setMainThreshold({
+              upper: mainRecommended.upper,
+              lower: mainRecommended.lower,
+              mode: 'recommended',
+            });
+
+            setRowThresholds(
+              selectedMetricIds.reduce<Record<string, ThresholdValues>>((acc, metricId) => {
+                const metric = metrics.find((item) => item.id === metricId);
+
+                if (!metric) {
+                  return acc;
+                }
+
+                const recommended = calculateRecommendedThresholds(
+                  scheduledData.map((point) => point.values[metricId]),
+                  metric.type,
+                );
+
+                acc[metricId] = {
+                  upper: recommended.upper,
+                  lower: recommended.lower,
+                  mode: 'recommended',
+                };
+
+                return acc;
+              }, {}),
+            );
+            applyAutomaticThresholdsRef.current = false;
+          }
         }
       })
       .catch((error) => {
@@ -650,6 +695,7 @@ function App() {
           setRawReportData([]);
           setReportEmployees([]);
           setReportDetails([]);
+          applyAutomaticThresholdsRef.current = false;
         }
       })
       .finally(() => {
@@ -666,11 +712,13 @@ function App() {
     appliedFilters.dateRange,
     appliedFilters.metricMode,
     appliedFilters.period,
+    appliedFilters.schedule,
     appliedFilters.selectedSources,
     appliedFilters.enabledSectionIds,
     buildMoment,
     appliedEnabledMetricIdsBySection,
     hasBuiltReport,
+    metrics,
     metricSections,
   ]);
 
@@ -1427,6 +1475,7 @@ function App() {
   }, [draftFilters, enabledMetricIdsBySection]);
 
   const buildReport = useCallback(() => {
+    applyAutomaticThresholdsRef.current = false;
     applyReportBuild(normalizeSelectedSources(draftFilters.selectedSources));
   }, [applyReportBuild, draftFilters.selectedSources, normalizeSelectedSources]);
 
@@ -1444,6 +1493,7 @@ function App() {
       return;
     }
 
+    applyAutomaticThresholdsRef.current = true;
     applyReportBuild(normalizeSelectedSources([salesSource.id]), {
       period: 'days',
       dateRange: getPreviousWeekFromYesterdayRange(),
@@ -1761,10 +1811,15 @@ function App() {
     setIsAppSettingsOpen(false);
   }, []);
 
-  const handleCreateProPayment = useCallback(() => {
+  const handleCreateProPayment = useCallback((planCode: string) => {
     if (isProUser) {
       setNotification('PRO-подписка уже активна для этого портала.');
       refreshBillingState();
+      return;
+    }
+
+    if (planCode === 'free') {
+      setBillingError('Бесплатный тариф не требует оплаты.');
       return;
     }
 
@@ -1779,7 +1834,7 @@ function App() {
     setBillingError('');
     const paymentWindow = window.open('', '_blank');
 
-    createProPayment(normalizedEmail)
+    createProPayment(normalizedEmail, planCode)
       .then((response) => {
         const paymentUrl = response.payment.paymentUrl;
 
@@ -2681,7 +2736,7 @@ function App() {
           onClose={() => setIsProOpen(false)}
           onSubscribe={handleCreateProPayment}
           isLoading={paymentLoading}
-          plan={billingPlan}
+          plans={billingPlans}
           hasPro={billingHasPro}
           validUntil={billingValidUntil}
           isLifetime={billingIsLifetime}

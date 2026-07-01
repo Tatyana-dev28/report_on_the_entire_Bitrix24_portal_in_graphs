@@ -64,7 +64,7 @@ def get_default_features_for_plan(plan: Optional[Plan]) -> dict:
 
     if plan and plan.features:
         features = dict(plan.features)
-    elif plan and plan.code in ("pro_monthly", "internal_pro"):
+    elif plan and (plan.code in ("pro_monthly", "internal_pro") or plan.billing_period == Plan.BillingPeriod.MONTH):
         features = dict(PRO_FEATURES)
     else:
         features = dict(FREE_FEATURES)
@@ -82,7 +82,7 @@ def get_default_limits_for_plan(plan: Optional[Plan]) -> dict:
     if plan and plan.limits:
         return dict(plan.limits)
 
-    if plan and plan.code in ("pro_monthly", "internal_pro"):
+    if plan and (plan.code in ("pro_monthly", "internal_pro") or plan.billing_period == Plan.BillingPeriod.MONTH):
         return dict(PRO_LIMITS)
 
     return dict(FREE_LIMITS)

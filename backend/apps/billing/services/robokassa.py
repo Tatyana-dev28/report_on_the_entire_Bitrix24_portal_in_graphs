@@ -17,7 +17,6 @@ from django.utils import timezone
 from apps.billing.models import Payment, PaymentWebhookEvent, Plan, PortalAccess, Subscription
 from apps.billing.services.access import (
     activate_paid_subscription,
-    get_pro_monthly_plan,
     set_free_access,
     sync_portal_access_from_subscription,
 )
@@ -223,16 +222,20 @@ def create_robokassa_payment(
     plan_code: str = "pro_monthly",
     customer_email: str = "",
 ) -> Payment:
-    if plan_code != "pro_monthly":
-        raise ValidationError("Only pro_monthly payments are available.")
-
-    plan = get_pro_monthly_plan()
+    plan = Plan.objects.filter(
+        code=plan_code,
+        is_active=True,
+        is_public=True,
+    ).first()
 
     if not plan:
-        raise ValidationError("Pro monthly plan is not configured. Run seed_plans.")
+        raise ValidationError("Selected paid plan is not configured. Run seed_plans.")
+
+    if plan.billing_period == Plan.BillingPeriod.FREE:
+        raise ValidationError("Free plan does not require payment.")
 
     if plan.price <= 0:
-        raise ValidationError("Pro monthly plan price must be greater than zero.")
+        raise ValidationError("Selected paid plan price must be greater than zero.")
 
     current_access = PortalAccess.objects.filter(portal=portal).first()
 

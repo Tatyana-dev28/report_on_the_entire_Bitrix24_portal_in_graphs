@@ -43,6 +43,7 @@ class PlanAdmin(admin.ModelAdmin):
     list_display = (
         "code",
         "name",
+        "users_count",
         "price",
         "currency",
         "billing_period",
@@ -90,6 +91,12 @@ class PlanAdmin(admin.ModelAdmin):
             return "-"
 
         return feature_summary_badges(obj.features)
+
+    @admin.display(description="Пользователи")
+    def users_count(self, obj):
+        users = (obj.limits or {}).get("users")
+
+        return users or "-"
 
     fieldsets = (
         (

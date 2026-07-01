@@ -81,10 +81,10 @@ const CHECKPOINTS: Checkpoint[] = [
   {
     at: 0.92,
     key: 'render',
-    title: 'Рендер',
+    title: 'Воронки',
     description: 'Подготовка',
     labelX: -96,
-    labelY: -50,
+    labelY: 26,
     align: 'end',
   },
   {

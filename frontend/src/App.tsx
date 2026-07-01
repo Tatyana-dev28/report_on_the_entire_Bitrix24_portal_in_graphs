@@ -125,6 +125,7 @@ import {
 import {
   constrainRangeForPeriod,
   getRangeFromMonthIndexes,
+  getPreviousWeekFromYesterdayRange,
   getYesterdayRange,
   monthIndex,
   toMonthInputValue,
@@ -1398,15 +1399,23 @@ function App() {
     });
   }, [enabledMetricIdsBySection]);
 
-  const applyReportBuild = useCallback((selectedSources: string[]) => {
+  const applyReportBuild = useCallback((
+    selectedSources: string[],
+    overrides: Partial<Pick<ReportFilters, 'period' | 'dateRange'>> = {},
+  ) => {
+    const period = overrides.period ?? draftFilters.period;
+    const dateRange = overrides.dateRange ?? draftFilters.dateRange;
+
     setHasBuiltReport(true);
     setDraftFilters((current) => ({
       ...current,
+      period,
+      dateRange,
       selectedSources,
     }));
     setAppliedFilters({
-      period: draftFilters.period,
-      dateRange: draftFilters.dateRange,
+      period,
+      dateRange,
       selectedSources,
       chartDisplayMode: draftFilters.chartDisplayMode,
       metricMode: draftFilters.metricMode,
@@ -1430,22 +1439,24 @@ function App() {
   }, [applyReportBuild, draftFilters.selectedSources, normalizeSelectedSources]);
 
   const buildAutomaticReport = useCallback(() => {
-    const selectedSourceIds = new Set(draftFilters.selectedSources);
-    const selectedDealSources = crmSources
-      .filter((source) => source.isAvailable && source.type === 'deal' && selectedSourceIds.has(source.id))
-      .map((source) => source.id);
-    const fallbackDealSources = crmSources
-      .filter((source) => source.isAvailable && source.type === 'deal')
-      .map((source) => source.id);
-    const automaticSources = selectedDealSources.length > 0 ? selectedDealSources : fallbackDealSources;
+    const dealSources = crmSources.filter((source) => source.isAvailable && source.type === 'deal');
+    const salesSource =
+      dealSources.find((source) => source.id === 'deal-0' || source.categoryId === 0) ??
+      dealSources.find((source) => {
+        const label = `${source.sourceLabel} ${source.title}`.toLocaleLowerCase('ru-RU');
+        return label.includes('продаж');
+      });
 
-    if (automaticSources.length === 0) {
-      setNotification('В каталоге отчета нет доступных воронок продаж.');
+    if (!salesSource) {
+      setNotification('В каталоге отчета нет доступной воронки "Продажи".');
       return;
     }
 
-    applyReportBuild(normalizeSelectedSources(automaticSources));
-  }, [applyReportBuild, crmSources, draftFilters.selectedSources, normalizeSelectedSources]);
+    applyReportBuild(normalizeSelectedSources([salesSource.id]), {
+      period: 'days',
+      dateRange: getPreviousWeekFromYesterdayRange(),
+    });
+  }, [applyReportBuild, crmSources, normalizeSelectedSources]);
 
   const openDetail = useCallback((
     metric: MetricRow,

@@ -14,6 +14,19 @@ export const getYesterdayRange = (): DateRange => {
   };
 };
 
+export const getPreviousWeekFromYesterdayRange = (): DateRange => {
+  const end = new Date();
+  end.setDate(end.getDate() - 1);
+
+  const start = new Date(end);
+  start.setDate(start.getDate() - 6);
+
+  return {
+    start: toDateInputValue(start),
+    end: toDateInputValue(end),
+  };
+};
+
 export const toMonthInputValue = (dateValue: string) => dateValue.slice(0, 7);
 
 export const monthIndex = (monthValue: string) => {

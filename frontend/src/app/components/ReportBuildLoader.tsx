@@ -18,30 +18,30 @@ type Checkpoint = {
 
 const CHECKPOINTS: Checkpoint[] = [
   {
-    x: 120,
-    y: 420,
+    x: 56,
+    y: 492,
     at: 0,
     key: 'start',
     title: 'Портал',
     description: 'Подключение',
-    labelX: 14,
-    labelY: -42,
+    labelX: 18,
+    labelY: -58,
     align: 'start',
   },
   {
-    x: 220,
-    y: 388,
+    x: 164,
+    y: 454,
     at: 0.12,
     key: 'filters',
     title: 'Фильтры',
     description: 'Каталог отчета',
-    labelX: -18,
-    labelY: -56,
+    labelX: -8,
+    labelY: -64,
     align: 'start',
   },
   {
-    x: 318,
-    y: 408,
+    x: 276,
+    y: 476,
     at: 0.25,
     key: 'crm',
     title: 'CRM',
@@ -51,8 +51,8 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 426,
-    y: 326,
+    x: 394,
+    y: 354,
     at: 0.39,
     key: 'activity',
     title: 'Активность',
@@ -62,8 +62,8 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 528,
-    y: 344,
+    x: 508,
+    y: 384,
     at: 0.53,
     key: 'deals',
     title: 'Сделки',
@@ -73,8 +73,8 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 638,
-    y: 266,
+    x: 628,
+    y: 252,
     at: 0.68,
     key: 'metrics',
     title: 'Метрики',
@@ -85,7 +85,7 @@ const CHECKPOINTS: Checkpoint[] = [
   },
   {
     x: 748,
-    y: 220,
+    y: 186,
     at: 0.82,
     key: 'charts',
     title: 'Графики',
@@ -95,8 +95,8 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'start',
   },
   {
-    x: 842,
-    y: 170,
+    x: 862,
+    y: 104,
     at: 0.92,
     key: 'render',
     title: 'Рендер',
@@ -106,14 +106,14 @@ const CHECKPOINTS: Checkpoint[] = [
     align: 'end',
   },
   {
-    x: 920,
-    y: 138,
+    x: 948,
+    y: 58,
     at: 0.98,
     key: 'ready',
     title: 'Отчет',
     description: 'Почти готов',
-    labelX: -102,
-    labelY: 26,
+    labelX: -128,
+    labelY: 28,
     align: 'end',
   },
 ];
@@ -122,7 +122,7 @@ const LOOP_MS = 12800;
 const LOOP_HOLD_MS = 1200;
 const LOOK_AHEAD_LENGTH = 16;
 const ROUTE_PATH =
-  'M120 420 L220 388 L318 408 L426 326 L528 344 L638 266 L748 220 L842 170 L920 138';
+  'M56 492 L164 454 L276 476 L394 354 L508 384 L628 252 L748 186 L862 104 L948 58';
 
 type ReportBuildLoaderProps = {
   className?: string;
@@ -165,10 +165,19 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
       const currentLength = progress * length;
       const point = route.getPointAtLength(currentLength);
       const aheadPoint = route.getPointAtLength(Math.min(length, currentLength + LOOK_AHEAD_LENGTH));
-      const angle = Math.atan2(aheadPoint.y - point.y, aheadPoint.x - point.x) * (180 / Math.PI);
       const sceneRect = scene.getBoundingClientRect();
-      const x = point.x * (sceneRect.width / 1000);
-      const y = point.y * (sceneRect.height / 560);
+      const screenMatrix = route.getScreenCTM();
+
+      if (!screenMatrix) {
+        return;
+      }
+
+      const screenPoint = new DOMPoint(point.x, point.y).matrixTransform(screenMatrix);
+      const screenAheadPoint = new DOMPoint(aheadPoint.x, aheadPoint.y).matrixTransform(screenMatrix);
+      const angle =
+        Math.atan2(screenAheadPoint.y - screenPoint.y, screenAheadPoint.x - screenPoint.x) * (180 / Math.PI);
+      const x = screenPoint.x - sceneRect.left;
+      const y = screenPoint.y - sceneRect.top;
 
       car.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) rotate(${angle + 90}deg)`;
       glow.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
@@ -231,7 +240,7 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
         </span>
         <div className="report-loader__stage" aria-hidden="true">
           <div className="report-loader__scene" ref={sceneRef}>
-            <svg className="report-loader__map" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet">
+            <svg className="report-loader__map" viewBox="0 0 1000 560" preserveAspectRatio="none">
               <defs>
                 <linearGradient id="report-loader-route-gradient" x1="0" y1="0" x2="1" y2="0">
                   <stop offset="0%" stopColor="#2274ff" />
@@ -243,13 +252,13 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
                   <stop offset="100%" stopColor="#78c7ff" stopOpacity="0" />
                 </linearGradient>
               </defs>
-              <line className="report-loader__axis" x1="112" y1="456" x2="928" y2="456" />
-              <line className="report-loader__axis" x1="112" y1="118" x2="112" y2="456" />
+              <line className="report-loader__axis" x1="48" y1="520" x2="956" y2="520" />
+              <line className="report-loader__axis" x1="48" y1="48" x2="48" y2="520" />
               <path className="report-loader__ghost-chart" d={ROUTE_PATH} />
               <path className="report-loader__route-shadow" d={ROUTE_PATH} />
               <path className="report-loader__route-base" d={ROUTE_PATH} />
               <path ref={routeRef} className="report-loader__route-progress" d={ROUTE_PATH} />
-              <path className="report-loader__chart-area" d={`${ROUTE_PATH} L920 456 L120 456 Z`} />
+              <path className="report-loader__chart-area" d={`${ROUTE_PATH} L948 520 L56 520 Z`} />
               <path ref={traceRef} className="report-loader__chart-line" d={ROUTE_PATH} />
 
               {CHECKPOINTS.map((point, index) => (

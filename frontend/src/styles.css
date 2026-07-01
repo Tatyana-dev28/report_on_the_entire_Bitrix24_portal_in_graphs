@@ -1167,8 +1167,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(2px);
+  background: #ffffff;
   border-radius: 12px;
   pointer-events: all;
 }

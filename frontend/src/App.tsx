@@ -35,7 +35,7 @@ import {
   GripVertical,
   X,
 } from 'lucide-react';
-import LoadingAnimation from './app/components/loadingAnimation';
+import ReportBuildLoader from './app/components/ReportBuildLoader';
 import {
   CartesianGrid,
   Line,
@@ -330,7 +330,6 @@ function App() {
   const [catalogError, setCatalogError] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
   const [reportElapsed, setReportElapsed] = useState('');
-  const [animationProgress, setAnimationProgress] = useState(0);
   const [reportError, setReportError] = useState('');
   const [isSaveOpen, setIsSaveOpen] = useState(false);
   const [isProOpen, setIsProOpen] = useState(false);
@@ -445,12 +444,8 @@ function App() {
   useEffect(() => {
     if (!reportLoading) {
       setReportElapsed('');
-      setAnimationProgress(0);
       return undefined;
     }
-
-    const startTime = Date.now();
-    const DURATION = 12000;
 
     const tick = () => {
       const elapsed = Date.now() - reportStartTimeRef.current;
@@ -460,9 +455,6 @@ function App() {
       const seconds = totalSeconds % 60;
       const padded = (n: number) => String(n).padStart(2, '0');
       setReportElapsed(`${padded(hours)}:${padded(minutes)}:${padded(seconds)}`);
-
-      const animProgress = Math.min((Date.now() - startTime) / DURATION, 1);
-      setAnimationProgress(animProgress);
     };
 
     tick();
@@ -2220,10 +2212,7 @@ function App() {
                 <div className="chart-wrap" ref={mainChartWrapRef}>
                   {reportLoading && (
                     <div className="chart-loading-overlay">
-                      <LoadingAnimation
-                        isLoading={reportLoading}
-                        targetProgress={animationProgress}
-                      />
+                      <ReportBuildLoader />
                     </div>
                   )}
                   <ResponsiveContainer width="100%" height={280}>

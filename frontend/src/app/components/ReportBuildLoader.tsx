@@ -39,7 +39,7 @@ const CHECKPOINTS: Checkpoint[] = [
     title: 'CRM',
     description: 'Данные портала',
     labelX: -10,
-    labelY: 34,
+    labelY: 22,
     align: 'start',
   },
   {
@@ -102,11 +102,12 @@ const LOOP_MS = 12800;
 const LOOP_HOLD_MS = 1200;
 const LOOK_AHEAD_LENGTH = 16;
 const GRID_SIZE = 42;
+const CHECKPOINT_EDGE_INSET = 22;
 const MIN_SCENE_WIDTH = 320;
 const MIN_SCENE_HEIGHT = 220;
 const FALLBACK_SCENE_SIZE = { width: 1000, height: 560 };
 const ROUTE_COLUMN_RATIOS = [0, 0.1, 0.19, 0.32, 0.42, 0.54, 0.68, 0.84, 0.98];
-const ROUTE_ROWS_FROM_BOTTOM = [1, 1, 1, 3, 2, 4, 5, 6, 7];
+const ROUTE_ROWS_FROM_BOTTOM = [2, 2, 2, 4, 3, 5, 6, 7, 7];
 
 type SceneSize = {
   width: number;
@@ -137,7 +138,7 @@ function buildRoutePoints({ width, height }: SceneSize): RoutePoint[] {
     previousColumn = column;
 
     return {
-      x: column * GRID_SIZE,
+      x: clamp(column * GRID_SIZE, CHECKPOINT_EDGE_INSET, usableWidth - CHECKPOINT_EDGE_INSET),
       y: (bottomRow - rowsFromBottom) * GRID_SIZE,
     };
   });
@@ -145,6 +146,31 @@ function buildRoutePoints({ width, height }: SceneSize): RoutePoint[] {
 
 function buildRoutePath(points: RoutePoint[]) {
   return points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x} ${point.y}`).join(' ');
+}
+
+function getCheckpointProgresses(points: RoutePoint[]) {
+  let totalLength = 0;
+  const segmentLengths = points.map((point, index) => {
+    if (index === 0) {
+      return 0;
+    }
+
+    const previousPoint = points[index - 1];
+    const segmentLength = Math.hypot(point.x - previousPoint.x, point.y - previousPoint.y);
+    totalLength += segmentLength;
+    return segmentLength;
+  });
+
+  if (totalLength === 0) {
+    return points.map(() => 0);
+  }
+
+  let traversedLength = 0;
+
+  return segmentLengths.map((segmentLength) => {
+    traversedLength += segmentLength;
+    return traversedLength / totalLength;
+  });
 }
 
 type ReportBuildLoaderProps = {
@@ -162,6 +188,7 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
   const [sceneSize, setSceneSize] = useState<SceneSize>(FALLBACK_SCENE_SIZE);
   const routePoints = useMemo(() => buildRoutePoints(sceneSize), [sceneSize]);
   const routePath = useMemo(() => buildRoutePath(routePoints), [routePoints]);
+  const checkpointProgresses = useMemo(() => getCheckpointProgresses(routePoints), [routePoints]);
   const baselineY = Math.floor(Math.max(MIN_SCENE_HEIGHT, sceneSize.height) / GRID_SIZE) * GRID_SIZE;
   const axisEndX = Math.floor(Math.max(MIN_SCENE_WIDTH, sceneSize.width) / GRID_SIZE) * GRID_SIZE;
 
@@ -273,9 +300,9 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
 
       placeCar(progress);
 
-      if (rawProgress < lastCheckpointProgress || Math.abs(rawProgress - lastCheckpointProgress) > 0.018) {
-        lastCheckpointProgress = rawProgress;
-        setCycleProgress(rawProgress);
+      if (progress < lastCheckpointProgress || Math.abs(progress - lastCheckpointProgress) > 0.01) {
+        lastCheckpointProgress = progress;
+        setCycleProgress(progress);
       }
 
       animationFrameRef.current = window.requestAnimationFrame(animate);
@@ -293,7 +320,7 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
   const rootClassName = ['report-loader', className].filter(Boolean).join(' ');
   const activatedCheckpointCount = Math.max(
     1,
-    CHECKPOINTS.filter((point) => cycleProgress >= point.at - 0.018).length,
+    checkpointProgresses.filter((checkpointProgress) => cycleProgress >= checkpointProgress - 0.004).length,
   );
   const svgWidth = Math.max(MIN_SCENE_WIDTH, sceneSize.width);
   const svgHeight = Math.max(MIN_SCENE_HEIGHT, sceneSize.height);

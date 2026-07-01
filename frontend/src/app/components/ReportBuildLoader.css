@@ -44,6 +44,7 @@
   position: absolute;
   inset: 0;
   z-index: 1;
+  overflow: visible;
 }
 
 .report-loader__map {
@@ -156,6 +157,66 @@
 
 .report-loader__checkpoint.is-active .report-loader__checkpoint-ring {
   animation: report-loader__ring 1.2s ease-out;
+}
+
+/* ===== Checkpoint Labels ===== */
+
+.report-loader__checkpoint-label-wrap {
+  overflow: visible;
+  pointer-events: none;
+}
+
+.report-loader__checkpoint-label {
+  display: inline-flex;
+  min-width: 104px;
+  max-width: 132px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 9px;
+  border: 1px solid rgba(148, 183, 219, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 10px 22px rgba(95, 141, 188, 0.10);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  transform: translateY(6px) scale(0.96);
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease,
+    border-color 220ms ease,
+    box-shadow 220ms ease;
+}
+
+.report-loader__checkpoint.is-active .report-loader__checkpoint-label {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  border-color: rgba(86, 184, 255, 0.28);
+  box-shadow:
+    0 12px 24px rgba(95, 141, 188, 0.12),
+    0 0 18px rgba(86, 184, 255, 0.12);
+}
+
+.report-loader__checkpoint-label-title {
+  display: block;
+  color: #143f68;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.report-loader__checkpoint-label-description {
+  display: block;
+  color: #6d8aaa;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.report-loader__checkpoint-label--end {
+  text-align: right;
+  align-items: flex-end;
 }
 
 .report-loader__car,
@@ -329,7 +390,8 @@
   .report-loader__car-glow,
   .report-loader__trail,
   .report-loader__pulse,
-  .report-loader__checkpoint.is-active .report-loader__checkpoint-ring {
+  .report-loader__checkpoint.is-active .report-loader__checkpoint-ring,
+  .report-loader__checkpoint.is-active .report-loader__checkpoint-label {
     animation: none;
   }
 
@@ -340,5 +402,10 @@
   .report-loader__chart-line,
   .report-loader__chart-area {
     opacity: 1;
+  }
+
+  .report-loader__checkpoint.is-active .report-loader__checkpoint-label {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }

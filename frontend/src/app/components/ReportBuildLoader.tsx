@@ -2,16 +2,131 @@ import { useEffect, useState } from 'react';
 import carImage from '../../assets/report-loader-car.png';
 import './ReportBuildLoader.css';
 
-const CHECKPOINTS = [
-  { x: 72, y: 430, at: 0, label: 'start' },
-  { x: 172, y: 398, at: 0.12, label: 'filters' },
-  { x: 278, y: 418, at: 0.25, label: 'crm' },
-  { x: 382, y: 334, at: 0.39, label: 'activity' },
-  { x: 500, y: 352, at: 0.53, label: 'deals' },
-  { x: 620, y: 266, at: 0.68, label: 'metrics' },
-  { x: 750, y: 210, at: 0.82, label: 'charts' },
-  { x: 870, y: 154, at: 0.92, label: 'render' },
-  { x: 960, y: 118, at: 0.98, label: 'ready' },
+type CheckpointLabelAlign = 'start' | 'end';
+
+type Checkpoint = {
+  x: number;
+  y: number;
+  at: number;
+  key: string;
+  title: string;
+  description: string;
+  labelX: number;
+  labelY: number;
+  align: CheckpointLabelAlign;
+};
+
+const CHECKPOINTS: Checkpoint[] = [
+  {
+    x: 72,
+    y: 430,
+    at: 0,
+    key: 'start',
+    title: 'Портал',
+    description: 'Подключение',
+    labelX: 14,
+    labelY: -42,
+    align: 'start',
+  },
+  {
+    x: 172,
+    y: 398,
+    at: 0.12,
+    key: 'filters',
+    title: 'Фильтры',
+    description: 'Каталог отчета',
+    labelX: -18,
+    labelY: -56,
+    align: 'start',
+  },
+  {
+    x: 278,
+    y: 418,
+    at: 0.25,
+    key: 'crm',
+    title: 'CRM',
+    description: 'Данные портала',
+    labelX: -10,
+    labelY: 34,
+    align: 'start',
+  },
+  {
+    x: 382,
+    y: 334,
+    at: 0.39,
+    key: 'activity',
+    title: 'Активность',
+    description: 'Звонки и задачи',
+    labelX: -24,
+    labelY: -58,
+    align: 'start',
+  },
+  {
+    x: 500,
+    y: 352,
+    at: 0.53,
+    key: 'deals',
+    title: 'Сделки',
+    description: 'Счета и план-факт',
+    labelX: -20,
+    labelY: 36,
+    align: 'start',
+  },
+  {
+    x: 620,
+    y: 266,
+    at: 0.68,
+    key: 'metrics',
+    title: 'Метрики',
+    description: 'Агрегация',
+    labelX: -16,
+    labelY: -56,
+    align: 'start',
+  },
+  {
+    x: 750,
+    y: 210,
+    at: 0.82,
+    key: 'charts',
+    title: 'Графики',
+    description: 'Построение',
+    labelX: -22,
+    labelY: 36,
+    align: 'start',
+  },
+  {
+    x: 870,
+    y: 154,
+    at: 0.92,
+    key: 'render',
+    title: 'Рендер',
+    description: 'Подготовка',
+    labelX: -96,
+    labelY: -50,
+    align: 'end',
+  },
+  {
+    x: 960,
+    y: 118,
+    at: 0.98,
+    key: 'ready',
+    title: 'Отчет',
+    description: 'Почти готов',
+    labelX: -112,
+    labelY: 26,
+    align: 'end',
+  },
+];
+
+const STAGES = [
+  { at: 0, text: 'Подключаем портал Bitrix24' },
+  { at: 0.12, text: 'Загружаем каталог и фильтры' },
+  { at: 0.25, text: 'Получаем данные CRM' },
+  { at: 0.39, text: 'Подтягиваем звонки и задачи' },
+  { at: 0.53, text: 'Сверяем счета и сделки' },
+  { at: 0.68, text: 'Агрегируем метрики' },
+  { at: 0.82, text: 'Строим графики' },
+  { at: 0.92, text: 'Готовим отчет к показу' },
 ];
 
 const LOOP_MS = 12800;
@@ -43,6 +158,12 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
     1,
     CHECKPOINTS.filter((point) => cycleProgress >= point.at).length,
   );
+
+  const currentStage =
+    STAGES.reduce((current, stage) => {
+      return cycleProgress >= stage.at ? stage : current;
+    }, STAGES[0]);
+
   const animationStyle = { animationDuration: `${LOOP_MS}ms` };
 
   return (
@@ -78,13 +199,31 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
             {CHECKPOINTS.map((point, index) => (
               <g
                 className={`report-loader__checkpoint ${index < activatedCheckpointCount ? 'is-active' : ''}`}
-                key={point.label}
+                key={point.key}
                 transform={`translate(${point.x} ${point.y})`}
               >
                 <circle className="report-loader__checkpoint-halo" r="15" />
                 <circle className="report-loader__checkpoint-ring" r="18" />
                 <circle className="report-loader__checkpoint-core" r="5.6" />
                 <path className="report-loader__checkpoint-tick" d="M-4 0 L-1 3 L5 -4" />
+                <foreignObject
+                  className="report-loader__checkpoint-label-wrap"
+                  x={point.labelX}
+                  y={point.labelY}
+                  width="132"
+                  height="54"
+                >
+                  <div
+                    className={`report-loader__checkpoint-label report-loader__checkpoint-label--${point.align}`}
+                  >
+                    <span className="report-loader__checkpoint-label-title">
+                      {point.title}
+                    </span>
+                    <span className="report-loader__checkpoint-label-description">
+                      {point.description}
+                    </span>
+                  </div>
+                </foreignObject>
               </g>
             ))}
           </svg>
@@ -104,7 +243,7 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
 
         <div className="report-loader__bottom">
           <span className="report-loader__pulse" />
-          <span className="report-loader__status">Идет построение отчета</span>
+          <span className="report-loader__status">{currentStage.text}</span>
         </div>
       </div>
     </div>

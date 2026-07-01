@@ -1064,6 +1064,19 @@ button {
   color: #ffffff;
 }
 
+.left-auto-build-button {
+  border-color: #bdd2ff;
+  background: #f0f6ff;
+  color: #185ec8;
+}
+
+.left-auto-build-button:hover,
+.left-auto-build-button:focus-visible {
+  border-color: #9dbdff;
+  background: #e4efff;
+  color: #124fa8;
+}
+
 .configure-chart-popover {
   display: grid;
   gap: 12px;

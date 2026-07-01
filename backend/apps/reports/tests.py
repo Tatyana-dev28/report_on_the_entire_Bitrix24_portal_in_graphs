@@ -915,6 +915,17 @@ class FakeCatalogBitrixRestClient:
         return type("Result", (), {"result": {}})()
 
 
+class FakeCatalogWithoutDefaultDealBitrixRestClient(FakeCatalogBitrixRestClient):
+    def call_list(self, method, params=None, *, max_pages=None):
+        if method == "crm.dealcategory.list":
+            return [
+                {"ID": "12", "NAME": "Production", "SORT": "20"},
+                {"ID": "3", "NAME": "Wholesale", "SORT": "10"},
+            ]
+
+        return []
+
+
 class ReportCatalogTests(TestCase):
     def setUp(self):
         self.portal = BitrixPortal.objects.create(
@@ -953,6 +964,19 @@ class ReportCatalogTests(TestCase):
         telephony_source = CrmSource.objects.get(portal=self.portal, external_key="telephony-default")
 
         self.assertEqual(telephony_source.source_type, CrmSource.SourceType.CALL)
+
+    @patch("apps.reports.services.report_catalog._portal_has_access_token", return_value=True)
+    @patch("apps.reports.services.report_catalog.BitrixRestClient", FakeCatalogWithoutDefaultDealBitrixRestClient)
+    def test_catalog_keeps_default_deal_pipeline_and_bitrix_sort_order(self, _has_token):
+        catalog = build_report_catalog(self.portal)
+
+        deal_source_ids = [
+            source["id"]
+            for source in catalog["sources"]
+            if source["type"] == "deal"
+        ]
+
+        self.assertEqual(deal_source_ids, ["deal-0", "deal-3", "deal-12"])
 
     def test_catalog_falls_back_to_cached_sources_without_bitrix_token(self):
         CrmSource.objects.create(

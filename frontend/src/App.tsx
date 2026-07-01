@@ -1398,9 +1398,7 @@ function App() {
     });
   }, [enabledMetricIdsBySection]);
 
-  const buildReport = useCallback(() => {
-    const selectedSources = normalizeSelectedSources(draftFilters.selectedSources);
-
+  const applyReportBuild = useCallback((selectedSources: string[]) => {
     setHasBuiltReport(true);
     setDraftFilters((current) => ({
       ...current,
@@ -1425,7 +1423,29 @@ function App() {
       }, {}),
     );
     setBuildMoment(Date.now());
-  }, [draftFilters, normalizeSelectedSources, enabledMetricIdsBySection]);
+  }, [draftFilters, enabledMetricIdsBySection]);
+
+  const buildReport = useCallback(() => {
+    applyReportBuild(normalizeSelectedSources(draftFilters.selectedSources));
+  }, [applyReportBuild, draftFilters.selectedSources, normalizeSelectedSources]);
+
+  const buildAutomaticReport = useCallback(() => {
+    const selectedSourceIds = new Set(draftFilters.selectedSources);
+    const selectedDealSources = crmSources
+      .filter((source) => source.isAvailable && source.type === 'deal' && selectedSourceIds.has(source.id))
+      .map((source) => source.id);
+    const fallbackDealSources = crmSources
+      .filter((source) => source.isAvailable && source.type === 'deal')
+      .map((source) => source.id);
+    const automaticSources = selectedDealSources.length > 0 ? selectedDealSources : fallbackDealSources;
+
+    if (automaticSources.length === 0) {
+      setNotification('В каталоге отчета нет доступных воронок продаж.');
+      return;
+    }
+
+    applyReportBuild(normalizeSelectedSources(automaticSources));
+  }, [applyReportBuild, crmSources, draftFilters.selectedSources, normalizeSelectedSources]);
 
   const openDetail = useCallback((
     metric: MetricRow,
@@ -2171,6 +2191,10 @@ function App() {
                 <button className="left-panel-action-button left-build-button" type="button" onClick={buildReport}>
                   <Play size={16} />
                   <span>{buttonLabels.build}</span>
+                </button>
+                <button className="left-panel-action-button left-auto-build-button" type="button" onClick={buildAutomaticReport}>
+                  <Settings2 size={16} />
+                  <span>Построить автоматически</span>
                 </button>
               </div>
             </div>

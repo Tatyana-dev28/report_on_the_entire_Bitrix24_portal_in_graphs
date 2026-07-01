@@ -46,6 +46,19 @@ VIRTUAL_REPORT_SOURCE_IDS = {
     "task-default",
     "crm-form-default",
 }
+SOURCE_TYPE_ORDER = {
+    "lead": 10,
+    "deal": 20,
+    "smartProcess": 30,
+    "invoice": 40,
+    "telephony": 50,
+    "activity": 60,
+    "quote": 70,
+    "company": 80,
+    "contact": 90,
+    "task": 100,
+    "crm_form": 110,
+}
 logger = logging.getLogger(__name__)
 
 
@@ -77,7 +90,7 @@ def get_report_sources(portal: BitrixPortal | None = None) -> list[dict]:
     cached_sources = get_cached_report_sources(portal)
 
     if cached_sources:
-        return _deduplicate_sources([*cached_sources, *_virtual_report_sources()])
+        return _sort_sources(_deduplicate_sources([*cached_sources, *_virtual_report_sources()]))
 
     return [dict(source) for source in REPORT_SOURCES]
 
@@ -86,9 +99,9 @@ def get_cached_report_sources(portal: BitrixPortal) -> list[dict]:
     sources = CrmSource.objects.filter(
         portal=portal,
         is_active=True,
-    ).order_by("source_type", "category_id", "title")
+    )
 
-    return _deduplicate_sources([_model_to_api_source(source) for source in sources])
+    return _sort_sources(_deduplicate_sources([_model_to_api_source(source) for source in sources]))
 
 
 def load_sources_from_bitrix(portal: BitrixPortal) -> list[dict]:
@@ -101,7 +114,7 @@ def load_sources_from_bitrix(portal: BitrixPortal) -> list[dict]:
         *_virtual_report_sources(),
     ]
 
-    return _deduplicate_sources(sources)
+    return _sort_sources(_deduplicate_sources(sources))
 
 
 @transaction.atomic
@@ -137,6 +150,7 @@ def sync_crm_sources(*, portal: BitrixPortal, sources: list[dict]) -> None:
 
 def _deal_sources(client: BitrixRestClient) -> list[dict]:
     categories = client.call_list("crm.dealcategory.list", {"order": {"SORT": "ASC"}})
+    categories = _ensure_default_deal_category(categories)
 
     if not categories:
         categories = [{"ID": 0, "NAME": "Продажи"}]
@@ -152,7 +166,7 @@ def _deal_sources(client: BitrixRestClient) -> list[dict]:
             "isAvailable": True,
             "rawData": category,
         }
-        for category in categories
+        for category in _sort_categories(categories)
     ]
 
 
@@ -225,7 +239,7 @@ def _smart_process_categories(client: BitrixRestClient, entity_type_id: int) -> 
     try:
         response = client.call_method(
             "crm.category.list",
-            {"entityTypeId": entity_type_id},
+            {"entityTypeId": entity_type_id, "order": {"sort": "ASC"}},
         )
     except BitrixRestError:
         logger.warning(
@@ -235,7 +249,7 @@ def _smart_process_categories(client: BitrixRestClient, entity_type_id: int) -> 
         )
         return []
 
-    return _extract_items(response.result, keys=("categories", "items"))
+    return _sort_categories(_extract_items(response.result, keys=("categories", "items")))
 
 
 def _lead_source() -> dict:
@@ -335,6 +349,58 @@ def _safe_int(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _ensure_default_deal_category(categories: list[dict]) -> list[dict]:
+    normalized_categories = [category for category in categories if isinstance(category, dict)]
+
+    if any(_safe_int(category.get("ID"), -1) == 0 for category in normalized_categories):
+        return normalized_categories
+
+    return [{"ID": 0, "NAME": "Продажи", "SORT": 0}, *normalized_categories]
+
+
+def _sort_categories(categories: list[dict]) -> list[dict]:
+    return sorted(
+        categories,
+        key=lambda category: (
+            _safe_int(_first_present(category, "SORT", "sort"), 500),
+            _safe_int(_first_present(category, "ID", "id"), 0),
+            _category_title(category, default="").casefold(),
+        ),
+    )
+
+
+def _source_sort_value(source: dict) -> int:
+    raw_data = source.get("rawData") or {}
+
+    if isinstance(raw_data, dict):
+        return _safe_int(_first_present(raw_data, "SORT", "sort"), 500)
+
+    return 500
+
+
+def _first_present(data: dict, *keys: str) -> Any:
+    for key in keys:
+        value = data.get(key)
+
+        if value is not None and value != "":
+            return value
+
+    return None
+
+
+def _sort_sources(sources: list[dict]) -> list[dict]:
+    return sorted(
+        sources,
+        key=lambda source: (
+            SOURCE_TYPE_ORDER.get(str(source.get("type") or ""), 999),
+            _safe_int(source.get("entityTypeId"), 0),
+            _source_sort_value(source),
+            _safe_int(source.get("categoryId"), 0),
+            str(source.get("sourceLabel") or source.get("title") or source.get("id") or "").casefold(),
+        ),
+    )
 
 
 def _deduplicate_sources(sources: list[dict]) -> list[dict]:

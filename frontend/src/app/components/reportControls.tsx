@@ -419,8 +419,13 @@ export function MultiSelect({
   onChange: (values: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const popoverRef = useRef<HTMLDivElement>(null);
-  const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const ref = useOutsideClose<HTMLDivElement>(open, () => {
+    setOpen(false);
+    setSearchQuery('');
+  }, [popoverRef]);
   const optionLabelByValue = useMemo(
     () => new Map(options.map((option) => [option.value, option.label])),
     [options],
@@ -431,6 +436,28 @@ export function MultiSelect({
       : values.length
         ? values.map((value) => optionLabelByValue.get(value) ?? value).join(', ')
         : 'Не выбрано';
+
+  const filteredOptions = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+
+    if (!query) {
+      return options;
+    }
+
+    return options.filter((option) => {
+      const normalizedQuery = query.toLowerCase();
+
+      return (
+        option.label.toLowerCase().includes(normalizedQuery) ||
+        option.value.toLowerCase().includes(normalizedQuery)
+      );
+    });
+  }, [options, searchQuery]);
+
+  const clearSearch = () => {
+    setSearchQuery('');
+    searchInputRef.current?.focus();
+  };
 
   const toggleValue = (value: string) => {
     if (values.includes(value)) {
@@ -459,19 +486,45 @@ export function MultiSelect({
           popoverRef={popoverRef}
           open={open}
           className="select-menu multi-menu"
-          expectedWidth={260}
-          expectedHeight={220}
+          expectedWidth={280}
+          expectedHeight={320}
         >
-          {options.map((option) => (
-            <label className="multi-option" key={option.value}>
-              <input
-                type="checkbox"
-                checked={values.includes(option.value)}
-                onChange={() => toggleValue(option.value)}
-              />
-              <span>{option.label}</span>
-            </label>
-          ))}
+          <div className="multi-search-wrapper">
+            <input
+              ref={searchInputRef}
+              type="text"
+              className="multi-search-input"
+              placeholder="Поиск по воронкам"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="multi-search-clear"
+                aria-label="Очистить поиск"
+                onClick={clearSearch}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <div className="multi-options-list">
+            {filteredOptions.length === 0 ? (
+              <div className="multi-no-results">Воронки не найдены</div>
+            ) : (
+              filteredOptions.map((option) => (
+                <label className="multi-option" key={option.value}>
+                  <input
+                    type="checkbox"
+                    checked={values.includes(option.value)}
+                    onChange={() => toggleValue(option.value)}
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))
+            )}
+          </div>
         </FloatingPopover>
       )}
     </div>

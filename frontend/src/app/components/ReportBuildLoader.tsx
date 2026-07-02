@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import carImage from '../../assets/report-loader-car.png';
+import fuelStationImage from '../../assets/report-loader-fuel-station.png';
 import './ReportBuildLoader.css';
 
 type CheckpointLabelAlign = 'start' | 'end';
@@ -173,6 +174,18 @@ function getCheckpointProgresses(points: RoutePoint[]) {
   });
 }
 
+function getFuelLevel(progress: number, isRefueling: boolean, refuelProgress: number) {
+  if (isRefueling) {
+    return clamp(Math.round(refuelProgress * 100), 0, 100);
+  }
+
+  if (progress <= 0.5) {
+    return clamp(Math.round(100 - (progress / 0.5) * 60), 0, 100);
+  }
+
+  return clamp(Math.round(40 - ((progress - 0.5) / 0.5) * 40), 0, 100);
+}
+
 type ReportBuildLoaderProps = {
   className?: string;
 };
@@ -183,6 +196,11 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
   const sceneRef = useRef<HTMLDivElement | null>(null);
   const carRef = useRef<HTMLImageElement | null>(null);
   const carGlowRef = useRef<HTMLSpanElement | null>(null);
+  const fuelHudRef = useRef<HTMLSpanElement | null>(null);
+  const fuelValueRef = useRef<HTMLSpanElement | null>(null);
+  const fuelFillRef = useRef<HTMLSpanElement | null>(null);
+  const midStationRef = useRef<HTMLSpanElement | null>(null);
+  const endStationRef = useRef<HTMLSpanElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const [cycleProgress, setCycleProgress] = useState(0);
   const [sceneSize, setSceneSize] = useState<SceneSize>(FALLBACK_SCENE_SIZE);
@@ -233,8 +251,13 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
     const scene = sceneRef.current;
     const car = carRef.current;
     const glow = carGlowRef.current;
+    const fuelHud = fuelHudRef.current;
+    const fuelValue = fuelValueRef.current;
+    const fuelFill = fuelFillRef.current;
+    const midStation = midStationRef.current;
+    const endStation = endStationRef.current;
 
-    if (!route || !scene || !car || !glow) {
+    if (!route || !scene || !car || !glow || !fuelHud || !fuelValue || !fuelFill || !midStation || !endStation) {
       return undefined;
     }
 
@@ -251,7 +274,7 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
       trace.style.strokeDashoffset = `${length}`;
     }
 
-    const placeCar = (progress: number) => {
+    const placeCar = (progress: number, isRefueling = false, refuelProgress = 0) => {
       const currentLength = progress * length;
       const point = route.getPointAtLength(currentLength);
       const aheadPoint = route.getPointAtLength(Math.min(length, currentLength + LOOK_AHEAD_LENGTH));
@@ -262,16 +285,73 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
         return;
       }
 
-      const screenPoint = new DOMPoint(point.x, point.y).matrixTransform(screenMatrix);
-      const screenAheadPoint = new DOMPoint(aheadPoint.x, aheadPoint.y).matrixTransform(screenMatrix);
+      const getScenePoint = (routePoint: DOMPoint) => {
+        const screenPoint = new DOMPoint(routePoint.x, routePoint.y).matrixTransform(screenMatrix);
+
+        return {
+          x: screenPoint.x - sceneRect.left,
+          y: screenPoint.y - sceneRect.top,
+        };
+      };
+
+      const getNormalStationPoint = (stationProgress: number, offset: number, shiftX = 0, shiftY = 0) => {
+        const stationLength = length * stationProgress;
+        const stationPoint = route.getPointAtLength(stationLength);
+        const beforePoint = route.getPointAtLength(Math.max(0, stationLength - 18));
+        const afterPoint = route.getPointAtLength(Math.min(length, stationLength + 18));
+        const dx = afterPoint.x - beforePoint.x;
+        const dy = afterPoint.y - beforePoint.y;
+        const vectorLength = Math.max(1, Math.hypot(dx, dy));
+        const normalX = -dy / vectorLength;
+        const normalY = dx / vectorLength;
+
+        return getScenePoint(
+          new DOMPoint(stationPoint.x + normalX * offset + shiftX, stationPoint.y + normalY * offset + shiftY),
+        );
+      };
+
+      const clampStationPoint = (stationPoint: { x: number; y: number }) => {
+        const stationLabelSafeX = 68;
+        const stationSafeTop = 44;
+        const stationSafeBottom = 30;
+        const maxX = Math.max(stationLabelSafeX, sceneRect.width - stationLabelSafeX);
+        const maxY = Math.max(stationSafeTop, sceneRect.height - stationSafeBottom);
+
+        return {
+          x: clamp(stationPoint.x, stationLabelSafeX, maxX),
+          y: clamp(stationPoint.y, stationSafeTop, maxY),
+        };
+      };
+
+      const screenPoint = getScenePoint(point);
+      const screenAheadPoint = getScenePoint(aheadPoint);
       const angle =
         Math.atan2(screenAheadPoint.y - screenPoint.y, screenAheadPoint.x - screenPoint.x) * (180 / Math.PI);
-      const x = screenPoint.x - sceneRect.left;
-      const y = screenPoint.y - sceneRect.top;
+      const x = screenPoint.x;
+      const y = screenPoint.y;
+
+      const STATION_Y_NUDGE = 5;
+
+      const midStationPoint = clampStationPoint(
+        getNormalStationPoint(0.5, 62, 8, STATION_Y_NUDGE),
+      );
+
+      const endRoutePoint = getScenePoint(route.getPointAtLength(length));
+      const endStationPoint = clampStationPoint({
+        x: endRoutePoint.x - 42,
+        y: endRoutePoint.y - 34 + STATION_Y_NUDGE,
+      });
 
       car.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) rotate(${angle + 90}deg)`;
       glow.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+      fuelHud.style.transform = `translate(${x}px, ${y}px) translate(-50%, -70px)`;
+      midStation.style.transform = `translate(${midStationPoint.x}px, ${midStationPoint.y}px) translate(-50%, -50%)`;
+      endStation.style.transform = `translate(${endStationPoint.x}px, ${endStationPoint.y}px) translate(-50%, -50%)`;
       route.style.strokeDashoffset = `${length * (1 - progress)}`;
+
+      const fuelLevel = getFuelLevel(progress, isRefueling, refuelProgress);
+      fuelValue.textContent = `${fuelLevel}%`;
+      fuelFill.style.width = `${fuelLevel}%`;
 
       if (trace) {
         trace.style.strokeDashoffset = `${length * (1 - progress)}`;
@@ -292,13 +372,15 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
 
       const elapsed = timestamp - startTime;
       const cycle = elapsed % (LOOP_MS + LOOP_HOLD_MS);
+      const isRefueling = cycle > LOOP_MS;
       const rawProgress = Math.min(cycle / LOOP_MS, 1);
       const progress =
         rawProgress < 0.5
           ? 2 * rawProgress * rawProgress
           : 1 - Math.pow(-2 * rawProgress + 2, 2) / 2;
+      const refuelProgress = isRefueling ? clamp((cycle - LOOP_MS) / LOOP_HOLD_MS, 0, 1) : 0;
 
-      placeCar(progress);
+      placeCar(progress, isRefueling, refuelProgress);
 
       if (progress < lastCheckpointProgress || Math.abs(progress - lastCheckpointProgress) > 0.01) {
         lastCheckpointProgress = progress;
@@ -367,22 +449,24 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
                   <circle className="report-loader__checkpoint-ring" r="18" />
                   <circle className="report-loader__checkpoint-core" r="5.6" />
                   <path className="report-loader__checkpoint-tick" d="M-4 0 L-1 3 L5 -4" />
-                  <foreignObject
-                    className="report-loader__checkpoint-label-wrap"
-                    x={point.labelX}
-                    y={point.labelY}
-                    width="132"
-                    height="54"
-                  >
-                    <div
-                      className={`report-loader__checkpoint-label report-loader__checkpoint-label--${point.align}`}
+                  {point.key !== 'start' && point.key !== 'ready' && (
+                    <foreignObject
+                      className="report-loader__checkpoint-label-wrap"
+                      x={point.labelX}
+                      y={point.labelY}
+                      width="132"
+                      height="54"
                     >
-                      <span className="report-loader__checkpoint-label-title">{point.title}</span>
-                      <span className="report-loader__checkpoint-label-description">
-                        {point.description}
-                      </span>
-                    </div>
-                  </foreignObject>
+                      <div
+                        className={`report-loader__checkpoint-label report-loader__checkpoint-label--${point.align}`}
+                      >
+                        <span className="report-loader__checkpoint-label-title">{point.title}</span>
+                        <span className="report-loader__checkpoint-label-description">
+                          {point.description}
+                        </span>
+                      </div>
+                    </foreignObject>
+                  )}
                 </g>
               ))}
             </svg>
@@ -390,7 +474,39 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
             <span className="report-loader__trail report-loader__trail-a" />
             <span className="report-loader__trail report-loader__trail-b" />
             <span className="report-loader__trail report-loader__trail-c" />
+
+            <span
+              ref={midStationRef}
+              className="report-loader__station report-loader__station--empty"
+              aria-hidden="true"
+            >
+              <span className="report-loader__station-label">Бензина нет</span>
+              <img className="report-loader__station-image" src={fuelStationImage} alt="" />
+            </span>
+
+            <span
+              ref={endStationRef}
+              className="report-loader__station report-loader__station--full"
+              aria-hidden="true"
+            >
+              <span className="report-loader__station-label">Бензин есть</span>
+              <img className="report-loader__station-image" src={fuelStationImage} alt="" />
+            </span>
+
             <span className="report-loader__car-glow" ref={carGlowRef} />
+
+            <span className="report-loader__fuel-hud" ref={fuelHudRef} aria-hidden="true">
+              <span className="report-loader__fuel-hud-top">
+                <span className="report-loader__fuel-hud-label">Топливо</span>
+                <span className="report-loader__fuel-hud-value" ref={fuelValueRef}>
+                  100%
+                </span>
+              </span>
+              <span className="report-loader__fuel-track">
+                <span className="report-loader__fuel-fill" ref={fuelFillRef} />
+              </span>
+            </span>
+
             <img ref={carRef} className="report-loader__car" src={carImage} alt="" aria-hidden="true" />
           </div>
         </div>

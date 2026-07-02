@@ -255,6 +255,131 @@
   opacity: 0.72;
 }
 
+/* ---------- fuel HUD & stations ---------- */
+
+.report-loader__fuel-hud {
+  position: absolute;
+  z-index: 9;
+  left: 0;
+  top: 0;
+  width: 118px;
+  padding: 8px 8px 9px;
+  border: 1px solid rgba(148, 183, 219, 0.26);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 12px 22px rgba(95, 141, 188, 0.13);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.report-loader__fuel-hud::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 9px;
+  height: 9px;
+  background: rgba(255, 255, 255, 0.92);
+  border-right: 1px solid rgba(148, 183, 219, 0.24);
+  border-bottom: 1px solid rgba(148, 183, 219, 0.24);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.report-loader__fuel-hud-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.report-loader__fuel-hud-label {
+  color: #143f68;
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.report-loader__fuel-hud-value {
+  min-width: 36px;
+  color: #143f68;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  text-align: right;
+}
+
+.report-loader__fuel-track {
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e8eef7;
+}
+
+.report-loader__fuel-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: #2274ff;
+}
+
+.report-loader__station {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  top: 0;
+  width: 38px;
+  height: 38px;
+  opacity: 0.92;
+  pointer-events: none;
+  will-change: transform;
+  filter: drop-shadow(0 7px 10px rgba(60, 100, 145, 0.11));
+}
+
+.report-loader__station-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.report-loader__station-label {
+  position: absolute;
+  left: 50%;
+  top: -12px;
+  color: #143f68;
+  font-size: 8px;
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.95),
+    0 5px 14px rgba(95, 141, 188, 0.16);
+  transform: translateX(-50%);
+}
+
+.report-loader__station--empty .report-loader__station-label {
+  color: #d4434d;
+}
+
+.report-loader__station--full .report-loader__station-label {
+  color: #168a84;
+}
+
+.report-loader__station--full::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 1px solid rgba(79, 216, 208, 0.18);
+  border-radius: 50%;
+  animation: report-loader__station-pulse 1.7s ease-in-out infinite;
+}
+
 .report-loader__trail {
   position: absolute;
   z-index: 3;
@@ -292,6 +417,11 @@
   100% { opacity: 0; transform: scale(1.8); }
 }
 
+@keyframes report-loader__station-pulse {
+  0%, 100% { transform: scale(0.96); opacity: 0.4; }
+  50% { transform: scale(1.12); opacity: 0.85; }
+}
+
 @keyframes report-loader__trail {
   0% { opacity: 0.55; transform: scale(0.7); }
   100% { opacity: 0; transform: scale(1.85); }
@@ -308,7 +438,8 @@
   .report-loader__ghost-chart,
   .report-loader__trail,
   .report-loader__checkpoint.is-active .report-loader__checkpoint-ring,
-  .report-loader__checkpoint.is-active .report-loader__checkpoint-label {
+  .report-loader__checkpoint.is-active .report-loader__checkpoint-label,
+  .report-loader__station--full::before {
     animation: none;
   }
 

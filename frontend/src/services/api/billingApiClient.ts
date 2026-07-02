@@ -7,6 +7,8 @@ type BillingAccess = {
     limits: Record<string, unknown>;
 };
 
+const BILLING_API_NETWORK_ERROR_MESSAGE = 'Не удалось загрузить платные тарифы. Попробуйте открыть приложение заново или напишите нам.';
+
 export type BillingPlan = {
     code: string;
     name: string;
@@ -17,12 +19,27 @@ export type BillingPlan = {
     durationMonths: number | null;
     features: Record<string, unknown>;
     limits: Record<string, unknown>;
+    bitrixVersion?: string;
+    tariffGroup?: string;
+    usersLimit?: number | null;
+    isPurchasable?: boolean;
 };
 
 export type BillingStateResponse = {
     ok: boolean;
     access: BillingAccess;
     plans: BillingPlan[];
+    bitrixTariff?: {
+        license: string;
+        licenseType: string;
+        licenseFamily: string;
+        checkedAt: string | null;
+        isKnown: boolean;
+        licenseDetected?: boolean;
+        license_detected?: boolean;
+        allowedPaidPlanCodes: string[];
+        message: string;
+    };
 };
 
 export type CreatePaymentResponse = {
@@ -117,14 +134,25 @@ const getErrorMessage = (payload: unknown, fallback: string) => {
 };
 
 const requestJson = async <T>(path: string, options: RequestInit = {}): Promise<T> => {
-    const response = await fetch(buildApiUrl(path), {
-        ...options,
-        headers: {
-            Accept: 'application/json',
-            ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-            ...options.headers,
-        },
-    });
+    let response: Response;
+
+    try {
+        response = await fetch(buildApiUrl(path), {
+            ...options,
+            headers: {
+                Accept: 'application/json',
+                ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+                ...options.headers,
+            },
+        });
+    } catch (error) {
+        console.warn('[Billing API] request failed before receiving a response', {
+            path,
+            method: options.method || 'GET',
+            error,
+        });
+        throw new Error(BILLING_API_NETWORK_ERROR_MESSAGE);
+    }
 
     let payload: unknown = null;
 
@@ -135,6 +163,12 @@ const requestJson = async <T>(path: string, options: RequestInit = {}): Promise<
     }
 
     if (!response.ok) {
+        console.warn('[Billing API] request returned an error response', {
+            path,
+            method: options.method || 'GET',
+            status: response.status,
+            payload,
+        });
         throw new Error(
             getErrorMessage(payload, `Backend API request failed with status ${response.status}`),
         );

@@ -143,41 +143,6 @@ const formatPlanPrice = (plan: BillingPlan | null) => {
   return `${formattedIntegerPart}.${fractionPart} ${currency} / месяц`;
 };
 
-type TariffCardConfig = {
-  id: string;
-  planCode: string;
-  title: string;
-  usersLabel?: string;
-};
-
-const CLOUD_TARIFFS: TariffCardConfig[] = [
-  { id: 'cloud_free', planCode: 'free', title: 'Бесплатный тариф' },
-  { id: 'cloud_basic_5', planCode: 'cloud_basic_5', title: 'Базовый тариф', usersLabel: '5 пользователей' },
-  { id: 'cloud_standard_50', planCode: 'cloud_standard_50', title: 'Стандартный тариф', usersLabel: '50 пользователей' },
-  { id: 'cloud_professional_100', planCode: 'cloud_professional_100', title: 'Профессиональный тариф', usersLabel: '100 пользователей' },
-  { id: 'cloud_enterprise_250', planCode: 'cloud_enterprise_250', title: 'Энтерпрайз 250', usersLabel: '250 пользователей' },
-  { id: 'cloud_enterprise_1000', planCode: 'cloud_enterprise_1000', title: 'Энтерпрайз 1000', usersLabel: '1000 пользователей' },
-  { id: 'cloud_enterprise_2000', planCode: 'cloud_enterprise_2000', title: 'Энтерпрайз 2000', usersLabel: '2000 пользователей' },
-];
-
-const BOX_TARIFFS: TariffCardConfig[] = [
-  { id: 'box_shop_crm_12', planCode: 'box_shop_crm_12', title: 'Интернет-магазин + CRM', usersLabel: '12 пользователей' },
-  { id: 'box_portal_50', planCode: 'box_portal_50', title: 'Корпоративный портал 50', usersLabel: '50 пользователей' },
-  { id: 'box_portal_100', planCode: 'box_portal_100', title: 'Корпоративный портал 100', usersLabel: '100 пользователей' },
-  { id: 'box_portal_250', planCode: 'box_portal_250', title: 'Корпоративный портал 250', usersLabel: '250 пользователей' },
-  { id: 'box_portal_500', planCode: 'box_portal_500', title: 'Корпоративный портал 500', usersLabel: '500 пользователей' },
-];
-
-const BOX_ENTERPRISE_OPTIONS = Array.from({ length: 10 }, (_, index) => {
-  const users = (index + 1) * 1000;
-
-  return {
-    label: `${new Intl.NumberFormat('ru-RU').format(users)} пользователей`,
-    planCode: `box_enterprise_${users}`,
-    users,
-  };
-});
-
 const formatAccessUntil = (validUntil: string | null, isLifetime: boolean) => {
   if (isLifetime) {
     return 'Доступ подключен бессрочно.';
@@ -200,10 +165,40 @@ const formatAccessUntil = (validUntil: string | null, isLifetime: boolean) => {
   }).format(date)}.`;
 };
 
+const getPlanUsersLabel = (plan: BillingPlan) => {
+  const users = plan.limits?.users;
+
+  if (typeof users !== 'number' || users <= 0) {
+    return '';
+  }
+
+  return `${new Intl.NumberFormat('ru-RU').format(users)} пользователей`;
+};
+
+const getPlanMetaLabel = (plan: BillingPlan) => {
+  const bitrixVersion = typeof plan.limits?.bitrix_version === 'string' ? plan.limits.bitrix_version : '';
+  const usersLabel = getPlanUsersLabel(plan);
+  const parts = [];
+
+  if (bitrixVersion === 'cloud') {
+    parts.push('Облачная версия Битрикс24');
+  } else if (bitrixVersion === 'box') {
+    parts.push('Коробочная версия Битрикс24');
+  }
+
+  if (usersLabel) {
+    parts.push(usersLabel);
+  }
+
+  return parts.join(' · ');
+};
+
 export function ProVersionModal({
   onClose,
   onSubscribe,
   isLoading,
+  isBillingLoading,
+  hasBillingLoadFailed,
   plans,
   hasPro,
   validUntil,
@@ -215,6 +210,8 @@ export function ProVersionModal({
   onClose: () => void;
   onSubscribe: (planCode: string) => void;
   isLoading: boolean;
+  isBillingLoading: boolean;
+  hasBillingLoadFailed: boolean;
   plans: BillingPlan[];
   hasPro: boolean;
   validUntil: string | null;
@@ -224,52 +221,14 @@ export function ProVersionModal({
   onCustomerEmailChange: (value: string) => void;
 }) {
   const accessUntilText = formatAccessUntil(validUntil, isLifetime);
-  const planByCode = useMemo(
-    () => new Map(plans.map((item) => [item.code, item])),
+  const paidPlans = useMemo(
+    () => plans.filter((item) => item.billingPeriod !== 'free' && item.code !== 'free'),
     [plans],
   );
-  const [selectedEnterprisePlanCode, setSelectedEnterprisePlanCode] = useState(
-    BOX_ENTERPRISE_OPTIONS[0].planCode,
-  );
-  const selectedEnterprisePlan =
-    planByCode.get(selectedEnterprisePlanCode) ??
-    plans.find((item) => item.code === selectedEnterprisePlanCode) ??
-    null;
-
-  useEffect(() => {
-    if (!BOX_ENTERPRISE_OPTIONS.some((option) => option.planCode === selectedEnterprisePlanCode)) {
-      setSelectedEnterprisePlanCode(BOX_ENTERPRISE_OPTIONS[0].planCode);
-    }
-  }, [selectedEnterprisePlanCode]);
-
-  const renderBuyButton = (planCode: string) => (
-    <button
-      className="pro-plan-buy-button"
-      type="button"
-      onClick={() => onSubscribe(planCode)}
-      disabled={isLoading}
-    >
-      Купить
-    </button>
-  );
-
-  const renderPlanCard = (tariff: TariffCardConfig) => {
-    const tariffPlan = planByCode.get(tariff.planCode) ?? null;
-
-    return (
-      <section
-        className="pro-plan-card"
-        key={tariff.id}
-      >
-        <div className="pro-plan-head">
-          <h3>{tariff.title}</h3>
-          {tariff.usersLabel && <span>{tariff.usersLabel}</span>}
-        </div>
-        <strong>{formatPlanPrice(tariffPlan)}</strong>
-        {renderBuyButton(tariff.planCode)}
-      </section>
-    );
-  };
+  const paidPlan = paidPlans[0] ?? null;
+  const canShowPlans = !isBillingLoading && !hasBillingLoadFailed;
+  const fallbackMessage = error || 'Не удалось загрузить платные тарифы. Попробуйте открыть приложение заново или напишите нам.';
+  const shouldShowFallbackCard = isBillingLoading || hasBillingLoadFailed || (canShowPlans && !paidPlan);
 
   return (
     <div className="modal-layer pro-modal-layer" role="presentation">
@@ -303,67 +262,78 @@ export function ProVersionModal({
 
           <section className="pro-tariff-section">
             <div className="pro-tariff-section-head">
-              <h3>Облачная версия Битрикс24</h3>
+              <h3>Доступные тарифы</h3>
             </div>
             <div className="pro-plan-grid">
-              {CLOUD_TARIFFS.map((item) => renderPlanCard(item))}
-            </div>
-          </section>
-
-          <div className="pro-tariff-divider" />
-
-          <section className="pro-tariff-section">
-            <div className="pro-tariff-section-head">
-              <h3>Коробочная версия Битрикс24</h3>
-            </div>
-            <div className="pro-plan-grid">
-              {BOX_TARIFFS.map((item) => renderPlanCard(item))}
-              <section className="pro-plan-card pro-enterprise-card">
-                <div className="pro-plan-head">
-                  <h3>Энтерпрайз</h3>
-                  <label className="pro-enterprise-select">
-                    <span>Количество пользователей</span>
-                    <select
-                      value={selectedEnterprisePlanCode}
-                      onChange={(event) => setSelectedEnterprisePlanCode(event.target.value)}
-                    >
-                      {BOX_ENTERPRISE_OPTIONS.map((option) => (
-                        <option value={option.planCode} key={option.planCode}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+              <section className="pro-plan-card pro-plan-card-free">
+                <div className="pro-plan-content">
+                  <div className="pro-plan-head">
+                    <h3>Бесплатный тариф</h3>
+                  </div>
+                  <p className="pro-plan-description">
+                    В бесплатном тарифе не сохраняются выставленные настройки и фильтры. При выходе из приложения параметры будут сбрасываться.
+                  </p>
                 </div>
-                <strong>{formatPlanPrice(selectedEnterprisePlan)}</strong>
-                {renderBuyButton(selectedEnterprisePlanCode)}
+                <div className="pro-plan-footer">
+                  <strong>0.00 RUB / месяц</strong>
+                  <button className="pro-plan-action pro-plan-action-free" type="button" onClick={onClose}>
+                    {hasPro ? 'Текущий тариф' : 'Остаться бесплатно'}
+                  </button>
+                </div>
               </section>
+
+              {paidPlan && canShowPlans && (
+                <section className="pro-plan-card pro-plan-card-paid">
+                  <div className="pro-plan-content">
+                    <div className="pro-plan-head">
+                      <h3>{paidPlan.name}</h3>
+                      {getPlanMetaLabel(paidPlan) && <span>{getPlanMetaLabel(paidPlan)}</span>}
+                    </div>
+                    <p className="pro-plan-description">
+                      Этот тариф позволяет сохранять настройки и фильтры после выхода из приложения.
+                    </p>
+                  </div>
+                  <div className="pro-plan-footer">
+                    <strong>{formatPlanPrice(paidPlan)}</strong>
+                    {!hasPro && (
+                      <label className="pro-email-field">
+                        <span>Email для чека</span>
+                        <input
+                          type="email"
+                          value={customerEmail}
+                          onChange={(event) => onCustomerEmailChange(event.target.value)}
+                          placeholder="billing@example.com"
+                          autoComplete="email"
+                          required
+                        />
+                      </label>
+                    )}
+                    <button
+                      className="pro-plan-action pro-plan-action-paid"
+                      type="button"
+                      onClick={() => onSubscribe(paidPlan.code)}
+                      disabled={isLoading || hasPro}
+                    >
+                      {hasPro ? 'Подключено' : 'Купить'}
+                    </button>
+                  </div>
+                </section>
+              )}
+
+              {shouldShowFallbackCard && (
+                <section className="pro-plan-card pro-plan-card-fallback" role={hasBillingLoadFailed ? 'alert' : 'status'}>
+                  <div className="pro-plan-content">
+                    <div className="pro-plan-head">
+                      <h3>{isBillingLoading ? 'Загрузка тарифа' : 'Тариф не определён'}</h3>
+                    </div>
+                    <p className="pro-plan-description">
+                      {isBillingLoading ? 'Подбираем подходящий платный тариф для вашего портала.' : fallbackMessage}
+                    </p>
+                  </div>
+                </section>
+              )}
             </div>
           </section>
-          {!hasPro && (
-            <label className="field-label pro-email-field">
-              <span>Email для чека</span>
-              <input
-                type="email"
-                value={customerEmail}
-                onChange={(event) => onCustomerEmailChange(event.target.value)}
-                placeholder="billing@example.com"
-                autoComplete="email"
-                required
-              />
-            </label>
-          )}
-          {error && (
-            <p className="modal-error-text" role="alert">
-              {error}
-            </p>
-          )}
-
-          <div className="pro-modal-actions">
-            <button className="secondary-button" type="button" onClick={onClose}>
-              {hasPro ? 'Закрыть' : 'Не сейчас'}
-            </button>
-          </div>
         </div>
       </div>
     </div>

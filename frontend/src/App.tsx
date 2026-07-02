@@ -198,6 +198,25 @@ const splitEmployeeName = (name: string) => {
   };
 };
 
+const BILLING_LOAD_ERROR_MESSAGE = 'Не удалось загрузить платные тарифы. Попробуйте открыть приложение заново или напишите нам.';
+
+const getFriendlyBillingError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : '';
+  const normalizedMessage = message.toLowerCase();
+
+  if (
+    !message ||
+    normalizedMessage === 'failed to fetch' ||
+    normalizedMessage.includes('networkerror') ||
+    normalizedMessage.includes('load failed') ||
+    normalizedMessage.includes('vite_api_base_url')
+  ) {
+    return BILLING_LOAD_ERROR_MESSAGE;
+  }
+
+  return message;
+};
+
 const toReportEmployee = (employee: { id: string; userId?: number; name: string; avatarUrl?: string; values?: Record<string, number> }): ReportEmployee => {
   const { firstName, lastName } = splitEmployeeName(employee.name);
   const userId = employee.userId ?? Number(employee.id);
@@ -341,6 +360,8 @@ function App() {
   const [billingIsLifetime, setBillingIsLifetime] = useState(false);
   const [billingPlans, setBillingPlans] = useState<BillingPlan[]>([]);
   const [billingError, setBillingError] = useState('');
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingLoadFailed, setBillingLoadFailed] = useState(false);
   const [billingCustomerEmail, setBillingCustomerEmail] = useState('');
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [editingViewId, setEditingViewId] = useState<string | null>(null);
@@ -465,19 +486,26 @@ function App() {
 
   const refreshBillingState = useCallback(() => {
     setBillingError('');
+    setBillingLoading(true);
 
     return loadBillingState()
       .then((state) => {
+        setBillingLoadFailed(false);
         setBillingHasPro(Boolean(state.access?.hasPro));
         setBillingValidUntil(state.access?.validUntil ?? null);
         setBillingIsLifetime(Boolean(state.access?.isLifetime));
-        setBillingPlans(state.plans);
+        setBillingPlans(state.plans ?? []);
+        setBillingError(state.bitrixTariff?.message ?? '');
         return state;
       })
       .catch((error) => {
         console.warn('[Billing] state was not loaded', error);
-        setBillingError(error instanceof Error ? error.message : 'Не удалось загрузить статус подписки.');
+        setBillingLoadFailed(true);
+        setBillingError(getFriendlyBillingError(error));
         return null;
+      })
+      .finally(() => {
+        setBillingLoading(false);
       });
   }, []);
 
@@ -494,6 +522,12 @@ function App() {
   useEffect(() => {
     refreshBillingState();
   }, [refreshBillingState]);
+
+  useEffect(() => {
+    if (isProOpen) {
+      refreshBillingState();
+    }
+  }, [isProOpen, refreshBillingState]);
 
   useEffect(() => {
     const handleBillingRefresh = () => {
@@ -1853,7 +1887,7 @@ function App() {
       .catch((error) => {
         paymentWindow?.close();
         console.warn('[Billing] payment was not created', error);
-        setBillingError(error instanceof Error ? error.message : 'Не удалось создать платеж.');
+        setBillingError(getFriendlyBillingError(error));
       })
       .finally(() => {
         setPaymentLoading(false);
@@ -2736,6 +2770,8 @@ function App() {
           onClose={() => setIsProOpen(false)}
           onSubscribe={handleCreateProPayment}
           isLoading={paymentLoading}
+          isBillingLoading={billingLoading}
+          hasBillingLoadFailed={billingLoadFailed}
           plans={billingPlans}
           hasPro={billingHasPro}
           validUntil={billingValidUntil}

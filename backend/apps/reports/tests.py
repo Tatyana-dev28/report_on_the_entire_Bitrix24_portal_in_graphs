@@ -14,7 +14,10 @@ from apps.reports.services.bitrix_report_data_provider import (
     resolve_selected_sources_for_portal,
 )
 from apps.reports.services.data_providers import ReportDataProviderContext
-from apps.reports.services.report_catalog import build_report_catalog
+from apps.reports.services.report_catalog import (
+    build_report_catalog,
+    disambiguate_duplicate_pipeline_labels,
+)
 
 
 @override_settings(REPORT_DATA_PROVIDER="empty")
@@ -994,6 +997,244 @@ class ReportCatalogTests(TestCase):
 
         self.assertEqual(catalog["sources"][0]["id"], "deal-7")
         self.assertEqual(catalog["sources"][0]["sourceLabel"], "Кешированная воронка")
+
+
+class FakeCatalogWithDuplicateLabelsBitrixRestClient:
+    """Simulates a Bitrix portal with multiple pipelines having identical names."""
+
+    def __init__(self, portal):
+        self.portal = portal
+
+    def call_list(self, method, params=None, *, max_pages=None):
+        if method == "crm.dealcategory.list":
+            return [
+                {"ID": "0", "NAME": "Общее"},
+                {"ID": "12", "NAME": "Производство"},
+                {"ID": "18", "NAME": "Общее"},
+            ]
+
+        return []
+
+    def call_method(self, method, params=None, *, retry_on_auth_error=True):
+        if method == "crm.type.list":
+            return type(
+                "Result",
+                (),
+                {
+                    "result": {
+                        "types": [
+                            {
+                                "entityTypeId": 180,
+                                "title": "Договоры",
+                            },
+                            {
+                                "entityTypeId": 190,
+                                "title": "Договоры",
+                            },
+                        ]
+                    }
+                },
+            )()
+
+        if method == "crm.category.list":
+            return type(
+                "Result",
+                (),
+                {
+                    "result": {
+                        "categories": [
+                            {
+                                "id": 1,
+                                "name": "Общее",
+                            }
+                        ]
+                    }
+                },
+            )()
+
+        return type("Result", (), {"result": {}})()
+
+
+class ReportCatalogDisambiguationTests(TestCase):
+    def setUp(self):
+        self.portal = BitrixPortal.objects.create(
+            member_id="test-disambig",
+            domain="test-disambig.bitrix24.ru",
+            protocol=BitrixPortal.Protocol.HTTPS,
+            status=BitrixPortal.Status.ACTIVE,
+        )
+
+    def test_disambiguate_duplicate_deal_pipelines(self):
+        """Deal pipelines with identical names get entity context appended."""
+        sources = [
+            {
+                "id": "deal-0",
+                "type": "deal",
+                "entityTypeId": 2,
+                "categoryId": 0,
+                "title": "Общее",
+                "sourceLabel": "Общее",
+                "entityTypeName": "Сделки",
+                "isAvailable": True,
+                "rawData": {"_entityTypeName": "Сделки"},
+            },
+            {
+                "id": "deal-18",
+                "type": "deal",
+                "entityTypeId": 2,
+                "categoryId": 18,
+                "title": "Общее",
+                "sourceLabel": "Общее",
+                "entityTypeName": "Сделки",
+                "isAvailable": True,
+                "rawData": {"_entityTypeName": "Сделки"},
+            },
+        ]
+
+        result = disambiguate_duplicate_pipeline_labels(sources)
+
+        deal_0_label = [s["sourceLabel"] for s in result if s["id"] == "deal-0"][0]
+        deal_18_label = [s["sourceLabel"] for s in result if s["id"] == "deal-18"][0]
+
+        self.assertIn("Сделки", deal_0_label)
+        self.assertIn("Сделки", deal_18_label)
+        self.assertNotEqual(deal_0_label, deal_18_label)
+
+    def test_disambiguate_smart_process_pipelines_second_pass_category_id(self):
+        """
+        When smart processes share both the base name and the entity type name,
+        category ID is appended for further disambiguation.
+        """
+        sources = [
+            {
+                "id": "smart-180-1",
+                "type": "smartProcess",
+                "entityTypeId": 180,
+                "categoryId": 1,
+                "title": "Общее",
+                "sourceLabel": "Общее",
+                "entityTypeName": "Договоры",
+                "isAvailable": True,
+                "rawData": {
+                    "type": {"title": "Договоры"},
+                    "_entityTypeName": "Договоры",
+                },
+            },
+            {
+                "id": "smart-190-1",
+                "type": "smartProcess",
+                "entityTypeId": 190,
+                "categoryId": 1,
+                "title": "Общее",
+                "sourceLabel": "Общее",
+                "entityTypeName": "Договоры",
+                "isAvailable": True,
+                "rawData": {
+                    "type": {"title": "Договоры"},
+                    "_entityTypeName": "Договоры",
+                },
+            },
+        ]
+
+        result = disambiguate_duplicate_pipeline_labels(sources)
+
+        smart_180_label = [s["sourceLabel"] for s in result if s["id"] == "smart-180-1"][0]
+        smart_190_label = [s["sourceLabel"] for s in result if s["id"] == "smart-190-1"][0]
+
+        # Both get entity type appended in first pass
+        self.assertIn("Договоры", smart_180_label)
+        self.assertIn("Договоры", smart_190_label)
+
+        # Second pass appends category ID since entity type is also identical
+        self.assertIn("ID 1", smart_180_label)
+        self.assertIn("ID 1", smart_190_label)
+
+        # But they must be distinguishable by ID (different entity type IDs)
+        self.assertNotEqual(smart_180_label, smart_190_label)
+
+    def test_disambiguate_skips_single_pipeline(self):
+        """A single pipeline with a unique name should not be modified."""
+        sources = [
+            {
+                "id": "deal-12",
+                "type": "deal",
+                "entityTypeId": 2,
+                "categoryId": 12,
+                "title": "Производство",
+                "sourceLabel": "Производство",
+                "entityTypeName": "Сделки",
+                "isAvailable": True,
+                "rawData": {"_entityTypeName": "Сделки"},
+            },
+        ]
+
+        result = disambiguate_duplicate_pipeline_labels(sources)
+
+        self.assertEqual(result[0]["sourceLabel"], "Производство")
+
+    def test_disambiguate_with_cached_sources_uses_model_entity_type_name(self):
+        """Cached CrmSource records get the same disambiguation applied."""
+        CrmSource.objects.create(
+            portal=self.portal,
+            external_key="deal-0",
+            source_type=CrmSource.SourceType.DEAL,
+            entity_type_id=2,
+            category_id=0,
+            title="Общее",
+            source_label="Общее",
+            is_available=True,
+            raw_data={"_entityTypeName": "Сделки"},
+        )
+        CrmSource.objects.create(
+            portal=self.portal,
+            external_key="deal-18",
+            source_type=CrmSource.SourceType.DEAL,
+            entity_type_id=2,
+            category_id=18,
+            title="Общее",
+            source_label="Общее",
+            is_available=True,
+            raw_data={"_entityTypeName": "Сделки"},
+        )
+
+        from apps.reports.services.report_catalog import get_cached_report_sources
+
+        cached = get_cached_report_sources(self.portal)
+
+        self.assertEqual(len(cached), 2)
+
+        deal_0_label = [s["sourceLabel"] for s in cached if s["id"] == "deal-0"][0]
+        deal_18_label = [s["sourceLabel"] for s in cached if s["id"] == "deal-18"][0]
+
+        self.assertNotEqual(deal_0_label, deal_18_label)
+        self.assertIn("Сделки", deal_0_label)
+        self.assertIn("Сделки", deal_18_label)
+
+    @patch("apps.reports.services.report_catalog._portal_has_access_token", return_value=True)
+    @patch(
+        "apps.reports.services.report_catalog.BitrixRestClient",
+        FakeCatalogWithDuplicateLabelsBitrixRestClient,
+    )
+    def test_catalog_applies_disambiguation_integration(self, _has_token):
+        """Full catalog pipeline applies disambiguation to deal pipelines with same name."""
+        catalog = build_report_catalog(self.portal)
+
+        deal_sources = [s for s in catalog["sources"] if s["type"] == "deal"]
+
+        # 3 deal pipelines: Общее (ID=0), Производство (ID=12), Общее (ID=18)
+        self.assertEqual(len(deal_sources), 3)
+
+        labels = {s["id"]: s["sourceLabel"] for s in deal_sources}
+
+        # "Производство" is unique — should stay unchanged
+        self.assertEqual(labels["deal-12"], "Производство")
+
+        # Both "Общее" pipelines should be disambiguated with entity type
+        self.assertIn("Сделки", labels["deal-0"])
+        self.assertIn("Сделки", labels["deal-18"])
+
+        # And they should end up different (category IDs appended)
+        self.assertNotEqual(labels["deal-0"], labels["deal-18"])
 
 
 class BitrixReportDataProviderTests(TestCase):

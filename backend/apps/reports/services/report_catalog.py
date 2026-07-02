@@ -59,6 +59,15 @@ SOURCE_TYPE_ORDER = {
     "task": 100,
     "crm_form": 110,
 }
+
+# Entity type ID → human-readable name mapping for known CRM entities.
+# Smart-process entity type names are loaded dynamically from Bitrix API.
+ENTITY_TYPE_NAME_MAP: dict[int, str] = {
+    1: "Лиды",
+    2: "Сделки",
+    31: "Счета",
+}
+
 logger = logging.getLogger(__name__)
 
 
@@ -101,7 +110,11 @@ def get_cached_report_sources(portal: BitrixPortal) -> list[dict]:
         is_active=True,
     )
 
-    return _sort_sources(_deduplicate_sources([_model_to_api_source(source) for source in sources]))
+    return _sort_sources(_deduplicate_sources(
+        disambiguate_duplicate_pipeline_labels(
+            [_model_to_api_source(source) for source in sources]
+        )
+    ))
 
 
 def load_sources_from_bitrix(portal: BitrixPortal) -> list[dict]:
@@ -114,7 +127,9 @@ def load_sources_from_bitrix(portal: BitrixPortal) -> list[dict]:
         *_virtual_report_sources(),
     ]
 
-    return _sort_sources(_deduplicate_sources(sources))
+    return _sort_sources(_deduplicate_sources(
+        disambiguate_duplicate_pipeline_labels(sources)
+    ))
 
 
 @transaction.atomic
@@ -148,6 +163,116 @@ def sync_crm_sources(*, portal: BitrixPortal, sources: list[dict]) -> None:
     ).exclude(external_key__in=seen_external_keys).update(is_available=False)
 
 
+def disambiguate_duplicate_pipeline_labels(sources: list[dict]) -> list[dict]:
+    """
+    If multiple sources share the same base label (sourceLabel / title),
+    append entity context in parentheses to distinguish them.
+
+    First pass: append entity type name.
+      "Общее" → "Общее (Сделки)"   (deal pipeline)
+      "Общее" → "Общее (Договоры)" (smart process pipeline)
+
+    Second pass: if labels are still duplicates, append category ID.
+      "Общее (Договоры)" → "Общее (Договоры, ID 12)"
+      "Общее (Договоры)" → "Общее (Договоры, ID 18)"
+    """
+    # Collect sources that have a non-empty base label
+    pipeline_sources = [s for s in sources if s.get("sourceLabel") or s.get("title")]
+    non_pipeline_sources = [s for s in sources if not (s.get("sourceLabel") or s.get("title"))]
+
+    # Group by base title
+    title_groups: dict[str, list[dict]] = {}
+
+    for source in pipeline_sources:
+        base_title = str(source.get("sourceLabel") or source.get("title") or "")
+        title_groups.setdefault(base_title, []).append(source)
+
+    # Only process groups with more than one source
+    for base_title, group in title_groups.items():
+        if len(group) <= 1:
+            continue
+
+        # --- First pass: append entity type name ---
+        for source in group:
+            entity_type_name = _resolve_entity_type_name(source)
+            if entity_type_name:
+                source["sourceLabel"] = f"{base_title} ({entity_type_name})"
+
+        # --- Second pass: if still duplicated, append category ID ---
+        label_groups: dict[str, list[dict]] = {}
+
+        for source in group:
+            label = str(source.get("sourceLabel") or "")
+            label_groups.setdefault(label, []).append(source)
+
+        for label, label_group in label_groups.items():
+            if len(label_group) <= 1:
+                continue
+
+            for source in label_group:
+                category_id = source.get("categoryId")
+                source["sourceLabel"] = f"{label}, ID {category_id}"
+
+    return sources
+
+
+def _resolve_entity_type_name(source: dict) -> str | None:
+    """Resolve human-readable entity type name for a source."""
+    source_type = source.get("type")
+    entity_type_id = source.get("entityTypeId")
+    raw_data = source.get("rawData") or {}
+
+    if source_type == "deal":
+        return ENTITY_TYPE_NAME_MAP.get(2, "Сделки")
+
+    if source_type == "smartProcess":
+        return _extract_smart_process_name(raw_data)
+
+    if source_type == "lead":
+        return ENTITY_TYPE_NAME_MAP.get(1, "Лиды")
+
+    if source_type == "invoice":
+        return ENTITY_TYPE_NAME_MAP.get(31, "Счета")
+
+    # Fallback: use the entity type name map if entity_type_id is known
+    if isinstance(entity_type_id, int) and entity_type_id in ENTITY_TYPE_NAME_MAP:
+        return ENTITY_TYPE_NAME_MAP[entity_type_id]
+
+    return None
+
+
+def _extract_smart_process_name(raw_data: dict) -> str | None:
+    """Extract the smart process type title from raw_data."""
+    if not isinstance(raw_data, dict):
+        return None
+
+    # Case 1: rawData has a "type" key with the smart type object
+    smart_type = raw_data.get("type")
+
+    if isinstance(smart_type, dict):
+        name = (
+            smart_type.get("title")
+            or smart_type.get("TITLE")
+            or smart_type.get("name")
+            or smart_type.get("NAME")
+        )
+        if name:
+            return str(name)
+
+    # Case 2: rawData IS the smart type object (no categories case)
+    if "entityTypeId" in raw_data or "ENTITY_TYPE_ID" in raw_data:
+        name = (
+            raw_data.get("title")
+            or raw_data.get("TITLE")
+            or raw_data.get("name")
+            or raw_data.get("NAME")
+        )
+        if name:
+            return str(name)
+
+    return None
+
+
 def _deal_sources(client: BitrixRestClient) -> list[dict]:
     categories = client.call_list("crm.dealcategory.list", {"order": {"SORT": "ASC"}})
     categories = _ensure_default_deal_category(categories)
@@ -163,8 +288,12 @@ def _deal_sources(client: BitrixRestClient) -> list[dict]:
             "categoryId": _safe_int(category.get("ID"), 0),
             "title": _category_title(category, default="Продажи"),
             "sourceLabel": _category_title(category, default="Продажи"),
+            "entityTypeName": "Сделки",
             "isAvailable": True,
-            "rawData": category,
+            "rawData": {
+                **category,
+                "_entityTypeName": "Сделки",
+            },
         }
         for category in _sort_categories(categories)
     ]
@@ -207,8 +336,12 @@ def _smart_process_sources(client: BitrixRestClient) -> list[dict]:
                     "categoryId": 0,
                     "title": str(type_title),
                     "sourceLabel": str(type_title),
+                    "entityTypeName": str(type_title),
                     "isAvailable": True,
-                    "rawData": smart_type,
+                    "rawData": {
+                        **smart_type,
+                        "_entityTypeName": str(type_title),
+                    },
                 }
             )
             continue
@@ -224,10 +357,12 @@ def _smart_process_sources(client: BitrixRestClient) -> list[dict]:
                     "categoryId": category_id,
                     "title": category_title,
                     "sourceLabel": category_title,
+                    "entityTypeName": str(type_title),
                     "isAvailable": True,
                     "rawData": {
                         "type": smart_type,
                         "category": category,
+                        "_entityTypeName": str(type_title),
                     },
                 }
             )
@@ -260,7 +395,11 @@ def _lead_source() -> dict:
         "categoryId": None,
         "title": "Лиды",
         "sourceLabel": "Лиды",
+        "entityTypeName": "Лиды",
         "isAvailable": True,
+        "rawData": {
+            "_entityTypeName": "Лиды",
+        },
     }
 
 
@@ -272,11 +411,23 @@ def _invoice_source() -> dict:
         "categoryId": None,
         "title": "Счета",
         "sourceLabel": "Счета",
+        "entityTypeName": "Счета",
         "isAvailable": True,
+        "rawData": {
+            "_entityTypeName": "Счета",
+        },
     }
 
 
 def _model_to_api_source(source: CrmSource) -> dict:
+    raw_data = source.raw_data or {}
+
+    # Resolve entityTypeName from raw_data first, then infer from type
+    entity_type_name = raw_data.get("_entityTypeName")
+
+    if not entity_type_name:
+        entity_type_name = _infer_entity_type_name_for_model(source, raw_data)
+
     return {
         "id": source.external_key,
         "type": _api_source_type_from_model(source),
@@ -284,9 +435,54 @@ def _model_to_api_source(source: CrmSource) -> dict:
         "categoryId": source.category_id,
         "title": source.title,
         "sourceLabel": source.source_label or source.title,
+        "entityTypeName": entity_type_name,
         "isAvailable": source.is_available,
-        "rawData": source.raw_data or {},
+        "rawData": raw_data,
     }
+
+
+def _infer_entity_type_name_for_model(source: CrmSource, raw_data: dict) -> str | None:
+    """Infer entity type name for a CrmSource model that may lack _entityTypeName in raw_data."""
+    # Check by entity_type_id
+    if source.entity_type_id and source.entity_type_id in ENTITY_TYPE_NAME_MAP:
+        return ENTITY_TYPE_NAME_MAP[source.entity_type_id]
+
+    # Smart process: try to extract from raw_data type title
+    if source.source_type == CrmSource.SourceType.SMART_PROCESS:
+        return _extract_smart_process_name(raw_data)
+
+    # Fallback by source_type
+    if source.source_type == CrmSource.SourceType.DEAL:
+        return "Сделки"
+
+    if source.source_type == CrmSource.SourceType.LEAD:
+        return "Лиды"
+
+    if source.source_type == CrmSource.SourceType.INVOICE:
+        return "Счета"
+
+    if source.source_type == CrmSource.SourceType.CALL:
+        return "Звонки"
+
+    if source.source_type == CrmSource.SourceType.ACTIVITY:
+        return "Дела"
+
+    if source.source_type == CrmSource.SourceType.TASK:
+        return "Задачи"
+
+    if source.source_type == CrmSource.SourceType.COMPANY:
+        return "Компании"
+
+    if source.source_type == CrmSource.SourceType.CONTACT:
+        return "Контакты"
+
+    if source.source_type == CrmSource.SourceType.OTHER:
+        if source.external_key.startswith("quote-"):
+            return "Предложения"
+        if source.external_key.startswith("crm-form-"):
+            return "CRM-формы"
+
+    return None
 
 
 def _api_source_type_from_model(source: CrmSource) -> str:

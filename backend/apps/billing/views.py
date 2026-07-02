@@ -19,6 +19,7 @@ from apps.billing.services.robokassa import (
     get_request_payload,
     process_robokassa_result,
 )
+from apps.billing.services.bitrix_tariffs import refresh_portal_bitrix_license
 from apps.bitrix.models import BitrixPortal
 from apps.bitrix.services.portal_tokens import (
     get_portal_token_from_request,
@@ -156,6 +157,8 @@ def billing_access_view(request: HttpRequest):
     except ValidationError as error:
         return _json_error(str(error), status=400)
 
+    refresh_portal_bitrix_license(portal)
+
     return JsonResponse(
         {
             "ok": True,
@@ -182,6 +185,7 @@ def create_payment_view(request: HttpRequest):
         validate_email(customer_email)
 
         portal = _resolve_billing_portal(request, payload)
+        refresh_portal_bitrix_license(portal)
         payment = create_robokassa_payment(
             portal=portal,
             plan_code=str(payload.get("planCode") or "pro_monthly"),

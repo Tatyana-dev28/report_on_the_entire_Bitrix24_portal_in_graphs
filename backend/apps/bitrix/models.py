@@ -104,6 +104,34 @@ class BitrixPortal(PublicBaseModel, ActiveModel):
         verbose_name="Часовой пояс портала",
     )
 
+    bitrix_license = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_index=True,
+        verbose_name="Bitrix24 LICENSE",
+    )
+    bitrix_license_type = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_index=True,
+        verbose_name="Bitrix24 LICENSE_TYPE",
+    )
+    bitrix_license_family = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_index=True,
+        verbose_name="Bitrix24 LICENSE_FAMILY",
+    )
+    bitrix_license_checked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="Bitrix24 license checked at",
+    )
+
     application_token_encrypted = models.TextField(
         blank=True,
         verbose_name="Application token, encrypted",

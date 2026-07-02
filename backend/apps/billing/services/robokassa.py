@@ -20,6 +20,11 @@ from apps.billing.services.access import (
     set_free_access,
     sync_portal_access_from_subscription,
 )
+from apps.billing.services.bitrix_tariffs import (
+    UNKNOWN_LICENSE_MESSAGE,
+    get_allowed_plans_policy,
+    is_paid_plan_allowed_for_portal,
+)
 from apps.bitrix.models import BitrixPortal
 from apps.common.services.sanitizers import sanitize_payload
 
@@ -75,6 +80,30 @@ def serialize_plan(plan: Plan) -> dict:
         "durationMonths": plan.duration_months,
         "features": plan.features,
         "limits": plan.limits,
+        "bitrixVersion": plan.bitrix_version,
+        "tariffGroup": plan.tariff_group,
+        "usersLimit": plan.users_limit,
+        "isPurchasable": plan.is_purchasable,
+    }
+
+
+def serialize_bitrix_tariff_policy(portal: BitrixPortal) -> dict:
+    policy = get_allowed_plans_policy(portal)
+
+    return {
+        "license": policy.bitrix_license,
+        "licenseType": policy.bitrix_license_type,
+        "licenseFamily": policy.bitrix_license_family,
+        "checkedAt": (
+            portal.bitrix_license_checked_at.isoformat()
+            if portal.bitrix_license_checked_at
+            else None
+        ),
+        "isKnown": policy.is_known,
+        "licenseDetected": policy.is_known,
+        "license_detected": policy.is_known,
+        "allowedPaidPlanCodes": list(policy.paid_plan_codes),
+        "message": policy.message,
     }
 
 
@@ -101,15 +130,18 @@ def serialize_access(access: PortalAccess | None) -> dict:
 
 def get_billing_state(portal: BitrixPortal) -> dict:
     access = PortalAccess.objects.filter(portal=portal).first()
+    policy = get_allowed_plans_policy(portal)
+    allowed_plan_codes = {policy.free_plan_code, *policy.paid_plan_codes}
     plans = Plan.objects.filter(is_active=True, is_public=True).order_by(
         "sort_order",
         "price",
         "name",
-    )
+    ).filter(code__in=allowed_plan_codes)
 
     return {
         "access": serialize_access(access),
         "plans": [serialize_plan(plan) for plan in plans],
+        "bitrixTariff": serialize_bitrix_tariff_policy(portal),
     }
 
 
@@ -234,8 +266,12 @@ def create_robokassa_payment(
     if plan.billing_period == Plan.BillingPeriod.FREE:
         raise ValidationError("Free plan does not require payment.")
 
-    if plan.price <= 0:
-        raise ValidationError("Selected paid plan price must be greater than zero.")
+    if not is_paid_plan_allowed_for_portal(portal, plan.code):
+        policy = get_allowed_plans_policy(portal)
+        if not policy.is_known:
+            raise ValidationError(UNKNOWN_LICENSE_MESSAGE)
+
+        raise ValidationError("Выбранный тариф недоступен для текущего тарифа Битрикс24.")
 
     current_access = PortalAccess.objects.filter(portal=portal).first()
 
@@ -416,7 +452,7 @@ def process_robokassa_result(payload: dict) -> tuple[PaymentWebhookEvent, Paymen
     )
 
     if payment.subscription:
-        access = activate_paid_subscription(payment.subscription)
+        access = activate_paid_subscription(payment.subscription, plan=payment.plan)
         sync_portal_access_from_subscription(payment.subscription)
         payment.metadata = {
             **payment.metadata,

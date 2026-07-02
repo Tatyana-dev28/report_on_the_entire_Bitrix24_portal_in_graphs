@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.contrib import admin, messages
+from django.db import models
 from django.utils import timezone
 
 from apps.common.admin_ui import (
@@ -38,19 +39,64 @@ def yes_no_badge(value):
     return status_badge("Нет", "#b42318")
 
 
+class PlanBitrixVersionFilter(admin.SimpleListFilter):
+    title = "Bitrix version"
+    parameter_name = "bitrix_version"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("free", "Free"),
+            ("cloud", "Cloud"),
+            ("box", "Box"),
+            ("legacy", "Legacy"),
+            ("internal", "Internal"),
+        )
+
+    def queryset(self, request, queryset):
+        if not self.value():
+            return queryset
+
+        return queryset.filter(limits__bitrix_version=self.value())
+
+
+class PlanPurchasableFilter(admin.SimpleListFilter):
+    title = "Purchasable"
+    parameter_name = "purchasable"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("yes", "Paid / purchasable"),
+            ("no", "Free or hidden"),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.filter(is_public=True).exclude(
+                billing_period=Plan.BillingPeriod.FREE
+            )
+
+        if self.value() == "no":
+            return queryset.filter(
+                models.Q(is_public=False)
+                | models.Q(billing_period=Plan.BillingPeriod.FREE)
+            )
+
+        return queryset
+
+
 @admin.register(Plan)
 class PlanAdmin(admin.ModelAdmin):
     list_display = (
         "code",
         "name",
-        "users_count",
+        "bitrix_version_display",
+        "tariff_group_display",
+        "users_limit_display",
         "price",
         "currency",
         "billing_period",
-        "duration_months",
-        "features_summary",
+        "is_purchasable_display",
         "is_public",
-        "is_default",
         "is_active",
         "sort_order",
     )
@@ -61,16 +107,19 @@ class PlanAdmin(admin.ModelAdmin):
         "sort_order",
     )
     list_filter = (
+        PlanBitrixVersionFilter,
+        PlanPurchasableFilter,
+        "is_active",
         "billing_period",
         "currency",
         "is_public",
         "is_default",
-        "is_active",
     )
     search_fields = (
         "code",
         "name",
         "description",
+        "limits",
     )
     readonly_fields = (
         "created_at",
@@ -79,7 +128,6 @@ class PlanAdmin(admin.ModelAdmin):
     )
     ordering = (
         "sort_order",
-        "price",
         "name",
     )
     list_per_page = 50
@@ -93,10 +141,22 @@ class PlanAdmin(admin.ModelAdmin):
         return feature_summary_badges(obj.features)
 
     @admin.display(description="Пользователи")
-    def users_count(self, obj):
-        users = (obj.limits or {}).get("users")
+    def users_limit_display(self, obj):
+        users = obj.users_limit
 
         return users or "-"
+
+    @admin.display(description="Bitrix version")
+    def bitrix_version_display(self, obj):
+        return obj.bitrix_version or "-"
+
+    @admin.display(description="Category")
+    def tariff_group_display(self, obj):
+        return obj.tariff_group or "-"
+
+    @admin.display(description="Purchasable")
+    def is_purchasable_display(self, obj):
+        return yes_no_badge(obj.is_purchasable)
 
     fieldsets = (
         (
@@ -629,7 +689,7 @@ class PaymentAdmin(admin.ModelAdmin):
             count += 1
 
             if payment.subscription:
-                activate_paid_subscription(payment.subscription)
+                activate_paid_subscription(payment.subscription, plan=payment.plan)
                 activated_count += 1
 
         self.message_user(

@@ -10,6 +10,7 @@ from apps.billing.services.access import (
     set_free_access,
     sync_portal_access_from_subscription,
 )
+from apps.billing.services.bitrix_tariffs import refresh_portal_bitrix_license
 from apps.bitrix.models import BitrixAuthToken, BitrixPortal
 from apps.common.services.sanitizers import sanitize_payload
 
@@ -176,6 +177,7 @@ def create_or_update_portal_from_bitrix_payload(
         )
 
     ensure_free_subscription_and_access(portal=portal)
+    refresh_portal_bitrix_license(portal)
 
     return portal
 

@@ -120,6 +120,22 @@ class Plan(ActiveBaseModel):
     def __str__(self):
         return self.name
 
+    @property
+    def bitrix_version(self):
+        return (self.limits or {}).get("bitrix_version") or ""
+
+    @property
+    def tariff_group(self):
+        return (self.limits or {}).get("tariff_group") or ""
+
+    @property
+    def users_limit(self):
+        return (self.limits or {}).get("users")
+
+    @property
+    def is_purchasable(self):
+        return self.is_public and self.billing_period != self.BillingPeriod.FREE
+
 
 class Subscription(PublicBaseModel):
     """

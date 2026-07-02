@@ -362,6 +362,7 @@ def activate_manual_pro(
 def activate_paid_subscription(
     subscription: Subscription,
     paid_until=None,
+    plan: Optional[Plan] = None,
 ) -> PortalAccess:
     """
     Включает платную Pro-подписку.
@@ -371,7 +372,7 @@ def activate_paid_subscription(
     """
 
     now = timezone.now()
-    pro_plan = get_pro_monthly_plan()
+    pro_plan = plan or get_pro_monthly_plan()
 
     if paid_until is None:
         starts_at = now

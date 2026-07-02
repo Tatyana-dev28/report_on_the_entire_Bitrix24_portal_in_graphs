@@ -62,6 +62,9 @@ BITRIX_LICENSE_ALLOWED_PLAN_CODES = {
     "enterprise9000": ("box_enterprise_9000",),
     "ent10000": ("box_enterprise_10000",),
     "enterprise10000": ("box_enterprise_10000",),
+    # NFR (Not For Resale) licenses
+    "nfr": ("nfr",),
+    "runfr": ("nfr",),
 }
 
 

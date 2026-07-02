@@ -91,6 +91,18 @@ def default_plans() -> list[dict]:
             is_purchasable=False,
         ),
         build_plan(
+            code="nfr",
+            name="NFR тариф",
+            description="Для порталов Битрикс24 с NFR-лицензией",
+            bitrix_version="nfr",
+            tariff_group="nfr",
+            users=None,
+            sort_order=15,
+            is_purchasable=True,
+            has_pro_features=True,
+            price="0.00",
+        ),
+        build_plan(
             code="pro_monthly",
             name="Pro monthly",
             description=(

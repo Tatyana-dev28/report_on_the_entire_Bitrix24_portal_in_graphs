@@ -50,6 +50,7 @@ class PlanBitrixVersionFilter(admin.SimpleListFilter):
             ("box", "Box"),
             ("legacy", "Legacy"),
             ("internal", "Internal"),
+            ("nfr", "NFR"),
         )
 
     def queryset(self, request, queryset):

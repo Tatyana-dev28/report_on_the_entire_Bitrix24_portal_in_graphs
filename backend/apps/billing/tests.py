@@ -316,3 +316,185 @@ class RobokassaBillingTests(TestCase):
             create_robokassa_payment(portal=self.portal, plan_code="cloud_basic_5")
 
         self.assertEqual(Payment.objects.filter(portal=self.portal).count(), 1)
+
+
+@override_settings(**ROBOKASSA_TEST_SETTINGS)
+class NfrBillingTests(TestCase):
+    """Tests for NFR (Not For Resale) license support."""
+
+    def setUp(self):
+        SeedPlansCommand().handle()
+        self.portal = BitrixPortal.objects.create(
+            domain="nfr-portal.bitrix24.ru",
+            member_id="member-nfr",
+            protocol=BitrixPortal.Protocol.HTTPS,
+            status=BitrixPortal.Status.INSTALLED,
+            bitrix_license="ru_nfr",
+            bitrix_license_type="nfr",
+            bitrix_license_family="nfr",
+        )
+
+    def test_seed_plans_creates_nfr_plan(self):
+        """seed_plans создает NFR plan."""
+        nfr_plan = Plan.objects.filter(code="nfr").first()
+        self.assertIsNotNone(nfr_plan)
+        self.assertEqual(nfr_plan.name, "NFR тариф")
+        self.assertEqual(nfr_plan.bitrix_version, "nfr")
+        self.assertEqual(nfr_plan.tariff_group, "nfr")
+        self.assertTrue(nfr_plan.is_purchasable)
+        self.assertTrue(nfr_plan.is_active)
+        self.assertEqual(nfr_plan.price, Decimal("0.00"))
+        self.assertEqual(nfr_plan.billing_period, Plan.BillingPeriod.MONTH)
+
+    def test_seed_plans_does_not_overwrite_nfr_price(self):
+        """Повторный seed_plans не перетирает цену NFR plan."""
+        nfr_plan = Plan.objects.get(code="nfr")
+        nfr_plan.price = Decimal("999.00")
+        nfr_plan.save(update_fields=["price", "updated_at"])
+
+        SeedPlansCommand().handle()
+        nfr_plan.refresh_from_db()
+
+        self.assertEqual(nfr_plan.price, Decimal("999.00"))
+
+        SeedPlansCommand().handle(reset_defaults=True)
+        nfr_plan.refresh_from_db()
+
+        self.assertEqual(nfr_plan.price, Decimal("0.00"))
+
+    def test_nfr_license_maps_to_nfr_plan(self):
+        """LICENSE=ru_nfr мапится в NFR plan."""
+        self.portal.bitrix_license = "ru_nfr"
+        self.portal.bitrix_license_type = ""
+        self.portal.bitrix_license_family = ""
+        self.portal.save(update_fields=["bitrix_license", "bitrix_license_type", "bitrix_license_family", "updated_at"])
+
+        state = get_billing_state(self.portal)
+        plan_codes = {plan["code"] for plan in state["plans"]}
+        allowed_paid = state["bitrixTariff"]["allowedPaidPlanCodes"]
+
+        self.assertIn("nfr", plan_codes)
+        self.assertEqual(allowed_paid, ["nfr"])
+        self.assertTrue(state["bitrixTariff"]["license_detected"])
+
+    def test_nfr_license_type_maps_to_nfr_plan(self):
+        """LICENSE_TYPE=nfr мапится в NFR plan."""
+        self.portal.bitrix_license = ""
+        self.portal.bitrix_license_type = "nfr"
+        self.portal.bitrix_license_family = ""
+        self.portal.save(update_fields=["bitrix_license", "bitrix_license_type", "bitrix_license_family", "updated_at"])
+
+        state = get_billing_state(self.portal)
+        plan_codes = {plan["code"] for plan in state["plans"]}
+        allowed_paid = state["bitrixTariff"]["allowedPaidPlanCodes"]
+
+        self.assertIn("nfr", plan_codes)
+        self.assertEqual(allowed_paid, ["nfr"])
+        self.assertTrue(state["bitrixTariff"]["license_detected"])
+
+    def test_nfr_license_family_maps_to_nfr_plan(self):
+        """LICENSE_FAMILY=nfr мапится в NFR plan."""
+        self.portal.bitrix_license = ""
+        self.portal.bitrix_license_type = ""
+        self.portal.bitrix_license_family = "nfr"
+        self.portal.save(update_fields=["bitrix_license", "bitrix_license_type", "bitrix_license_family", "updated_at"])
+
+        state = get_billing_state(self.portal)
+        plan_codes = {plan["code"] for plan in state["plans"]}
+        allowed_paid = state["bitrixTariff"]["allowedPaidPlanCodes"]
+
+        self.assertIn("nfr", plan_codes)
+        self.assertEqual(allowed_paid, ["nfr"])
+        self.assertTrue(state["bitrixTariff"]["license_detected"])
+
+    def test_nfr_portal_sees_free_and_nfr_plan(self):
+        """Billing access для nfr-портала возвращает free + NFR paid plan."""
+        state = get_billing_state(self.portal)
+        plan_codes = {plan["code"] for plan in state["plans"]}
+
+        self.assertEqual(plan_codes, {"free", "nfr"})
+        self.assertEqual(state["bitrixTariff"]["allowedPaidPlanCodes"], ["nfr"])
+
+    def test_nfr_portal_does_not_show_unknown(self):
+        """Billing access для nfr-портала не возвращает 'Тариф не определён'."""
+        state = get_billing_state(self.portal)
+
+        self.assertTrue(state["bitrixTariff"]["license_detected"])
+        self.assertEqual(state["bitrixTariff"]["message"], "")
+
+    def test_nfr_portal_can_pay_only_nfr_plan(self):
+        """Payment creation для nfr-портала разрешает только NFR plan."""
+        payment = create_robokassa_payment(
+            portal=self.portal,
+            plan_code="nfr",
+            customer_email="nfr@example.com",
+        )
+
+        self.assertEqual(payment.status, Payment.Status.PENDING)
+        self.assertEqual(payment.plan.code, "nfr")
+
+    def test_nfr_portal_rejects_basic_plan(self):
+        """Payment creation для nfr-портала отклоняет cloud_basic_5."""
+        with self.assertRaisesMessage(ValidationError, "Выбранный тариф недоступен"):
+            create_robokassa_payment(
+                portal=self.portal,
+                plan_code="cloud_basic_5",
+                customer_email="nfr@example.com",
+            )
+
+        self.assertFalse(Payment.objects.filter(portal=self.portal).exists())
+
+    def test_nfr_portal_rejects_other_non_nfr_plans(self):
+        """Payment creation для nfr-портала отклоняет прочие не-NFR тарифы."""
+        forbidden_codes = [
+            "cloud_standard_50",
+            "cloud_professional_100",
+            "cloud_enterprise_250",
+            "cloud_enterprise_1000",
+            "box_corporate_100",
+            "box_enterprise_1000",
+            "pro_monthly",
+        ]
+
+        for plan_code in forbidden_codes:
+            with self.subTest(plan_code=plan_code):
+                with self.assertRaisesMessage(ValidationError, "Выбранный тариф недоступен"):
+                    create_robokassa_payment(
+                        portal=self.portal,
+                        plan_code=plan_code,
+                        customer_email="nfr@example.com",
+                    )
+
+        self.assertFalse(Payment.objects.filter(portal=self.portal).exists())
+
+    def test_existing_mappings_not_broken(self):
+        """Существующие mapping для basic/std/pro/enterprise/cloud/box не сломались."""
+        cases = {
+            "basic": "cloud_basic_5",
+            "std": "cloud_standard_50",
+            "pro": "cloud_professional_100",
+            "ent250": "cloud_enterprise_250",
+            "ent1000": "cloud_enterprise_1000",
+            "ent2000": "cloud_enterprise_2000",
+            "shopcrm12": "box_shop_crm_12",
+            "enterprise1000": "box_enterprise_1000",
+            "enterprise10000": "box_enterprise_10000",
+        }
+
+        for license_type, expected_code in cases.items():
+            with self.subTest(license_type=license_type):
+                portal = BitrixPortal.objects.create(
+                    domain=f"{license_type}-portal.bitrix24.ru",
+                    member_id=f"member-{license_type}",
+                    protocol=BitrixPortal.Protocol.HTTPS,
+                    status=BitrixPortal.Status.INSTALLED,
+                    bitrix_license_type=license_type,
+                )
+
+                state = get_billing_state(portal)
+                self.assertEqual(
+                    state["bitrixTariff"]["allowedPaidPlanCodes"],
+                    [expected_code],
+                )
+                self.assertTrue(state["bitrixTariff"]["license_detected"])
+                self.assertEqual(state["bitrixTariff"]["message"], "")

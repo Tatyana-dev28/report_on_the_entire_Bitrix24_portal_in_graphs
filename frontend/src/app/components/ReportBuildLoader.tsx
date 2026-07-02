@@ -344,7 +344,28 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
 
       car.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) rotate(${angle + 90}deg)`;
       glow.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
-      fuelHud.style.transform = `translate(${x}px, ${y}px) translate(-50%, -70px)`;
+
+      const fuelHudWidth = fuelHud.offsetWidth || 86;
+      const fuelHudHeight = fuelHud.offsetHeight || 30;
+      const fuelHudGap = 10;
+      const fuelHudTopOffset = 44;
+      const fuelHudSafePadding = 8;
+      const shouldPlaceFuelHudLeft = x + fuelHudWidth + fuelHudGap + fuelHudSafePadding > sceneRect.width;
+      const preferredFuelHudX = shouldPlaceFuelHudLeft
+        ? x - fuelHudWidth - fuelHudGap
+        : x - fuelHudWidth / 2;
+      const fuelHudX = clamp(
+        preferredFuelHudX,
+        fuelHudSafePadding,
+        Math.max(fuelHudSafePadding, sceneRect.width - fuelHudWidth - fuelHudSafePadding),
+      );
+      const fuelHudY = clamp(
+        y - fuelHudTopOffset,
+        fuelHudSafePadding,
+        Math.max(fuelHudSafePadding, sceneRect.height - fuelHudHeight - fuelHudSafePadding),
+      );
+
+      fuelHud.style.transform = `translate(${fuelHudX}px, ${fuelHudY}px)`;
       midStation.style.transform = `translate(${midStationPoint.x}px, ${midStationPoint.y}px) translate(-50%, -50%)`;
       endStation.style.transform = `translate(${endStationPoint.x}px, ${endStationPoint.y}px) translate(-50%, -50%)`;
       route.style.strokeDashoffset = `${length * (1 - progress)}`;

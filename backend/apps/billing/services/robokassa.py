@@ -261,6 +261,9 @@ def create_robokassa_payment(
     ).first()
 
     if not plan:
+        if Plan.objects.filter(code=plan_code).exists():
+            raise ValidationError("Выбранный тариф недоступен для текущего тарифа Битрикс24.")
+
         raise ValidationError("Selected paid plan is not configured. Run seed_plans.")
 
     if plan.billing_period == Plan.BillingPeriod.FREE:
@@ -353,6 +356,35 @@ def verify_result_signature(payload: dict, config: RobokassaConfig | None = None
         return False
 
     expected_signature = make_signature(out_sum, inv_id, config.password2)
+
+    return hmac.compare_digest(expected_signature.lower(), signature)
+
+
+def verify_success_signature(
+    payload: dict,
+    payment: Payment,
+    config: RobokassaConfig | None = None,
+) -> bool:
+    config = config or get_robokassa_config()
+    out_sum = str(payload.get("OutSum", ""))
+    inv_id = str(payload.get("InvId", ""))
+    signature = str(payload.get("SignatureValue", "")).lower()
+
+    if not out_sum or not inv_id or not signature:
+        return False
+
+    if inv_id != str(payment.id):
+        return False
+
+    try:
+        result_amount = parse_result_amount(out_sum)
+    except ValidationError:
+        return False
+
+    if result_amount != payment.amount:
+        return False
+
+    expected_signature = make_signature(out_sum, inv_id, config.password1)
 
     return hmac.compare_digest(expected_signature.lower(), signature)
 

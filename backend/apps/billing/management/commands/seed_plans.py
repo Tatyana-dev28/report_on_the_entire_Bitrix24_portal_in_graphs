@@ -177,7 +177,7 @@ def default_plans() -> list[dict]:
                 bitrix_version="cloud",
                 tariff_group="enterprise",
                 users=1000,
-                sort_order=150,
+                sort_order=160,
                 is_purchasable=True,
             ),
             build_plan(
@@ -187,7 +187,17 @@ def default_plans() -> list[dict]:
                 bitrix_version="cloud",
                 tariff_group="enterprise",
                 users=2000,
-                sort_order=160,
+                sort_order=170,
+                is_purchasable=True,
+            ),
+            build_plan(
+                code="cloud_enterprise_500",
+                name="Энтерпрайз 500",
+                description="Облачный тариф Энтерпрайз до 500 пользователей.",
+                bitrix_version="cloud",
+                tariff_group="enterprise",
+                users=500,
+                sort_order=150,
                 is_purchasable=True,
             ),
             build_plan(
@@ -197,7 +207,7 @@ def default_plans() -> list[dict]:
                 bitrix_version="box",
                 tariff_group="shop_crm",
                 users=12,
-                sort_order=210,
+                sort_order=310,
                 is_purchasable=True,
             ),
             build_plan(
@@ -207,7 +217,7 @@ def default_plans() -> list[dict]:
                 bitrix_version="box",
                 tariff_group="corporate",
                 users=50,
-                sort_order=220,
+                sort_order=320,
                 is_purchasable=True,
             ),
             build_plan(
@@ -217,7 +227,7 @@ def default_plans() -> list[dict]:
                 bitrix_version="box",
                 tariff_group="corporate",
                 users=100,
-                sort_order=230,
+                sort_order=330,
                 is_purchasable=True,
             ),
             build_plan(
@@ -227,7 +237,7 @@ def default_plans() -> list[dict]:
                 bitrix_version="box",
                 tariff_group="corporate",
                 users=250,
-                sort_order=240,
+                sort_order=340,
                 is_purchasable=True,
             ),
             build_plan(
@@ -237,9 +247,67 @@ def default_plans() -> list[dict]:
                 bitrix_version="box",
                 tariff_group="corporate",
                 users=500,
-                sort_order=250,
+                sort_order=350,
                 is_purchasable=True,
             ),
+            build_plan(
+                code="box_enterprise",
+                name="Энтерпрайз",
+                description="Коробочная лицензия Энтерпрайз.",
+                bitrix_version="box",
+                tariff_group="enterprise",
+                users=1000,
+                sort_order=360,
+                is_purchasable=True,
+            ),
+            build_plan(
+                code="box_enterprise_extension_1000",
+                name="Расширение лицензии Энтерпрайз (1000 польз.)",
+                description="Коробочное расширение лицензии Энтерпрайз на 1000 пользователей.",
+                bitrix_version="box",
+                tariff_group="enterprise_extension",
+                users=1000,
+                sort_order=370,
+                is_purchasable=True,
+            ),
+            build_plan(
+                code="box_enterprise_holding",
+                name="Энтерпрайз. Холдинг",
+                description="Коробочная лицензия Энтерпрайз. Холдинг.",
+                bitrix_version="box",
+                tariff_group="enterprise_holding",
+                users=1000,
+                sort_order=380,
+                is_purchasable=True,
+            ),
+            build_plan(
+                code="box_enterprise_holding_extension_1000",
+                name="Расширение лицензии Энтерпрайз. Холдинг (1000 польз.)",
+                description=(
+                    "Коробочное расширение лицензии Энтерпрайз. Холдинг на 1000 пользователей."
+                ),
+                bitrix_version="box",
+                tariff_group="enterprise_holding_extension",
+                users=1000,
+                sort_order=390,
+                is_purchasable=True,
+            ),
+        ]
+    )
+
+    plans.extend(
+        [
+            build_plan(
+                code=f"cloud_enterprise_{users}",
+                name=f"Энтерпрайз {users}",
+                description=f"Облачный тариф Энтерпрайз до {users} пользователей.",
+                bitrix_version="cloud",
+                tariff_group="enterprise",
+                users=users,
+                sort_order=180 + index * 10,
+                is_purchasable=True,
+            )
+            for index, users in enumerate(range(3000, 10001, 1000))
         ]
     )
 
@@ -252,7 +320,7 @@ def default_plans() -> list[dict]:
                 bitrix_version="box",
                 tariff_group="enterprise",
                 users=users,
-                sort_order=300 + index * 10,
+                sort_order=400 + index * 10,
                 is_purchasable=True,
             )
             for index, users in enumerate(range(1000, 10001, 1000), start=1)

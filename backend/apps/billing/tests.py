@@ -74,13 +74,26 @@ class RobokassaBillingTests(TestCase):
             "cloud_standard_50",
             "cloud_professional_100",
             "cloud_enterprise_250",
+            "cloud_enterprise_500",
             "cloud_enterprise_1000",
             "cloud_enterprise_2000",
+            "cloud_enterprise_3000",
+            "cloud_enterprise_4000",
+            "cloud_enterprise_5000",
+            "cloud_enterprise_6000",
+            "cloud_enterprise_7000",
+            "cloud_enterprise_8000",
+            "cloud_enterprise_9000",
+            "cloud_enterprise_10000",
             "box_shop_crm_12",
             "box_corporate_50",
             "box_corporate_100",
             "box_corporate_250",
             "box_corporate_500",
+            "box_enterprise",
+            "box_enterprise_extension_1000",
+            "box_enterprise_holding",
+            "box_enterprise_holding_extension_1000",
             "box_enterprise_1000",
             "box_enterprise_2000",
             "box_enterprise_3000",
@@ -188,6 +201,9 @@ class RobokassaBillingTests(TestCase):
             "cloud standard": "cloud_standard_50",
             "de_pro100": "cloud_professional_100",
             "de_ent250": "cloud_enterprise_250",
+            "ent500": "cloud_enterprise_500",
+            "ent3000": "cloud_enterprise_3000",
+            "ent10000": "cloud_enterprise_10000",
         }
 
         for license_type, expected_code in cases.items():
@@ -202,6 +218,10 @@ class RobokassaBillingTests(TestCase):
     def test_box_license_aliases_return_matching_paid_plan(self):
         cases = {
             "corporate portal 250": "box_corporate_250",
+            "box enterprise": "box_enterprise",
+            "enterprise extension 1000": "box_enterprise_extension_1000",
+            "enterprise holding": "box_enterprise_holding",
+            "enterprise holding extension 1000": "box_enterprise_holding_extension_1000",
             "enterprise 10000": "box_enterprise_10000",
         }
 
@@ -282,6 +302,39 @@ class RobokassaBillingTests(TestCase):
             payment.metadata["subscription_paid_until"],
             payment.subscription.paid_until.isoformat(),
         )
+
+    def test_success_redirect_includes_portal_token_only_with_valid_signature(self):
+        payment = create_robokassa_payment(portal=self.portal, plan_code="cloud_basic_5")
+        out_sum = "0.00"
+        response = self.client.get(
+            "/api/billing/robokassa/success/",
+            data={
+                "OutSum": out_sum,
+                "InvId": str(payment.id),
+                "SignatureValue": make_signature(out_sum, str(payment.id), "test-password-1"),
+            },
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("paymentStatus=success", response.url)
+        self.assertIn("portalToken=", response.url)
+
+    def test_success_redirect_does_not_expose_portal_token_without_valid_signature(self):
+        payment = create_robokassa_payment(portal=self.portal, plan_code="cloud_basic_5")
+        response = self.client.get(
+            "/api/billing/robokassa/success/",
+            data={
+                "OutSum": "0.00",
+                "InvId": str(payment.id),
+                "SignatureValue": "bad-signature",
+            },
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("paymentStatus=success", response.url)
+        self.assertNotIn("portalToken=", response.url)
 
     def test_repeated_result_does_not_extend_subscription_twice(self):
         payment = create_robokassa_payment(portal=self.portal, plan_code="cloud_basic_5")

@@ -18,6 +18,7 @@ from apps.billing.services.robokassa import (
     get_billing_state,
     get_request_payload,
     process_robokassa_result,
+    verify_success_signature,
 )
 from apps.billing.services.bitrix_tariffs import refresh_portal_bitrix_license
 from apps.bitrix.models import BitrixPortal
@@ -89,6 +90,27 @@ def _frontend_payment_redirect(payment_status: str, payment: Payment | None = No
         )
 
     return redirect(f"{frontend_url}/?{urlencode(query)}")
+
+
+def _get_signed_redirect_payment(payload: dict) -> Payment | None:
+    try:
+        inv_id = int(str(payload.get("InvId", "")))
+    except (TypeError, ValueError):
+        return None
+
+    payment = Payment.objects.filter(id=inv_id).select_related("portal").first()
+
+    if not payment:
+        return None
+
+    try:
+        if not verify_success_signature(payload, payment):
+            return None
+    except ImproperlyConfigured as error:
+        logger.warning("Could not verify Robokassa success redirect: %s", error)
+        return None
+
+    return payment
 
 
 def _resolve_billing_portal(request: HttpRequest, payload: dict) -> BitrixPortal:
@@ -236,13 +258,7 @@ def robokassa_result_view(request: HttpRequest):
 @require_http_methods(["GET", "POST"])
 def robokassa_success_view(request: HttpRequest):
     payload = get_request_payload(request)
-    payment = None
-
-    try:
-        inv_id = int(str(payload.get("InvId", "")))
-        payment = Payment.objects.filter(id=inv_id).select_related("portal").first()
-    except (TypeError, ValueError):
-        payment = None
+    payment = _get_signed_redirect_payment(payload)
 
     return _frontend_payment_redirect("success", payment=payment)
 

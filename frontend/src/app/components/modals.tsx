@@ -208,7 +208,7 @@ export function ProVersionModal({
   onCustomerEmailChange,
 }: {
   onClose: () => void;
-  onSubscribe: (planCode: string) => void;
+  onSubscribe: () => void;
   isLoading: boolean;
   isBillingLoading: boolean;
   hasBillingLoadFailed: boolean;
@@ -311,7 +311,7 @@ export function ProVersionModal({
                     <button
                       className="pro-plan-action pro-plan-action-paid"
                       type="button"
-                      onClick={() => onSubscribe(paidPlan.code)}
+                      onClick={onSubscribe}
                       disabled={isLoading || hasPro}
                     >
                       {hasPro ? 'Подключено' : 'Купить'}
@@ -327,9 +327,14 @@ export function ProVersionModal({
                       <h3>{isBillingLoading ? 'Загрузка тарифа' : 'Тариф не определён'}</h3>
                     </div>
                     <p className="pro-plan-description">
-                      {isBillingLoading ? 'Подбираем подходящий платный тариф для вашего портала.' : fallbackMessage}
+                      {isBillingLoading ? 'Подбираем подходящий платный тариф для вашего портала.' : 'Платный тариф временно недоступен.'}
                     </p>
                   </div>
+                  {!isBillingLoading && (
+                    <div className="pro-plan-footer">
+                      <strong>{fallbackMessage}</strong>
+                    </div>
+                  )}
                 </section>
               )}
             </div>

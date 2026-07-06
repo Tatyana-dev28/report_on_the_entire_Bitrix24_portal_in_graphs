@@ -23,7 +23,6 @@ from apps.billing.services.access import (
 from apps.billing.services.bitrix_tariffs import (
     UNKNOWN_LICENSE_MESSAGE,
     get_allowed_plans_policy,
-    is_paid_plan_allowed_for_portal,
 )
 from apps.bitrix.models import BitrixPortal
 from apps.common.services.sanitizers import sanitize_payload
@@ -94,6 +93,11 @@ def serialize_bitrix_tariff_policy(portal: BitrixPortal) -> dict:
         "license": policy.bitrix_license,
         "licenseType": policy.bitrix_license_type,
         "licenseFamily": policy.bitrix_license_family,
+        "licenseEdition": policy.bitrix_license_edition,
+        "licenseKind": policy.bitrix_license_kind,
+        "licenseMaxUsers": policy.bitrix_license_max_users,
+        "licenseExpireDate": policy.bitrix_license_expire_date,
+        "licenseIsDemo": policy.bitrix_license_is_demo,
         "checkedAt": (
             portal.bitrix_license_checked_at.isoformat()
             if portal.bitrix_license_checked_at
@@ -251,30 +255,33 @@ def get_or_create_portal_subscription(portal: BitrixPortal) -> Subscription:
 def create_robokassa_payment(
     *,
     portal: BitrixPortal,
-    plan_code: str = "pro_monthly",
+    plan_code: str | None = None,
     customer_email: str = "",
 ) -> Payment:
+    policy = get_allowed_plans_policy(portal)
+
+    if not policy.is_known:
+        raise ValidationError(UNKNOWN_LICENSE_MESSAGE)
+
+    selected_plan_code = str(plan_code or "").strip() or policy.paid_plan_codes[0]
+
+    if selected_plan_code not in policy.paid_plan_codes:
+        raise ValidationError("Выбранный тариф недоступен для текущего тарифа Битрикс24.")
+
     plan = Plan.objects.filter(
-        code=plan_code,
+        code=selected_plan_code,
         is_active=True,
         is_public=True,
     ).first()
 
     if not plan:
-        if Plan.objects.filter(code=plan_code).exists():
+        if Plan.objects.filter(code=selected_plan_code).exists():
             raise ValidationError("Выбранный тариф недоступен для текущего тарифа Битрикс24.")
 
         raise ValidationError("Selected paid plan is not configured. Run seed_plans.")
 
     if plan.billing_period == Plan.BillingPeriod.FREE:
         raise ValidationError("Free plan does not require payment.")
-
-    if not is_paid_plan_allowed_for_portal(portal, plan.code):
-        policy = get_allowed_plans_policy(portal)
-        if not policy.is_known:
-            raise ValidationError(UNKNOWN_LICENSE_MESSAGE)
-
-        raise ValidationError("Выбранный тариф недоступен для текущего тарифа Битрикс24.")
 
     current_access = PortalAccess.objects.filter(portal=portal).first()
 

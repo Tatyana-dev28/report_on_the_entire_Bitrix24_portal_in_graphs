@@ -13,8 +13,7 @@ from apps.bitrix.services.rest_client import BitrixRestClient
 logger = logging.getLogger(__name__)
 
 UNKNOWN_LICENSE_MESSAGE = (
-    "Не удалось автоматически определить тариф Битрикс24. "
-    "Напишите нам, чтобы мы подобрали подходящий платный тариф."
+    "Произошла ошибка, обратитесь в поддержку."
 )
 
 FREE_PLAN_CODE = "free"
@@ -78,8 +77,8 @@ BITRIX_LICENSE_ALLOWED_PLAN_CODES = {
     "corporate250": ("box_corporate_250",),
     "corporateportal500": ("box_corporate_500",),
     "corporate500": ("box_corporate_500",),
-    "enterprise": ("box_enterprise",),
-    "boxenterprise": ("box_enterprise",),
+    "enterprise": ("box_enterprise_1000",),
+    "boxenterprise": ("box_enterprise_1000",),
     "enterpriseextension1000": ("box_enterprise_extension_1000",),
     "boxenterpriseextension1000": ("box_enterprise_extension_1000",),
     "extensionenterprise1000": ("box_enterprise_extension_1000",),
@@ -114,11 +113,18 @@ class AllowedPlansPolicy:
     bitrix_license: str
     bitrix_license_type: str
     bitrix_license_family: str
+    bitrix_license_edition: str
+    bitrix_license_kind: str
+    bitrix_license_max_users: int | None
+    bitrix_license_expire_date: str
+    bitrix_license_is_demo: bool | None
 
 
 def refresh_portal_bitrix_license(portal: BitrixPortal) -> bool:
+    client = BitrixRestClient(portal)
+
     try:
-        response = BitrixRestClient(portal).call_method("app.info")
+        response = client.call_method("app.info")
     except Exception as error:
         logger.warning(
             "Could not load Bitrix app.info for portal %s: %s",
@@ -129,12 +135,22 @@ def refresh_portal_bitrix_license(portal: BitrixPortal) -> bool:
         portal.bitrix_license = ""
         portal.bitrix_license_type = ""
         portal.bitrix_license_family = ""
+        portal.bitrix_license_edition = ""
+        portal.bitrix_license_kind = ""
+        portal.bitrix_license_max_users = None
+        portal.bitrix_license_expire_date = ""
+        portal.bitrix_license_is_demo = None
         portal.bitrix_license_checked_at = timezone.now()
         portal.save(
             update_fields=[
                 "bitrix_license",
                 "bitrix_license_type",
                 "bitrix_license_family",
+                "bitrix_license_edition",
+                "bitrix_license_kind",
+                "bitrix_license_max_users",
+                "bitrix_license_expire_date",
+                "bitrix_license_is_demo",
                 "bitrix_license_checked_at",
                 "updated_at",
             ]
@@ -142,23 +158,54 @@ def refresh_portal_bitrix_license(portal: BitrixPortal) -> bool:
         return False
 
     result = response.result if isinstance(response.result, dict) else {}
-    update_portal_bitrix_license_from_app_info(portal, result)
+    license_result = _load_portal_license_get_result(client, portal)
+    update_portal_bitrix_license_from_app_info(portal, result, license_result)
     return True
+
+
+def _load_portal_license_get_result(
+    client: BitrixRestClient,
+    portal: BitrixPortal,
+) -> dict[str, Any]:
+    try:
+        response = client.call_method("license.get")
+    except Exception as error:
+        logger.warning(
+            "Could not load Bitrix license.get for portal %s: %s",
+            portal.domain,
+            error,
+            exc_info=True,
+        )
+        return {}
+
+    return response.result if isinstance(response.result, dict) else {}
 
 
 def update_portal_bitrix_license_from_app_info(
     portal: BitrixPortal,
     app_info: dict[str, Any],
+    license_info: dict[str, Any] | None = None,
 ) -> None:
+    license_info = license_info or {}
     portal.bitrix_license = _string_value(app_info.get("LICENSE"))
     portal.bitrix_license_type = _string_value(app_info.get("LICENSE_TYPE"))
     portal.bitrix_license_family = _string_value(app_info.get("LICENSE_FAMILY"))
+    portal.bitrix_license_edition = _string_value(license_info.get("EDITION"))
+    portal.bitrix_license_kind = _string_value(license_info.get("TYPE"))
+    portal.bitrix_license_max_users = _positive_int_or_none(license_info.get("MAX_USERS"))
+    portal.bitrix_license_expire_date = _string_value(license_info.get("EXPIRE_DATE"))
+    portal.bitrix_license_is_demo = _bool_or_none(license_info.get("IS_DEMO"))
     portal.bitrix_license_checked_at = timezone.now()
     portal.save(
         update_fields=[
             "bitrix_license",
             "bitrix_license_type",
             "bitrix_license_family",
+            "bitrix_license_edition",
+            "bitrix_license_kind",
+            "bitrix_license_max_users",
+            "bitrix_license_expire_date",
+            "bitrix_license_is_demo",
             "bitrix_license_checked_at",
             "updated_at",
         ]
@@ -177,6 +224,11 @@ def get_allowed_plans_policy(portal: BitrixPortal) -> AllowedPlansPolicy:
         bitrix_license=portal.bitrix_license or "",
         bitrix_license_type=portal.bitrix_license_type or "",
         bitrix_license_family=portal.bitrix_license_family or "",
+        bitrix_license_edition=portal.bitrix_license_edition or "",
+        bitrix_license_kind=portal.bitrix_license_kind or "",
+        bitrix_license_max_users=portal.bitrix_license_max_users,
+        bitrix_license_expire_date=portal.bitrix_license_expire_date or "",
+        bitrix_license_is_demo=portal.bitrix_license_is_demo,
     )
 
 
@@ -186,6 +238,11 @@ def is_paid_plan_allowed_for_portal(portal: BitrixPortal, plan_code: str) -> boo
 
 
 def _resolve_paid_plan_codes(portal: BitrixPortal) -> tuple[str, ...]:
+    license_get_plan_codes = _resolve_license_get_plan_codes(portal)
+
+    if license_get_plan_codes:
+        return license_get_plan_codes
+
     candidates = (
         portal.bitrix_license_type,
         portal.bitrix_license,
@@ -199,6 +256,21 @@ def _resolve_paid_plan_codes(portal: BitrixPortal) -> tuple[str, ...]:
             return BITRIX_LICENSE_ALLOWED_PLAN_CODES[normalized]
 
     return ()
+
+
+def _resolve_license_get_plan_codes(portal: BitrixPortal) -> tuple[str, ...]:
+    edition = _normalize_license_value(getattr(portal, "bitrix_license_edition", ""))
+
+    if edition not in ("enterprise", "boxenterprise"):
+        return ()
+
+    users = getattr(portal, "bitrix_license_max_users", None)
+
+    if not users:
+        return ("box_enterprise_1000",)
+
+    normalized_users = min(max(((int(users) + 999) // 1000) * 1000, 1000), 10000)
+    return (f"box_enterprise_{normalized_users}",)
 
 
 def _normalize_license_value(value: Any) -> str:
@@ -215,3 +287,30 @@ def _normalize_license_value(value: Any) -> str:
 
 def _string_value(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _positive_int_or_none(value: Any) -> int | None:
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        return None
+
+    return result if result > 0 else None
+
+
+def _bool_or_none(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+
+    if value is None or value == "":
+        return None
+
+    normalized = str(value).strip().lower()
+
+    if normalized in ("1", "true", "yes", "y"):
+        return True
+
+    if normalized in ("0", "false", "no", "n"):
+        return False
+
+    return None

@@ -125,6 +125,37 @@ class BitrixPortal(PublicBaseModel, ActiveModel):
         db_index=True,
         verbose_name="Bitrix24 LICENSE_FAMILY",
     )
+    bitrix_license_edition = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_index=True,
+        verbose_name="Bitrix24 license.get EDITION",
+    )
+    bitrix_license_kind = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_index=True,
+        verbose_name="Bitrix24 license.get TYPE",
+    )
+    bitrix_license_max_users = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="Bitrix24 license.get MAX_USERS",
+    )
+    bitrix_license_expire_date = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        verbose_name="Bitrix24 license.get EXPIRE_DATE",
+    )
+    bitrix_license_is_demo = models.BooleanField(
+        null=True,
+        blank=True,
+        verbose_name="Bitrix24 license.get IS_DEMO",
+    )
     bitrix_license_checked_at = models.DateTimeField(
         null=True,
         blank=True,

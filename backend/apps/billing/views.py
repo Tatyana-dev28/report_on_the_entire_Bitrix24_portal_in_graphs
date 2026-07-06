@@ -210,7 +210,7 @@ def create_payment_view(request: HttpRequest):
         refresh_portal_bitrix_license(portal)
         payment = create_robokassa_payment(
             portal=portal,
-            plan_code=str(payload.get("planCode") or "pro_monthly"),
+            plan_code=str(payload.get("planCode") or "").strip() or None,
             customer_email=customer_email,
         )
     except PermissionDenied as error:

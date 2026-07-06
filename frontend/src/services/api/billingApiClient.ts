@@ -33,6 +33,11 @@ export type BillingStateResponse = {
         license: string;
         licenseType: string;
         licenseFamily: string;
+        licenseEdition?: string;
+        licenseKind?: string;
+        licenseMaxUsers?: number | null;
+        licenseExpireDate?: string;
+        licenseIsDemo?: boolean | null;
         checkedAt: string | null;
         isKnown: boolean;
         licenseDetected?: boolean;
@@ -186,12 +191,11 @@ export const loadBillingState = () =>
         appendQuery('/api/billing/access/', getBitrixContext()),
     );
 
-export const createProPayment = (customerEmail: string, planCode = 'pro_monthly') =>
+export const createProPayment = (customerEmail: string) =>
     requestJson<CreatePaymentResponse>('/api/billing/payments/', {
         method: 'POST',
         body: JSON.stringify({
             ...getBitrixContext(),
-            planCode,
             customerEmail,
         }),
     });

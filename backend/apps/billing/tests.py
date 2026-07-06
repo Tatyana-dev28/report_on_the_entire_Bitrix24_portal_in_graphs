@@ -1,5 +1,6 @@
 from decimal import Decimal
 from urllib.parse import parse_qs, quote, urlparse
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -7,7 +8,10 @@ from django.test import TestCase, override_settings
 
 from apps.billing.management.commands.seed_plans import Command as SeedPlansCommand
 from apps.billing.models import Payment, Plan, PortalAccess, Subscription
-from apps.billing.services.bitrix_tariffs import UNKNOWN_LICENSE_MESSAGE
+from apps.billing.services.bitrix_tariffs import (
+    UNKNOWN_LICENSE_MESSAGE,
+    update_portal_bitrix_license_from_app_info,
+)
 from apps.billing.services.robokassa import (
     build_robokassa_receipt,
     create_robokassa_payment,
@@ -67,6 +71,15 @@ class RobokassaBillingTests(TestCase):
             make_signature("demo-shop", out_sum, inv_id, receipt_encoded, "test-password-1"),
         )
 
+    def test_create_payment_without_plan_code_uses_portal_allowed_plan(self):
+        payment = create_robokassa_payment(
+            portal=self.portal,
+            customer_email="buyer@example.com",
+        )
+
+        self.assertEqual(payment.plan.code, "cloud_basic_5")
+        self.assertEqual(payment.amount, payment.plan.price)
+
     def test_seed_plans_creates_required_tariffs_with_default_zero_prices(self):
         required_codes = {
             "free",
@@ -90,7 +103,6 @@ class RobokassaBillingTests(TestCase):
             "box_corporate_100",
             "box_corporate_250",
             "box_corporate_500",
-            "box_enterprise",
             "box_enterprise_extension_1000",
             "box_enterprise_holding",
             "box_enterprise_holding_extension_1000",
@@ -130,6 +142,29 @@ class RobokassaBillingTests(TestCase):
         plan.refresh_from_db()
 
         self.assertEqual(plan.price, Decimal("0.00"))
+
+    def test_seed_plans_disables_obsolete_box_enterprise_duplicate(self):
+        duplicate = Plan.objects.create(
+            code="box_enterprise",
+            name="Энтерпрайз",
+            price=Decimal("0.00"),
+            currency="RUB",
+            billing_period=Plan.BillingPeriod.MONTH,
+            duration_months=1,
+            features={},
+            limits={"bitrix_version": "box", "tariff_group": "enterprise", "users": 1000},
+            is_public=True,
+            is_active=True,
+            sort_order=360,
+        )
+
+        SeedPlansCommand().handle()
+        duplicate.refresh_from_db()
+
+        self.assertFalse(duplicate.is_public)
+        self.assertFalse(duplicate.is_active)
+        self.assertTrue(duplicate.is_deleted)
+        self.assertTrue(Plan.objects.filter(code="box_enterprise_1000", is_active=True).exists())
 
     def test_create_payment_adds_customer_email_to_reused_invoice(self):
         payment = create_robokassa_payment(portal=self.portal, plan_code="cloud_basic_5")
@@ -218,7 +253,7 @@ class RobokassaBillingTests(TestCase):
     def test_box_license_aliases_return_matching_paid_plan(self):
         cases = {
             "corporate portal 250": "box_corporate_250",
-            "box enterprise": "box_enterprise",
+            "box enterprise": "box_enterprise_1000",
             "enterprise extension 1000": "box_enterprise_extension_1000",
             "enterprise holding": "box_enterprise_holding",
             "enterprise holding extension 1000": "box_enterprise_holding_extension_1000",
@@ -233,6 +268,68 @@ class RobokassaBillingTests(TestCase):
                 state = get_billing_state(self.portal)
 
                 self.assertEqual(state["bitrixTariff"]["allowedPaidPlanCodes"], [expected_code])
+
+    def test_license_get_enterprise_max_users_selects_box_enterprise_plan(self):
+        self.portal.bitrix_license_type = ""
+        self.portal.bitrix_license_edition = "enterprise"
+        self.portal.bitrix_license_kind = "commercial"
+        self.portal.bitrix_license_max_users = 5000
+        self.portal.save(
+            update_fields=[
+                "bitrix_license_type",
+                "bitrix_license_edition",
+                "bitrix_license_kind",
+                "bitrix_license_max_users",
+                "updated_at",
+            ]
+        )
+
+        state = get_billing_state(self.portal)
+
+        self.assertEqual(state["bitrixTariff"]["allowedPaidPlanCodes"], ["box_enterprise_5000"])
+        self.assertEqual({plan["code"] for plan in state["plans"]}, {"free", "box_enterprise_5000"})
+
+    def test_license_get_enterprise_without_max_users_defaults_to_box_enterprise_1000(self):
+        self.portal.bitrix_license_type = ""
+        self.portal.bitrix_license_edition = "enterprise"
+        self.portal.bitrix_license_max_users = None
+        self.portal.save(
+            update_fields=[
+                "bitrix_license_type",
+                "bitrix_license_edition",
+                "bitrix_license_max_users",
+                "updated_at",
+            ]
+        )
+
+        state = get_billing_state(self.portal)
+
+        self.assertEqual(state["bitrixTariff"]["allowedPaidPlanCodes"], ["box_enterprise_1000"])
+
+    def test_update_portal_license_from_app_info_saves_license_get_values(self):
+        update_portal_bitrix_license_from_app_info(
+            self.portal,
+            {
+                "LICENSE": "ru_project",
+                "LICENSE_TYPE": "enterprise",
+                "LICENSE_FAMILY": "box",
+            },
+            {
+                "EDITION": "enterprise",
+                "TYPE": "commercial",
+                "MAX_USERS": 3000,
+                "EXPIRE_DATE": "2027-12-31T00:00:00+03:00",
+                "IS_DEMO": False,
+            },
+        )
+        self.portal.refresh_from_db()
+
+        self.assertEqual(self.portal.bitrix_license, "ru_project")
+        self.assertEqual(self.portal.bitrix_license_edition, "enterprise")
+        self.assertEqual(self.portal.bitrix_license_kind, "commercial")
+        self.assertEqual(self.portal.bitrix_license_max_users, 3000)
+        self.assertEqual(self.portal.bitrix_license_expire_date, "2027-12-31T00:00:00+03:00")
+        self.assertFalse(self.portal.bitrix_license_is_demo)
 
     def test_unknown_license_type_does_not_expose_all_tariffs(self):
         self.portal.bitrix_license_type = "mystery"
@@ -260,6 +357,23 @@ class RobokassaBillingTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertFalse(Payment.objects.filter(portal=self.portal).exists())
+
+    def test_payment_api_uses_backend_allowed_plan_when_plan_code_is_omitted(self):
+        with patch("apps.billing.views.refresh_portal_bitrix_license", return_value=True):
+            response = self.client.post(
+                "/api/billing/payments/",
+                data={
+                    "memberId": self.portal.member_id,
+                    "domain": self.portal.domain,
+                    "customerEmail": "buyer@example.com",
+                },
+                content_type="application/json",
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payment = Payment.objects.get(portal=self.portal)
+        self.assertEqual(payment.plan.code, "cloud_basic_5")
 
     def test_billing_access_app_info_failure_returns_free_plan_and_unknown_license(self):
         response = self.client.get(

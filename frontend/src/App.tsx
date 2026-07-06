@@ -1845,15 +1845,10 @@ function App() {
     setIsAppSettingsOpen(false);
   }, []);
 
-  const handleCreateProPayment = useCallback((planCode: string) => {
+  const handleCreateProPayment = useCallback(() => {
     if (isProUser) {
       setNotification('PRO-подписка уже активна для этого портала.');
       refreshBillingState();
-      return;
-    }
-
-    if (planCode === 'free') {
-      setBillingError('Бесплатный тариф не требует оплаты.');
       return;
     }
 
@@ -1868,7 +1863,7 @@ function App() {
     setBillingError('');
     const paymentWindow = window.open('', '_blank');
 
-    createProPayment(normalizedEmail, planCode)
+    createProPayment(normalizedEmail)
       .then((response) => {
         const paymentUrl = response.payment.paymentUrl;
 

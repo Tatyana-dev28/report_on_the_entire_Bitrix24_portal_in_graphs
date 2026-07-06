@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
 from apps.billing.models import Plan
 
@@ -25,6 +26,10 @@ FREE_LIMITS = {
 PRO_LIMITS = {
     "max_presets": 20,
     "max_saved_states": 20,
+}
+
+OBSOLETE_PLAN_CODES = {
+    "box_enterprise",
 }
 
 
@@ -251,23 +256,13 @@ def default_plans() -> list[dict]:
                 is_purchasable=True,
             ),
             build_plan(
-                code="box_enterprise",
-                name="Энтерпрайз",
-                description="Коробочная лицензия Энтерпрайз.",
-                bitrix_version="box",
-                tariff_group="enterprise",
-                users=1000,
-                sort_order=360,
-                is_purchasable=True,
-            ),
-            build_plan(
                 code="box_enterprise_extension_1000",
                 name="Расширение лицензии Энтерпрайз (1000 польз.)",
                 description="Коробочное расширение лицензии Энтерпрайз на 1000 пользователей.",
                 bitrix_version="box",
                 tariff_group="enterprise_extension",
                 users=1000,
-                sort_order=370,
+                sort_order=360,
                 is_purchasable=True,
             ),
             build_plan(
@@ -277,7 +272,7 @@ def default_plans() -> list[dict]:
                 bitrix_version="box",
                 tariff_group="enterprise_holding",
                 users=1000,
-                sort_order=380,
+                sort_order=370,
                 is_purchasable=True,
             ),
             build_plan(
@@ -289,7 +284,7 @@ def default_plans() -> list[dict]:
                 bitrix_version="box",
                 tariff_group="enterprise_holding_extension",
                 users=1000,
-                sort_order=390,
+                sort_order=380,
                 is_purchasable=True,
             ),
         ]
@@ -374,5 +369,21 @@ class Command(BaseCommand):
                 action = "Kept"
 
             self.stdout.write(self.style.SUCCESS(f"{action} plan: {plan.code}"))
+
+        disabled_count = Plan.objects.filter(
+            code__in=OBSOLETE_PLAN_CODES,
+            is_deleted=False,
+        ).update(
+            is_active=False,
+            is_public=False,
+            is_default=False,
+            is_deleted=True,
+            deleted_at=timezone.now(),
+        )
+
+        if disabled_count:
+            self.stdout.write(
+                self.style.WARNING(f"Disabled obsolete plans: {disabled_count}")
+            )
 
         self.stdout.write(self.style.SUCCESS("Default billing plans are ready."))

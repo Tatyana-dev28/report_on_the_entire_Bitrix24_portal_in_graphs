@@ -1345,12 +1345,18 @@ function App() {
         return rows;
       });
 
-      // Add source-based sections (deal pipelines and smart processes) from sourceMetrics
+      // Add source-based sections (deal pipelines and smart processes) from sourceMetrics.
+      // Only include sources that the user has selected in table settings (appliedFilters.selectedSources).
       const sourceSectionRows: TableRow[] = [];
+      const tableSelectedSourceIds = new Set(appliedFilters.selectedSources);
       const sourceMetricsEntries = Object.entries(sourceMetrics);
 
       if (hasBuiltReport && sourceMetricsEntries.length > 0) {
         sourceMetricsEntries.forEach(([sourceKey, sourceData]) => {
+          // Skip sources not selected in table settings
+          if (!tableSelectedSourceIds.has(sourceKey)) {
+            return;
+          }
           const metricKeys = Object.keys(sourceData.metrics);
           if (metricKeys.length === 0) {
             return;
@@ -1393,6 +1399,7 @@ function App() {
       expandedChartMetricIds,
       sourceMetrics,
       hasBuiltReport,
+      appliedFilters,
     ],
   );
 

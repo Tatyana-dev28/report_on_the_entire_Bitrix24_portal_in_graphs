@@ -60,7 +60,7 @@ import {
   type ReportPoint,
 } from './services/report/reportCatalog';
 import { reportDataSource } from './services/report/reportDataSource';
-import type { CrmSource, CrmSourceType, MetricDetailItem, ReportLoadFilters } from './services/report/reportTypes';
+import type { CrmSource, CrmSourceType, MetricDetailItem, ReportLoadFilters, SourceMetricsData } from './services/report/reportTypes';
 import type { PortalEmployeeItem } from './services/api/reportApiClient';
 import {
   APP_SETTINGS_STORAGE_KEY,
@@ -374,6 +374,7 @@ function App() {
   const [reportEmployees, setReportEmployees] = useState<ReportEmployee[]>([]);
   const [portalEmployees, setPortalEmployees] = useState<PortalEmployeeItem[]>([]);
   const [reportDetails, setReportDetails] = useState<MetricDetailItem[]>([]);
+  const [sourceMetrics, setSourceMetrics] = useState<Record<string, SourceMetricsData>>({});
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
@@ -441,6 +442,7 @@ function App() {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     () => new Set(metricSections.map((section) => section.id)),
   );
+  const [expandedSourceSections, setExpandedSourceSections] = useState<Set<string>>(() => new Set());
   const isProUser = billingHasPro;
 
   const settingsEmployees = useMemo<ReportEmployee[]>(
@@ -700,6 +702,7 @@ function App() {
           setRawReportData(preview.data);
           setReportEmployees((preview.employees ?? []).map(toReportEmployee));
           setReportDetails(preview.details ?? []);
+          setSourceMetrics(preview.sourceMetrics ?? {});
 
           if (applyAutomaticThresholdsRef.current) {
             const scheduledData = applyScheduleToReportData(preview.data, filters.period, appliedFilters.schedule);
@@ -1057,8 +1060,8 @@ function App() {
     [reportEmployees],
   );
   const tableRows = useMemo<TableRow[]>(
-    () =>
-      visibleSections.flatMap((section) => {
+    () => {
+      const standardRows: TableRow[] = visibleSections.flatMap((section) => {
         const rows: TableRow[] = [
           { kind: 'section', rowId: `section-${section.id}`, sectionId: section.id, label: section.label },
         ];
@@ -1113,7 +1116,44 @@ function App() {
         });
 
         return rows;
-      }),
+      });
+
+      // Add source-based sections (deal pipelines and smart processes) from sourceMetrics
+      const sourceSectionRows: TableRow[] = [];
+      const sourceMetricsEntries = Object.entries(sourceMetrics);
+
+      if (hasBuiltReport && sourceMetricsEntries.length > 0) {
+        sourceMetricsEntries.forEach(([sourceKey, sourceData]) => {
+          const metricKeys = Object.keys(sourceData.metrics);
+          if (metricKeys.length === 0) {
+            return;
+          }
+
+          sourceSectionRows.push({
+            kind: 'source_section',
+            rowId: `source-section-${sourceKey}`,
+            sourceId: sourceKey,
+            label: sourceData.label,
+          });
+
+          if (expandedSourceSections.has(sourceKey)) {
+            metricKeys.forEach((metricKey) => {
+              const metric = sourceData.metrics[metricKey];
+              sourceSectionRows.push({
+                kind: 'source_metric',
+                rowId: `source-metric-${sourceKey}-${metricKey}`,
+                sourceId: sourceKey,
+                metricKey,
+                metricLabel: metric.label,
+                valueType: metric.valueType,
+              });
+            });
+          }
+        });
+      }
+
+      return [...standardRows, ...sourceSectionRows];
+    },
     [
       visibleSections,
       expandedSections,
@@ -1123,6 +1163,9 @@ function App() {
       metricOrderBySection,
       expandedEmployeeMetricIds,
       expandedChartMetricIds,
+      sourceMetrics,
+      hasBuiltReport,
+      expandedSourceSections,
     ],
   );
 
@@ -1367,6 +1410,20 @@ function App() {
         next.delete(sectionId);
       } else {
         next.add(sectionId);
+      }
+
+      return next;
+    });
+  };
+
+  const toggleSourceSection = (sourceId: string) => {
+    setExpandedSourceSections((current) => {
+      const next = new Set(current);
+
+      if (next.has(sourceId)) {
+        next.delete(sourceId);
+      } else {
+        next.add(sourceId);
       }
 
       return next;
@@ -2054,6 +2111,17 @@ function App() {
           return;
         }
 
+        if (row.kind === 'source_section') {
+          const sectionRow = worksheet.addRow([row.label, ...reportData.map(() => '')]);
+          sectionRow.font = { bold: true, color: { argb: 'FF30343B' } };
+          sectionRow.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFF3F5F8' },
+          };
+          return;
+        }
+
         if (row.kind === 'employee') {
           const employeeRow = worksheet.addRow([
             `  ${row.employee.firstName} ${row.employee.lastName}`,
@@ -2065,6 +2133,21 @@ function App() {
             ),
           ]);
           employeeRow.getCell(1).font = { bold: true, color: { argb: 'FF4D5866' } };
+          return;
+        }
+
+        if (row.kind === 'source_metric') {
+          const sourceData = sourceMetrics[row.sourceId];
+          const metricData = sourceData?.metrics[row.metricKey];
+          const valueType = row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number';
+          const metricRow = worksheet.addRow([
+            `  ${row.metricLabel}`,
+            ...reportData.map((point) => {
+              const value = metricData?.valuesByPeriod[point.key] ?? 0;
+              return formatMetricValue(value, valueType);
+            }),
+          ]);
+          metricRow.getCell(1).font = { bold: true, color: { argb: 'FF4D5866' } };
           return;
         }
 
@@ -2101,7 +2184,7 @@ function App() {
       }),
       'bitrix24-report.xlsx',
     );
-  }, [appliedFilters.dateRange, appliedFilters.period, downloadBlob, hasBuiltReport, reportData, tableRows]);
+  }, [appliedFilters.dateRange, appliedFilters.period, downloadBlob, hasBuiltReport, reportData, tableRows, sourceMetrics]);
 
   const exportPdf = useCallback(async () => {
     const element = reportCardRef.current;
@@ -2528,14 +2611,18 @@ function App() {
               const rowClassName = [
                 'report-table-row',
                 row.kind === 'section' ? 'is-section-row' : '',
+                row.kind === 'source_section' ? 'is-section-row' : '',
                 row.kind === 'metric' ? 'is-metric-row' : '',
+                row.kind === 'source_metric' ? 'is-metric-row' : '',
                 row.kind === 'employee' ? 'is-employee-row' : '',
                 row.kind === 'chart' ? 'is-chart-row' : '',
               ].filter(Boolean).join(' ');
               const leftCellClassName = [
                 'table-left-cell',
                 row.kind === 'section' ? 'section-left-cell' : '',
+                row.kind === 'source_section' ? 'section-left-cell' : '',
                 row.kind === 'metric' ? 'metric-left-cell' : '',
+                row.kind === 'source_metric' ? 'metric-left-cell' : '',
                 row.kind === 'employee' ? 'employee-left-cell' : '',
                 row.kind === 'chart' ? 'chart-left-cell' : '',
               ].filter(Boolean).join(' ');
@@ -2588,6 +2675,37 @@ function App() {
                           onApply={applySectionMetrics}
                         />
                       )}
+                    </div>
+                    <div className="table-right-cell" role="cell">
+                      <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
+                        <div className="value-axis-gutter" aria-hidden="true" />
+                        {reportData.map((point) => (
+                          <div className="value-cell" key={`${row.rowId}-${point.key}`} />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (row.kind === 'source_section') {
+                return (
+                  <div
+                    className={rowClassName}
+                    key={row.rowId}
+                    role="row"
+                    data-row-id={row.rowId}
+                  >
+                    <div className={leftCellClassName} role="rowheader">
+                      <button
+                        className={`section-toggle ${expandedSourceSections.has(row.sourceId) ? '' : 'is-collapsed'}`}
+                        type="button"
+                        aria-expanded={expandedSourceSections.has(row.sourceId)}
+                        onClick={() => toggleSourceSection(row.sourceId)}
+                      >
+                        <ChevronDown size={16} />
+                        <span>{row.label}</span>
+                      </button>
                     </div>
                     <div className="table-right-cell" role="cell">
                       <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
@@ -2665,22 +2783,60 @@ function App() {
                 );
               }
 
-              const rowThreshold = rowThresholds[row.metric.id] ?? { upper: '', lower: '' };
+              if (row.kind === 'source_metric') {
+                const sourceData = sourceMetrics[row.sourceId];
+                const metricData = sourceData?.metrics[row.metricKey];
+
+                return (
+                  <div
+                    className={rowClassName}
+                    key={row.rowId}
+                    role="row"
+                    data-row-id={row.rowId}
+                  >
+                    <div className={leftCellClassName} role="rowheader">
+                      <span className="metric-name">{row.metricLabel}</span>
+                    </div>
+                    <div className="table-right-cell" role="cell">
+                      <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
+                        <div className="value-axis-gutter" aria-hidden="true" />
+                        {reportData.map((point) => {
+                          const value = metricData?.valuesByPeriod[point.key] ?? 0;
+                          const valueType = row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number';
+                          const valueLabel = formatMetricValue(value, valueType);
+
+                          return (
+                            <ValueCellButton
+                              valueLabel={valueLabel}
+                              key={`${row.rowId}-${point.key}`}
+                              onClick={() => {}}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              // Fallthrough for 'metric' kind (narrowed by previous checks)
+              const metricRow = row as { kind: 'metric'; rowId: string; sectionId: string; metric: MetricRow };
+              const rowThreshold = rowThresholds[metricRow.metric.id] ?? { upper: '', lower: '' };
               const rowRecommendedThreshold = calculateRecommendedThresholds(
-                reportData.map((point) => point.values[row.metric.id]),
-                row.metric.type,
+                reportData.map((point) => point.values[metricRow.metric.id]),
+                metricRow.metric.type,
               );
-              const employeesOpen = expandedEmployeeMetricIds.has(row.metric.id);
-              const chartOpen = expandedChartMetricIds.has(row.metric.id);
+              const employeesOpen = expandedEmployeeMetricIds.has(metricRow.metric.id);
+              const chartOpen = expandedChartMetricIds.has(metricRow.metric.id);
 
               return (
                 <div
                   className={rowClassName}
-                  key={row.rowId}
+                  key={metricRow.rowId}
                   role="row"
-                  data-row-id={row.rowId}
-                  onDragOver={(event) => handleMetricDragOver(row.sectionId, event)}
-                  onDrop={(event) => handleMetricDrop(row.sectionId, row.metric.id, event)}
+                  data-row-id={metricRow.rowId}
+                  onDragOver={(event) => handleMetricDragOver(metricRow.sectionId, event)}
+                  onDrop={(event) => handleMetricDrop(metricRow.sectionId, metricRow.metric.id, event)}
                 >
                   <div className={leftCellClassName} role="rowheader">
                     <button
@@ -2688,38 +2844,38 @@ function App() {
                       type="button"
                       draggable
                       aria-label="Перетащить строку"
-                      onDragStart={(event) => handleMetricDragStart(row.sectionId, row.metric.id, event)}
+                      onDragStart={(event) => handleMetricDragStart(metricRow.sectionId, metricRow.metric.id, event)}
                       onDragEnd={() => {
                         draggedMetricRef.current = null;
                       }}
                     >
                       <GripVertical size={15} />
                     </button>
-                    <span className="metric-name">{row.metric.label}</span>
+                    <span className="metric-name">{metricRow.metric.label}</span>
                     <RowActionsMenu
                       employeesOpen={employeesOpen}
                       chartOpen={chartOpen}
                       threshold={rowThreshold}
                       recommendedThreshold={rowRecommendedThreshold}
-                      onToggleEmployees={() => toggleEmployeeRows(row.metric.id)}
-                      onToggleChart={() => toggleMetricChart(row.metric.id)}
-                      onThresholdChange={(value) => updateRowThreshold(row.metric.id, value)}
+                      onToggleEmployees={() => toggleEmployeeRows(metricRow.metric.id)}
+                      onToggleChart={() => toggleMetricChart(metricRow.metric.id)}
+                      onThresholdChange={(value) => updateRowThreshold(metricRow.metric.id, value)}
                     />
                   </div>
                   <div className="table-right-cell" role="cell">
                     <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
                       <div className="value-axis-gutter" aria-hidden="true" />
                       {reportData.map((point) => {
-                        const value = point.values[row.metric.id];
+                        const value = point.values[metricRow.metric.id];
                         const thresholdClass = getThresholdClass(value, rowThreshold);
-                        const valueLabel = formatMetricValue(value, row.metric.type);
+                        const valueLabel = formatMetricValue(value, metricRow.metric.type);
 
                         return (
                           <ValueCellButton
                             className={thresholdClass}
                             valueLabel={valueLabel}
-                            key={`${row.rowId}-${point.key}`}
-                            onClick={() => openDetail(row.metric, point, value, row.sectionId)}
+                            key={`${metricRow.rowId}-${point.key}`}
+                            onClick={() => openDetail(metricRow.metric, point, value, metricRow.sectionId)}
                           />
                         );
                       })}

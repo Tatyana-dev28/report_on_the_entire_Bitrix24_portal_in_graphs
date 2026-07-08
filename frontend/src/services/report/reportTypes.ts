@@ -85,6 +85,25 @@ export type ReportPreviewPayload = {
   data: ReportPoint[];
   employees: EmployeeMetricItem[];
   details: MetricDetailItem[];
+  sourceMetrics?: Record<string, SourceMetricsData>;
+};
+
+/** A single metric inside a source (deal pipeline or smart process) */
+export type SourceMetricsMetric = {
+  label: string;
+  valueType: 'count' | 'money' | 'percent';
+  valuesByPeriod: Record<string, number>;
+};
+
+/** Metrics for one source (deal pipeline or smart process) */
+export type SourceMetricsData = {
+  id: string;
+  label: string;
+  entityTypeId: number;
+  categoryId: number | null;
+  type: string;
+  sourceId: string;
+  metrics: Record<string, SourceMetricsMetric>;
 };
 
 export type ReportDataSource = {
@@ -100,4 +119,3 @@ export type ReportDataSource = {
   getInitialCrmSources: () => CrmSource[];
   getInitialReportData: (filters: ReportLoadFilters) => ReportPoint[];
 };
-

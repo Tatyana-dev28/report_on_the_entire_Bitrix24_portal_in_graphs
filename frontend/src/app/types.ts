@@ -1,6 +1,6 @@
 import type { CSSProperties, RefObject } from 'react';
 import type { DateRange, MetricRow, Period, ReportPoint } from '../services/report/reportCatalog';
-import type { EmployeeMetricItem } from '../services/report/reportTypes';
+import type { EmployeeMetricItem, SourceMetricsMetric } from '../services/report/reportTypes';
 
 export type SelectOption<T extends string> = {
   value: T;
@@ -45,6 +45,20 @@ export type TableRow =
       rowId: string;
       sectionId: string;
       metric: MetricRow;
+    }
+  | {
+      kind: 'source_section';
+      rowId: string;
+      sourceId: string;
+      label: string;
+    }
+  | {
+      kind: 'source_metric';
+      rowId: string;
+      sourceId: string;
+      metricKey: string;
+      metricLabel: string;
+      valueType: SourceMetricsMetric['valueType'];
     };
 
 export type ThresholdValues = {
@@ -198,5 +212,3 @@ export type ChartTooltipProps = {
 };
 
 export type StyleRecord = CSSProperties;
-
-

@@ -4,6 +4,7 @@ import type {
     EmployeeMetricItem,
     MetricDetailItem,
     ReportLoadFilters,
+    SourceMetricsData,
 } from '../report/reportTypes';
 
 export type ReportCatalogResponse = {
@@ -24,6 +25,7 @@ export type ReportPreviewResponse = {
     data: ReportPoint[];
     employees: EmployeeMetricItem[];
     details: MetricDetailItem[];
+    source_metrics?: Record<string, SourceMetricsData>;
 };
 
 export type PortalEmployeeItem = {

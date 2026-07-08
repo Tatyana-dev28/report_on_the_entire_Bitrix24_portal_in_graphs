@@ -415,12 +415,20 @@ export function MultiSelect({
   onChange,
   searchPlaceholder = 'Поиск по источникам',
   noResultsLabel = 'Источники не найдены',
+  onSelectAll,
+  onReset,
+  onApply,
+  variant = 'dropdown',
 }: {
   values: string[];
   options: SelectOption<string>[];
   onChange: (values: string[]) => void;
   searchPlaceholder?: string;
   noResultsLabel?: string;
+  onSelectAll?: () => void;
+  onReset?: () => void;
+  onApply?: () => void;
+  variant?: 'dropdown' | 'inline';
 }) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -505,6 +513,71 @@ export function MultiSelect({
     </label>
   );
 
+  const renderOptionsList = () => (
+    <>
+      <div className="multi-search-wrapper">
+        <input
+          ref={searchInputRef}
+          type="text"
+          className="multi-search-input"
+          placeholder={searchPlaceholder}
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            className="multi-search-clear"
+            aria-label="Очистить поиск"
+            onClick={clearSearch}
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+      {(onSelectAll || onReset || onApply) && (
+        <div className="multi-actions">
+          {onSelectAll && (
+            <button type="button" onClick={onSelectAll}>
+              Выбрать все
+            </button>
+          )}
+          {onReset && (
+            <button type="button" onClick={onReset}>
+              Сбросить
+            </button>
+          )}
+          {onApply && (
+            <button type="button" className="apply-settings-button" onClick={onApply}>
+              Применить
+            </button>
+          )}
+        </div>
+      )}
+      <div className="multi-options-list">
+        {filteredOptions.length === 0 ? (
+          <div className="multi-no-results">{noResultsLabel}</div>
+        ) : hasGroupedOptions ? (
+          groupedOptions.map((group, index) => (
+            <div
+              className={`multi-option-group ${index > 0 ? 'is-separated' : ''}`}
+              key={group.label}
+            >
+              <div className="multi-option-group-label">{group.label}</div>
+              {group.options.map(renderOption)}
+            </div>
+          ))
+        ) : (
+          filteredOptions.map(renderOption)
+        )}
+      </div>
+    </>
+  );
+
+  if (variant === 'inline') {
+    return renderOptionsList();
+  }
+
   return (
     <div className={`select-shell multi-select ${open ? 'is-open' : ''}`} ref={ref}>
       <button
@@ -526,43 +599,7 @@ export function MultiSelect({
           expectedWidth={280}
           expectedHeight={320}
         >
-          <div className="multi-search-wrapper">
-            <input
-              ref={searchInputRef}
-              type="text"
-              className="multi-search-input"
-              placeholder={searchPlaceholder}
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                className="multi-search-clear"
-                aria-label="Очистить поиск"
-                onClick={clearSearch}
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-          <div className="multi-options-list">
-            {filteredOptions.length === 0 ? (
-              <div className="multi-no-results">{noResultsLabel}</div>
-            ) : hasGroupedOptions ? (
-              groupedOptions.map((group, index) => (
-                <div
-                  className={`multi-option-group ${index > 0 ? 'is-separated' : ''}`}
-                  key={group.label}
-                >
-                  <div className="multi-option-group-label">{group.label}</div>
-                  {group.options.map(renderOption)}
-                </div>
-              ))
-            ) : (
-              filteredOptions.map(renderOption)
-            )}
-          </div>
+          {renderOptionsList()}
         </FloatingPopover>
       )}
     </div>
@@ -732,21 +769,15 @@ export function TableSettingsMenu({
               <X size={14} />
             </button>
           </div>
-          <div className="table-settings-actions">
-            <button type="button" onClick={onSelectAll}>
-              Выбрать все
-            </button>
-            <button type="button" onClick={onReset}>
-              Сбросить
-            </button>
-            <button type="button" className="apply-settings-button" onClick={handleApply}>
-              Применить
-            </button>
-          </div>
           <MultiSelect
             values={selectedSources}
             options={crmSourceOptions}
             onChange={onSourcesChange}
+            searchPlaceholder="Поиск по источникам"
+            noResultsLabel="Источники не найдены"
+            onSelectAll={onSelectAll}
+            onReset={onReset}
+            onApply={handleApply}
           />
         </FloatingPopover>
       )}

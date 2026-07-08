@@ -1,10 +1,11 @@
-﻿import type { CSSProperties, RefObject } from 'react';
+import type { CSSProperties, RefObject } from 'react';
 import type { DateRange, MetricRow, Period, ReportPoint } from '../services/report/reportCatalog';
 import type { EmployeeMetricItem } from '../services/report/reportTypes';
 
 export type SelectOption<T extends string> = {
   value: T;
   label: string;
+  group?: string;
 };
 
 export type MockEmployee = {

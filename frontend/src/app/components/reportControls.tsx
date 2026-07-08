@@ -413,10 +413,14 @@ export function MultiSelect({
   values,
   options,
   onChange,
+  searchPlaceholder = 'Поиск по источникам',
+  noResultsLabel = 'Источники не найдены',
 }: {
   values: string[];
   options: SelectOption<string>[];
   onChange: (values: string[]) => void;
+  searchPlaceholder?: string;
+  noResultsLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -454,6 +458,28 @@ export function MultiSelect({
     });
   }, [options, searchQuery]);
 
+  const groupedOptions = useMemo(() => {
+    const groups: Array<{ label: string; options: SelectOption<string>[] }> = [];
+    const groupByLabel = new Map<string, SelectOption<string>[]>();
+
+    filteredOptions.forEach((option) => {
+      if (!option.group) {
+        return;
+      }
+
+      if (!groupByLabel.has(option.group)) {
+        const groupOptions: SelectOption<string>[] = [];
+        groupByLabel.set(option.group, groupOptions);
+        groups.push({ label: option.group, options: groupOptions });
+      }
+
+      groupByLabel.get(option.group)?.push(option);
+    });
+
+    return groups;
+  }, [filteredOptions]);
+  const hasGroupedOptions = groupedOptions.length > 0;
+
   const clearSearch = () => {
     setSearchQuery('');
     searchInputRef.current?.focus();
@@ -467,6 +493,17 @@ export function MultiSelect({
 
     onChange([...values, value]);
   };
+
+  const renderOption = (option: SelectOption<string>) => (
+    <label className="multi-option" key={option.value}>
+      <input
+        type="checkbox"
+        checked={values.includes(option.value)}
+        onChange={() => toggleValue(option.value)}
+      />
+      <span>{option.label}</span>
+    </label>
+  );
 
   return (
     <div className={`select-shell multi-select ${open ? 'is-open' : ''}`} ref={ref}>
@@ -494,7 +531,7 @@ export function MultiSelect({
               ref={searchInputRef}
               type="text"
               className="multi-search-input"
-              placeholder="Поиск по воронкам"
+              placeholder={searchPlaceholder}
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
             />
@@ -511,18 +548,19 @@ export function MultiSelect({
           </div>
           <div className="multi-options-list">
             {filteredOptions.length === 0 ? (
-              <div className="multi-no-results">Воронки не найдены</div>
-            ) : (
-              filteredOptions.map((option) => (
-                <label className="multi-option" key={option.value}>
-                  <input
-                    type="checkbox"
-                    checked={values.includes(option.value)}
-                    onChange={() => toggleValue(option.value)}
-                  />
-                  <span>{option.label}</span>
-                </label>
+              <div className="multi-no-results">{noResultsLabel}</div>
+            ) : hasGroupedOptions ? (
+              groupedOptions.map((group, index) => (
+                <div
+                  className={`multi-option-group ${index > 0 ? 'is-separated' : ''}`}
+                  key={group.label}
+                >
+                  <div className="multi-option-group-label">{group.label}</div>
+                  {group.options.map(renderOption)}
+                </div>
               ))
+            ) : (
+              filteredOptions.map(renderOption)
             )}
           </div>
         </FloatingPopover>
@@ -625,6 +663,9 @@ export function SectionMetricsMenu({
 
 export function TableSettingsMenu({
   enabledSectionIds,
+  selectedSources,
+  crmSourceOptions,
+  onSourcesChange,
   onToggleSection,
   onSelectAll,
   onReset,
@@ -632,6 +673,9 @@ export function TableSettingsMenu({
   trigger = 'icon',
 }: {
   enabledSectionIds: Set<string>;
+  selectedSources: string[];
+  crmSourceOptions: SelectOption<string>[];
+  onSourcesChange: (values: string[]) => void;
   onToggleSection: (sectionId: string) => void;
   onSelectAll: () => void;
   onReset: () => void;
@@ -698,6 +742,14 @@ export function TableSettingsMenu({
             <button type="button" className="apply-settings-button" onClick={handleApply}>
               Применить
             </button>
+          </div>
+          <div className="table-settings-sources">
+            <p>Источники</p>
+            <MultiSelect
+              values={selectedSources}
+              options={crmSourceOptions}
+              onChange={onSourcesChange}
+            />
           </div>
           <div className="settings-list">
             {metricSections.map((section) => (

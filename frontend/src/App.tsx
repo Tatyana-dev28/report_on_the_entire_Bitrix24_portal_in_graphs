@@ -60,7 +60,7 @@ import {
   type ReportPoint,
 } from './services/report/reportCatalog';
 import { reportDataSource } from './services/report/reportDataSource';
-import type { CrmSource, MetricDetailItem, ReportLoadFilters } from './services/report/reportTypes';
+import type { CrmSource, CrmSourceType, MetricDetailItem, ReportLoadFilters } from './services/report/reportTypes';
 import type { PortalEmployeeItem } from './services/api/reportApiClient';
 import {
   APP_SETTINGS_STORAGE_KEY,
@@ -321,6 +321,35 @@ const getEmployeePeriodMetricValue = (
   return valuesByPeriod[matchedPeriodKey]?.[metricId] ?? 0;
 };
 
+const CRM_ENTITY_SOURCE_GROUP = 'crm-сущности';
+const PIPELINE_SOURCE_GROUP = 'воронки и смарт процессы';
+const CRM_SOURCE_TYPE_ORDER: Partial<Record<CrmSourceType, number>> = {
+  lead: 10,
+  invoice: 20,
+  quote: 30,
+  company: 40,
+  contact: 50,
+  task: 60,
+  activity: 70,
+  telephony: 80,
+  call: 90,
+  email: 100,
+  message: 110,
+  crm_form: 120,
+  other: 130,
+  deal: 1000,
+  smartProcess: 1010,
+};
+
+const getSourceGroup = (source: CrmSource) => (
+  source.type === 'deal' || source.type === 'smartProcess'
+    ? PIPELINE_SOURCE_GROUP
+    : CRM_ENTITY_SOURCE_GROUP
+);
+
+const getSourceGroupRank = (source: CrmSource) => (
+  source.type === 'deal' || source.type === 'smartProcess' ? 1 : 0
+);
 function App() {
   const [savedViews, setSavedViews] = useState<SavedReportViewOption[]>(() => loadSavedViews());
   const [selectedView, setSelectedView] = useState('default');
@@ -766,11 +795,29 @@ function App() {
   );
   const crmSourceOptions = useMemo(
     () =>
-      crmSources
+      [...crmSources]
         .filter((source) => source.isAvailable)
+        .sort((left, right) => {
+          const groupDiff = getSourceGroupRank(left) - getSourceGroupRank(right);
+
+          if (groupDiff !== 0) {
+            return groupDiff;
+          }
+
+          const typeDiff = (CRM_SOURCE_TYPE_ORDER[left.type] ?? 999) - (CRM_SOURCE_TYPE_ORDER[right.type] ?? 999);
+
+          if (typeDiff !== 0) {
+            return typeDiff;
+          }
+
+          const leftLabel = left.sourceLabel || left.title || left.id;
+          const rightLabel = right.sourceLabel || right.title || right.id;
+          return leftLabel.localeCompare(rightLabel, 'ru-RU');
+        })
         .map((source) => ({
           value: source.id,
           label: source.sourceLabel || source.title || source.id,
+          group: getSourceGroup(source),
         })),
     [crmSources],
   );
@@ -1346,6 +1393,7 @@ function App() {
   const enableAllTableSettings = useCallback(() => {
     setDraftFilters((current) => ({
       ...current,
+      selectedSources: [...crmSourceIds],
       enabledSectionIds: new Set(metricSections.map((section) => section.id)),
     }));
     setEnabledMetricIdsBySection(
@@ -1354,11 +1402,12 @@ function App() {
         return acc;
       }, {}),
     );
-  }, []);
+  }, [crmSourceIds]);
 
   const resetTableSettings = useCallback(() => {
     setDraftFilters((current) => ({
       ...current,
+      selectedSources: [],
       enabledSectionIds: new Set(),
     }));
   }, []);
@@ -1448,8 +1497,16 @@ function App() {
   }, []);
 
   const applyTableSettings = useCallback(() => {
+    const selectedSources = normalizeSelectedSources(draftFilters.selectedSources);
+
+    setDraftFilters((current) => ({
+      ...current,
+      selectedSources,
+      enabledSectionIds: new Set(draftFilters.enabledSectionIds),
+    }));
     setAppliedFilters((current) => ({
       ...current,
+      selectedSources,
       enabledSectionIds: new Set(draftFilters.enabledSectionIds),
     }));
     setAppliedEnabledMetricIdsBySection(
@@ -1458,7 +1515,7 @@ function App() {
         return acc;
       }, {}),
     );
-  }, [draftFilters.enabledSectionIds, enabledMetricIdsBySection]);
+  }, [draftFilters.enabledSectionIds, draftFilters.selectedSources, enabledMetricIdsBySection, normalizeSelectedSources]);
 
   const applySectionMetrics = useCallback((sectionId: string) => {
     setAppliedEnabledMetricIdsBySection((current) => {
@@ -2176,6 +2233,9 @@ function App() {
           <div className="top-actions">
             <TableSettingsMenu
               enabledSectionIds={draftFilters.enabledSectionIds}
+              selectedSources={draftFilters.selectedSources}
+              crmSourceOptions={crmSourceOptions}
+              onSourcesChange={handleSelectedSourcesChange}
               onToggleSection={toggleEnabledSection}
               onSelectAll={enableAllTableSettings}
               onReset={resetTableSettings}
@@ -2269,6 +2329,9 @@ function App() {
                 />
                 <TableSettingsMenu
                   enabledSectionIds={draftFilters.enabledSectionIds}
+                  selectedSources={draftFilters.selectedSources}
+                  crmSourceOptions={crmSourceOptions}
+                  onSourcesChange={handleSelectedSourcesChange}
                   onToggleSection={toggleEnabledSection}
                   onSelectAll={enableAllTableSettings}
                   onReset={resetTableSettings}

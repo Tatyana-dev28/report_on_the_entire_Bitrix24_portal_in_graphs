@@ -15,44 +15,7 @@ import type {
   ReportLoadFilters,
 } from './reportTypes';
 
-const mockCrmSources: CrmSource[] = [
-  {
-    id: 'lead-default',
-    type: 'lead',
-    entityTypeId: 1,
-    categoryId: null,
-    title: 'Воронка лидов',
-    sourceLabel: 'Воронка лидов',
-    isAvailable: true,
-  },
-  {
-    id: 'deal-sales',
-    type: 'deal',
-    entityTypeId: 2,
-    categoryId: 0,
-    title: 'Воронка продажи',
-    sourceLabel: 'Воронка продажи',
-    isAvailable: true,
-  },
-  {
-    id: 'smart-production',
-    type: 'smartProcess',
-    entityTypeId: 128,
-    categoryId: 0,
-    title: 'Воронка производство',
-    sourceLabel: 'Воронка производство',
-    isAvailable: true,
-  },
-  {
-    id: 'invoice-default',
-    type: 'invoice',
-    entityTypeId: 31,
-    categoryId: null,
-    title: 'Счета',
-    sourceLabel: 'Счета',
-    isAvailable: true,
-  },
-];
+const mockCrmSources: CrmSource[] = [];
 
 export const mockReportDataSource: ReportDataSource = {
   async loadCrmSources() {

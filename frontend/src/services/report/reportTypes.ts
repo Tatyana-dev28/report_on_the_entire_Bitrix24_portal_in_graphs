@@ -9,6 +9,8 @@ export type CrmSourceType =
   | 'telephony'
   | 'call'
   | 'activity'
+  | 'email'
+  | 'message'
   | 'quote'
   | 'company'
   | 'contact'

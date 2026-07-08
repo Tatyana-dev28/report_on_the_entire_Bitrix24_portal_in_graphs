@@ -59,6 +59,17 @@ SUPPORTED_SOURCE_TYPES = {
     "task",
     "crm_form",
 }
+# Whitelist of money metric IDs that represent successful/won outcomes.
+# Only these metrics contribute to the main chart indicator in "money" mode,
+# so the chart value is traceable back to visible table rows.
+SUCCESS_MONEY_METRIC_IDS = {
+    "deals_won_sum",
+    "invoices_won_sum",
+    "quotes_accepted_sum",
+    "smart_process_success_sum",
+    "contracts_signed_sum",
+    "leads_quality_sum",
+}
 DEFAULT_REPORT_MESSAGE = "Отчет построен по данным Bitrix24."
 logger = logging.getLogger(__name__)
 DEFAULT_SOURCE_LOAD_WORKERS = 4
@@ -874,14 +885,15 @@ def _build_indicator_value(
             for metric in metric_catalog
             if metric.get("type") not in {"money", "percent"}
         ]
-    else:
-        metric_ids = [
-            metric["id"]
-            for metric in metric_catalog
-            if metric.get("type") == "money"
-        ]
+        return sum(values.get(metric_id, 0) for metric_id in metric_ids)
 
-    return sum(values.get(metric_id, 0) for metric_id in metric_ids)
+    # "money" mode: only sum successful/won money metrics that the user has selected.
+    # This ensures the chart indicator is traceable back to visible table rows
+    # (e.g. deals_won_sum + invoices_won_sum + quotes_accepted_sum + ...).
+    # Lost/declined/bad money metrics are excluded.
+    selected_metric_ids = {metric["id"] for metric in metric_catalog}
+    relevant_ids = SUCCESS_MONEY_METRIC_IDS & selected_metric_ids
+    return sum(values.get(metric_id, 0) for metric_id in relevant_ids)
 
 
 def _build_source_indicator_value(

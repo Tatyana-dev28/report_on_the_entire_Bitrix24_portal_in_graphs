@@ -195,6 +195,10 @@ def _smart_process_metric_ids(row: dict) -> list[str]:
     if is_failed_smart_process(row):
         metric_ids.append("smart_process_failed")
 
+    # Add smart_process_working for rows that are neither success nor failed
+    if not is_success_smart_process(row) and not is_failed_smart_process(row):
+        metric_ids.append("smart_process_working")
+
     return metric_ids
 
 

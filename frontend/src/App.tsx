@@ -257,7 +257,34 @@ const buildBackendDetailRows = (
 ): DetailRow[] =>
   details
     .filter((detail) => {
-      // When sourceId is present, skip metricId filtering — show all details for that source+period
+      // For source_metric rows: filter by detailSourceIds AND detailMetricIds
+      if (context.detailSourceIds && context.detailSourceIds.length > 0) {
+        // Source must match one of the detailSourceIds
+        if (detail.sourceId && !context.detailSourceIds.includes(detail.sourceId)) {
+          return false;
+        }
+
+        // Metric must match one of the detailMetricIds (if specified)
+        if (context.detailMetricIds && context.detailMetricIds.length > 0) {
+          if (detail.metricId && !context.detailMetricIds.includes(detail.metricId)) {
+            return false;
+          }
+        }
+
+        // Period must match
+        if (detail.periodKey && detail.periodKey !== context.point.key) {
+          return false;
+        }
+
+        // Employee filter if present
+        if (context.employee && detail.employeeId && detail.employeeId !== context.employee.id) {
+          return false;
+        }
+
+        return true;
+      }
+
+      // For standard metric rows: use the original logic
       if (!context.sourceId) {
         if (detail.metricId && detail.metricId !== context.metric.id) {
           return false;
@@ -1662,6 +1689,8 @@ function App() {
     sectionId: string,
     employee?: ReportEmployee,
     sourceId?: string,
+    detailSourceIds?: string[],
+    detailMetricIds?: string[],
   ) => {
     setDetailContext({
       metric,
@@ -1670,6 +1699,8 @@ function App() {
       employee,
       entityType: getEntityTypeForMetric(metric, sectionId),
       sourceId,
+      detailSourceIds,
+      detailMetricIds,
     });
   }, []);
   const detailRows = useMemo(
@@ -2820,11 +2851,25 @@ function App() {
                             base: 0,
                           };
 
+                          // Pass detailSourceIds and detailMetricIds so buildBackendDetailRows
+                          // can filter reportDetails by the real source IDs and metric IDs
+                          const detailSourceIds = sourceData?.detailSourceIds ?? [];
+                          const detailMetricIds = metricData?.detailMetricIds ?? [];
+
                           return (
                             <ValueCellButton
                               valueLabel={valueLabel}
                               key={`${row.rowId}-${point.key}`}
-                              onClick={() => openDetail(syntheticMetric, point, value, '', undefined, row.sourceId)}
+                              onClick={() => openDetail(
+                                syntheticMetric,
+                                point,
+                                value,
+                                '',
+                                undefined,
+                                row.sourceId,
+                                detailSourceIds,
+                                detailMetricIds,
+                              )}
                             />
                           );
                         })}

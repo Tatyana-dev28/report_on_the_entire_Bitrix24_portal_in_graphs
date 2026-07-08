@@ -61,7 +61,17 @@ def build_source_metrics_by_period(
             "entityTypeId": 2,
             "categoryId": 0,
             "type": "deal_pipeline",
-            "metrics": { ... }
+            "sourceId": "deal-sales",
+            "detailSourceIds": ["deal-2-0"],
+            "metrics": {
+                "created": {
+                    "label": "Создано",
+                    "valueType": "count",
+                    "valuesByPeriod": {...},
+                    "detailMetricIds": ["deals_created"],
+                },
+                ...
+            }
         }
     }
     """
@@ -116,6 +126,7 @@ def build_source_metrics_by_period(
             "categoryId": source.get("categoryId"),
             "type": normalized_type,
             "sourceId": source_id,
+            "detailSourceIds": matched_source_keys,
             "metrics": metrics,
         }
 
@@ -227,26 +238,31 @@ def _compute_deal_pipeline_metrics(
             "label": "Создано",
             "valueType": "count",
             "valuesByPeriod": created_values,
+            "detailMetricIds": ["deals_created"],
         },
         "won": {
             "label": "Успешных",
             "valueType": "count",
             "valuesByPeriod": won_values,
+            "detailMetricIds": ["deals_won"],
         },
         "lost": {
             "label": "Проигранных",
             "valueType": "count",
             "valuesByPeriod": lost_values,
+            "detailMetricIds": ["deals_lost"],
         },
         "won_sum": {
             "label": "Сумма успешных",
             "valueType": "money",
             "valuesByPeriod": won_sum_values,
+            "detailMetricIds": ["deals_won_sum"],
         },
         "lost_sum": {
             "label": "Сумма проигранных",
             "valueType": "money",
             "valuesByPeriod": lost_sum_values,
+            "detailMetricIds": ["deals_lost_sum"],
         },
     }
 
@@ -262,6 +278,7 @@ def _compute_deal_pipeline_metrics(
         "label": "Конверсия",
         "valueType": "percent",
         "valuesByPeriod": conversion_values,
+        "detailMetricIds": ["deals_won", "deals_created"],
     }
 
     return metrics
@@ -331,21 +348,25 @@ def _compute_smart_process_metrics(
             "label": "Создано",
             "valueType": "count",
             "valuesByPeriod": created_values,
+            "detailMetricIds": ["smart_process_total"],
         },
         "working": {
             "label": "В работе",
             "valueType": "count",
             "valuesByPeriod": working_values,
+            "detailMetricIds": ["smart_process_working"],
         },
         "success": {
             "label": "Завершено",
             "valueType": "count",
             "valuesByPeriod": success_values,
+            "detailMetricIds": ["smart_process_success"],
         },
         "failed": {
             "label": "Проиграно",
             "valueType": "count",
             "valuesByPeriod": failed_values,
+            "detailMetricIds": ["smart_process_failed"],
         },
     }
 
@@ -354,6 +375,7 @@ def _compute_smart_process_metrics(
             "label": "Сумма",
             "valueType": "money",
             "valuesByPeriod": success_sum_values,
+            "detailMetricIds": ["smart_process_success_sum"],
         }
 
     # Conversion if we have meaningful data
@@ -372,6 +394,7 @@ def _compute_smart_process_metrics(
             "label": "Конверсия",
             "valueType": "percent",
             "valuesByPeriod": conversion_values,
+            "detailMetricIds": ["smart_process_success", "smart_process_total"],
         }
 
     return metrics

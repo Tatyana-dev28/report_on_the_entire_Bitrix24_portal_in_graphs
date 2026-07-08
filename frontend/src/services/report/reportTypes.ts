@@ -94,6 +94,8 @@ export type SourceMetricsMetric = {
   label: string;
   valueType: 'count' | 'money' | 'percent';
   valuesByPeriod: Record<string, number>;
+  /** Metric IDs from reportDetails that correspond to this source metric (e.g. ["deals_won"]) */
+  detailMetricIds?: string[];
 };
 
 /** Metrics for one source (deal pipeline or smart process) */
@@ -104,6 +106,8 @@ export type SourceMetricsData = {
   categoryId: number | null;
   type: string;
   sourceId: string;
+  /** Real source IDs from reportDetails (e.g. ["deal-2-0"]) used for detail filtering */
+  detailSourceIds?: string[];
   metrics: Record<string, SourceMetricsMetric>;
 };
 

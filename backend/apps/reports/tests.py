@@ -1849,3 +1849,250 @@ class BitrixReportDataProviderTests(TestCase):
         self.assertEqual(first_day["contracts_failed"], 1)
         self.assertEqual(first_day["contracts_signed_sum"], 2500)
         self.assertEqual(first_day["contracts_conversion"], 33.3)
+
+    def test_source_metrics_include_detail_source_ids_and_detail_metric_ids_for_smart_process(self):
+        """Regression test: source_metrics for smart process must include detailSourceIds and detailMetricIds
+        so that frontend can filter reportDetails correctly when clicking a source_metric cell."""
+        CrmSource.objects.create(
+            portal=self.portal,
+            external_key="smart-140-4",
+            source_type=CrmSource.SourceType.SMART_PROCESS,
+            entity_type_id=140,
+            category_id=4,
+            title="Новые заявки",
+            source_label="Новые заявки",
+            is_available=True,
+        )
+
+        provider = BitrixReportDataProvider(rest_client_factory=FakeSmartProcessBitrixRestClient)
+
+        result = provider.build_preview(
+            filters={
+                "period": "days",
+                "dateRange": {"from": "2026-05-01", "to": "2026-05-02"},
+                "selectedSources": ["Новые заявки"],
+                "selectedMetricIds": [
+                    "smart_process_total",
+                    "smart_process_working",
+                    "smart_process_success",
+                    "smart_process_success_sum",
+                    "smart_process_failed",
+                ],
+                "metricMode": "money",
+                "chartDisplayMode": "sum",
+            },
+            context=ReportDataProviderContext(
+                portal=self.portal,
+                user=None,
+                bitrix_user_id="42",
+                user_name="",
+            ),
+        )
+
+        self.assertEqual(result.status, "ready")
+
+        # Check source_metrics structure
+        source_metrics = result.source_metrics
+        self.assertTrue(source_metrics, "source_metrics should not be empty")
+
+        # Find the smart process source metric
+        smart_source_key = next(
+            (key for key in source_metrics if "smart" in key),
+            None,
+        )
+        self.assertIsNotNone(smart_source_key, "Should have a smart process source metric")
+
+        smart_source = source_metrics[smart_source_key]
+
+        # detailSourceIds must contain real source IDs from rows_by_source (e.g. "smart-140-4")
+        self.assertIn(
+            "detailSourceIds",
+            smart_source,
+            "source_metrics entry must have detailSourceIds",
+        )
+        self.assertTrue(
+            any("smart-140" in sid for sid in smart_source["detailSourceIds"]),
+            f"detailSourceIds should contain smart-140-4, got {smart_source['detailSourceIds']}",
+        )
+
+        # Check each metric has detailMetricIds
+        for metric_key in ("created", "working", "success", "failed", "success_sum"):
+            metric_data = smart_source["metrics"].get(metric_key)
+            if metric_data is None:
+                continue
+            self.assertIn(
+                "detailMetricIds",
+                metric_data,
+                f"Metric '{metric_key}' must have detailMetricIds",
+            )
+            self.assertTrue(
+                len(metric_data["detailMetricIds"]) > 0,
+                f"Metric '{metric_key}' detailMetricIds should not be empty",
+            )
+
+        # Verify that reportDetails contain rows matching detailSourceIds and detailMetricIds
+        detail_source_ids = smart_source["detailSourceIds"]
+        success_metric = smart_source["metrics"].get("success", {})
+        success_metric_ids = success_metric.get("detailMetricIds", [])
+
+        # Find details for the first period that have non-zero value
+        first_period_key = result.data[0]["key"] if result.data else None
+        self.assertIsNotNone(first_period_key)
+
+        # Check that there are detail rows matching the source and metric
+        matching_details = [
+            d
+            for d in result.details
+            if d.get("sourceId") in detail_source_ids
+            and d.get("metricId") in success_metric_ids
+            and d.get("periodKey") == first_period_key
+        ]
+        self.assertTrue(
+            len(matching_details) > 0,
+            f"Should find reportDetails matching sourceIds={detail_source_ids} "
+            f"and metricIds={success_metric_ids} for period {first_period_key}, "
+            f"but found {len(matching_details)}. Total details: {len(result.details)}",
+        )
+
+        # Also verify failed metric has matching details
+        failed_metric = smart_source["metrics"].get("failed", {})
+        failed_metric_ids = failed_metric.get("detailMetricIds", [])
+        second_period_key = result.data[1]["key"] if len(result.data) > 1 else None
+
+        if second_period_key and failed_metric_ids:
+            failed_details = [
+                d
+                for d in result.details
+                if d.get("sourceId") in detail_source_ids
+                and d.get("metricId") in failed_metric_ids
+                and d.get("periodKey") == second_period_key
+            ]
+            self.assertTrue(
+                len(failed_details) > 0,
+                f"Should find reportDetails for failed metric with sourceIds={detail_source_ids} "
+                f"and metricIds={failed_metric_ids} for period {second_period_key}",
+            )
+
+    def test_source_metrics_include_detail_source_ids_and_detail_metric_ids_for_deal_pipeline(self):
+        """Regression test: source_metrics for deal pipeline must include detailSourceIds and detailMetricIds
+        so that frontend can filter reportDetails correctly when clicking a source_metric cell."""
+        provider = BitrixReportDataProvider(rest_client_factory=FakeBitrixRestClient)
+
+        result = provider.build_preview(
+            filters={
+                "period": "days",
+                "dateRange": {"from": "2026-05-01", "to": "2026-05-02"},
+                "selectedSources": ["Воронка продажи"],
+                "selectedMetricIds": [
+                    "deals_created",
+                    "deals_won",
+                    "deals_lost",
+                    "deals_won_sum",
+                    "deals_lost_sum",
+                ],
+                "metricMode": "money",
+                "chartDisplayMode": "sum",
+            },
+            context=ReportDataProviderContext(
+                portal=self.portal,
+                user=None,
+                bitrix_user_id="42",
+                user_name="",
+            ),
+        )
+
+        self.assertEqual(result.status, "ready")
+
+        # Check source_metrics structure
+        source_metrics = result.source_metrics
+        self.assertTrue(source_metrics, "source_metrics should not be empty")
+
+        # Find the deal pipeline source metric
+        deal_source_key = next(
+            (key for key in source_metrics if "deal" in key),
+            None,
+        )
+        self.assertIsNotNone(deal_source_key, "Should have a deal pipeline source metric")
+
+        deal_source = source_metrics[deal_source_key]
+
+        # detailSourceIds must contain real source IDs from rows_by_source
+        # For catalog-based deal sources, the key is the catalog ID (e.g. "deal-sales")
+        self.assertIn(
+            "detailSourceIds",
+            deal_source,
+            "source_metrics entry must have detailSourceIds",
+        )
+        self.assertTrue(
+            len(deal_source["detailSourceIds"]) > 0,
+            f"detailSourceIds should not be empty, got {deal_source['detailSourceIds']}",
+        )
+
+        # Check each metric has detailMetricIds
+        for metric_key in ("created", "won", "lost", "won_sum", "lost_sum"):
+            metric_data = deal_source["metrics"].get(metric_key)
+            if metric_data is None:
+                continue
+            self.assertIn(
+                "detailMetricIds",
+                metric_data,
+                f"Metric '{metric_key}' must have detailMetricIds",
+            )
+            self.assertTrue(
+                len(metric_data["detailMetricIds"]) > 0,
+                f"Metric '{metric_key}' detailMetricIds should not be empty",
+            )
+
+        # Verify that reportDetails contain rows matching detailSourceIds and detailMetricIds
+        detail_source_ids = deal_source["detailSourceIds"]
+        won_metric = deal_source["metrics"].get("won", {})
+        won_metric_ids = won_metric.get("detailMetricIds", [])
+
+        first_period_key = result.data[0]["key"] if result.data else None
+        self.assertIsNotNone(first_period_key)
+
+        # Check won metric details
+        won_details = [
+            d
+            for d in result.details
+            if d.get("sourceId") in detail_source_ids
+            and d.get("metricId") in won_metric_ids
+            and d.get("periodKey") == first_period_key
+        ]
+        self.assertTrue(
+            len(won_details) > 0,
+            f"Should find reportDetails for won metric with sourceIds={detail_source_ids} "
+            f"and metricIds={won_metric_ids} for period {first_period_key}",
+        )
+
+        # Check won_sum metric details
+        won_sum_metric = deal_source["metrics"].get("won_sum", {})
+        won_sum_metric_ids = won_sum_metric.get("detailMetricIds", [])
+        won_sum_details = [
+            d
+            for d in result.details
+            if d.get("sourceId") in detail_source_ids
+            and d.get("metricId") in won_sum_metric_ids
+            and d.get("periodKey") == first_period_key
+        ]
+        self.assertTrue(
+            len(won_sum_details) > 0,
+            f"Should find reportDetails for won_sum metric with sourceIds={detail_source_ids} "
+            f"and metricIds={won_sum_metric_ids} for period {first_period_key}",
+        )
+
+        # Check lost metric details
+        lost_metric = deal_source["metrics"].get("lost", {})
+        lost_metric_ids = lost_metric.get("detailMetricIds", [])
+        lost_details = [
+            d
+            for d in result.details
+            if d.get("sourceId") in detail_source_ids
+            and d.get("metricId") in lost_metric_ids
+            and d.get("periodKey") == first_period_key
+        ]
+        self.assertTrue(
+            len(lost_details) > 0,
+            f"Should find reportDetails for lost metric with sourceIds={detail_source_ids} "
+            f"and metricIds={lost_metric_ids} for period {first_period_key}",
+        )

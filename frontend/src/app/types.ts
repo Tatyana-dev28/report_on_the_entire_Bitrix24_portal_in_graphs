@@ -115,6 +115,10 @@ export type DetailContext = {
   entityType: BitrixEntityType;
   employee?: ReportEmployee;
   sourceId?: string;
+  /** Real source IDs from reportDetails (e.g. ["deal-2-0"]) used for source_metric filtering */
+  detailSourceIds?: string[];
+  /** Metric IDs from reportDetails (e.g. ["deals_won"]) used for source_metric filtering */
+  detailMetricIds?: string[];
 };
 
 export type DetailRow = {

@@ -2096,3 +2096,299 @@ class BitrixReportDataProviderTests(TestCase):
             f"Should find reportDetails for lost metric with sourceIds={detail_source_ids} "
             f"and metricIds={lost_metric_ids} for period {first_period_key}",
         )
+
+class ReportSettingsApiTests(TestCase):
+    """Tests for report settings persistence (PortalReportSettings)."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.portal = BitrixPortal.objects.create(
+            member_id="settings-test-member",
+            domain="settings-test.bitrix24.ru",
+            protocol=BitrixPortal.Protocol.HTTPS,
+            status=BitrixPortal.Status.ACTIVE,
+        )
+        self.portal_token = make_portal_api_token(portal=self.portal, bitrix_user_id="99")
+
+    def _get_context(self):
+        return {
+            "memberId": self.portal.member_id,
+            "portalToken": self.portal_token,
+        }
+
+    def _create_pro_access(self):
+        from apps.billing.models import PortalAccess
+        from django.utils import timezone
+
+        PortalAccess.objects.create(
+            portal=self.portal,
+            access_level=PortalAccess.AccessLevel.PRO,
+            has_pro=True,
+            is_lifetime=True,
+            valid_until=timezone.now() + timezone.timedelta(days=365),
+            features={"save_report_state": True, "save_report_presets": True},
+            limits={"max_presets": 20, "max_saved_states": 20},
+            source="test",
+        )
+
+    def _create_free_access(self):
+        from apps.billing.models import PortalAccess
+
+        PortalAccess.objects.create(
+            portal=self.portal,
+            access_level=PortalAccess.AccessLevel.FREE,
+            has_pro=False,
+            features={"save_report_state": False, "save_report_presets": False},
+            limits={"max_presets": 0, "max_saved_states": 0},
+            source="free",
+        )
+
+    def test_free_cannot_save_settings(self):
+        self._create_free_access()
+        response = self.client.post(
+            reverse("reports:settings-save"),
+            data=json.dumps({
+                **self._get_context(),
+                "settings": {"period": "days"},
+                "savedViews": [],
+                "appSettings": {},
+                "detailColumnWidths": {},
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+        payload = response.json()
+        self.assertFalse(payload["ok"])
+
+    def test_free_cannot_load_settings(self):
+        self._create_free_access()
+        response = self.client.get(
+            reverse("reports:settings-load"),
+            self._get_context(),
+        )
+        self.assertEqual(response.status_code, 403)
+        payload = response.json()
+        self.assertFalse(payload["ok"])
+
+    def test_free_without_access_record_cannot_save(self):
+        response = self.client.post(
+            reverse("reports:settings-save"),
+            data=json.dumps({
+                **self._get_context(),
+                "settings": {"period": "days"},
+                "savedViews": [],
+                "appSettings": {},
+                "detailColumnWidths": {},
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_free_without_access_record_cannot_load(self):
+        response = self.client.get(
+            reverse("reports:settings-load"),
+            self._get_context(),
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_pro_can_save_settings(self):
+        self._create_pro_access()
+        settings_payload = {
+            "period": "months",
+            "dateRange": {"start": "2026-01-01", "end": "2026-06-30"},
+            "selectedSources": ["lead-default", "deal-sales"],
+            "chartDisplayMode": "sum",
+            "metricMode": "money",
+        }
+        response = self.client.post(
+            reverse("reports:settings-save"),
+            data=json.dumps({
+                **self._get_context(),
+                "settings": settings_payload,
+                "savedViews": [],
+                "appSettings": {"reportBuilderUserIds": []},
+                "detailColumnWidths": {},
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["created"])
+
+    def test_pro_can_load_settings(self):
+        self._create_pro_access()
+        from apps.reports.models import PortalReportSettings
+        PortalReportSettings.objects.create(
+            portal=self.portal,
+            settings={"period": "months", "selectedSources": ["lead-default"]},
+            saved_views=[],
+            app_settings={"reportBuilderUserIds": ["1", "2"]},
+            detail_column_widths={"rowNumber": 56},
+        )
+        response = self.client.get(
+            reverse("reports:settings-load"),
+            self._get_context(),
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["settings"]["period"], "months")
+        self.assertEqual(payload["settings"]["selectedSources"], ["lead-default"])
+        self.assertEqual(payload["appSettings"]["reportBuilderUserIds"], ["1", "2"])
+        self.assertEqual(payload["detailColumnWidths"]["rowNumber"], 56)
+
+    def test_pro_load_returns_empty_when_no_settings_saved(self):
+        self._create_pro_access()
+        response = self.client.get(
+            reverse("reports:settings-load"),
+            self._get_context(),
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["settings"], {})
+        self.assertEqual(payload["savedViews"], [])
+        self.assertEqual(payload["appSettings"], {})
+        self.assertEqual(payload["detailColumnWidths"], {})
+
+    def test_pro_save_updates_existing_settings(self):
+        self._create_pro_access()
+        from apps.reports.models import PortalReportSettings
+        PortalReportSettings.objects.create(
+            portal=self.portal,
+            settings={"period": "days"},
+            saved_views=[],
+            app_settings={},
+            detail_column_widths={},
+        )
+        response = self.client.post(
+            reverse("reports:settings-save"),
+            data=json.dumps({
+                **self._get_context(),
+                "settings": {"period": "months", "selectedSources": ["lead-default"]},
+                "savedViews": [{"value": "view1", "label": "View 1"}],
+                "appSettings": {"reportBuilderUserIds": ["3"]},
+                "detailColumnWidths": {"rowNumber": 100},
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["created"])
+        self.assertEqual(PortalReportSettings.objects.count(), 1)
+        record = PortalReportSettings.objects.get(portal=self.portal)
+        self.assertEqual(record.settings["period"], "months")
+        self.assertEqual(record.saved_views[0]["value"], "view1")
+        self.assertEqual(record.app_settings["reportBuilderUserIds"], ["3"])
+        self.assertEqual(record.detail_column_widths["rowNumber"], 100)
+
+    def test_pro_expired_cannot_save(self):
+        from apps.billing.models import PortalAccess
+        from django.utils import timezone
+        PortalAccess.objects.create(
+            portal=self.portal,
+            access_level=PortalAccess.AccessLevel.PRO,
+            has_pro=True,
+            valid_until=timezone.now() - timezone.timedelta(days=1),
+            features={"save_report_state": True, "save_report_presets": True},
+            limits={"max_presets": 20, "max_saved_states": 20},
+            source="test",
+        )
+        response = self.client.post(
+            reverse("reports:settings-save"),
+            data=json.dumps({
+                **self._get_context(),
+                "settings": {"period": "days"},
+                "savedViews": [],
+                "appSettings": {},
+                "detailColumnWidths": {},
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_pro_expired_cannot_load(self):
+        from apps.billing.models import PortalAccess
+        from django.utils import timezone
+        PortalAccess.objects.create(
+            portal=self.portal,
+            access_level=PortalAccess.AccessLevel.PRO,
+            has_pro=True,
+            valid_until=timezone.now() - timezone.timedelta(days=1),
+            features={"save_report_state": True, "save_report_presets": True},
+            limits={"max_presets": 20, "max_saved_states": 20},
+            source="test",
+        )
+        response = self.client.get(
+            reverse("reports:settings-load"),
+            self._get_context(),
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_pro_settings_stay_in_db_after_expiry(self):
+        from apps.billing.models import PortalAccess
+        from apps.reports.models import PortalReportSettings
+        from django.utils import timezone
+        PortalAccess.objects.create(
+            portal=self.portal,
+            access_level=PortalAccess.AccessLevel.PRO,
+            has_pro=True,
+            valid_until=timezone.now() + timezone.timedelta(days=30),
+            features={"save_report_state": True, "save_report_presets": True},
+            limits={"max_presets": 20, "max_saved_states": 20},
+            source="test",
+        )
+        PortalReportSettings.objects.create(
+            portal=self.portal,
+            settings={"period": "months"},
+            saved_views=[],
+            app_settings={},
+            detail_column_widths={},
+        )
+        access = PortalAccess.objects.get(portal=self.portal)
+        access.valid_until = timezone.now() - timezone.timedelta(days=1)
+        access.save()
+        self.assertEqual(PortalReportSettings.objects.filter(portal=self.portal).count(), 1)
+        response = self.client.get(
+            reverse("reports:settings-load"),
+            self._get_context(),
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_pro_reactivate_restores_settings(self):
+        from apps.billing.models import PortalAccess
+        from apps.reports.models import PortalReportSettings
+        from django.utils import timezone
+        PortalAccess.objects.create(
+            portal=self.portal,
+            access_level=PortalAccess.AccessLevel.PRO,
+            has_pro=True,
+            valid_until=timezone.now() + timezone.timedelta(days=30),
+            features={"save_report_state": True, "save_report_presets": True},
+            limits={"max_presets": 20, "max_saved_states": 20},
+            source="test",
+        )
+        PortalReportSettings.objects.create(
+            portal=self.portal,
+            settings={"period": "months", "selectedSources": ["lead-default"]},
+            saved_views=[],
+            app_settings={},
+            detail_column_widths={},
+        )
+        access = PortalAccess.objects.get(portal=self.portal)
+        access.valid_until = timezone.now() - timezone.timedelta(days=1)
+        access.save()
+        access.valid_until = timezone.now() + timezone.timedelta(days=365)
+        access.save()
+        response = self.client.get(
+            reverse("reports:settings-load"),
+            self._get_context(),
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["settings"]["period"], "months")
+        self.assertEqual(payload["settings"]["selectedSources"], ["lead-default"])

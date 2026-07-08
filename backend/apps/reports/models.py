@@ -781,3 +781,77 @@ class ReportBuild(BaseModel):
 
     def __str__(self):
         return f"{self.portal.domain} — {self.period_key} — {self.status}"
+
+
+class PortalReportSettings(BaseModel):
+    """
+    Автоматически сохраняемые настройки отчета для портала.
+
+    Это не пресеты (сохраненные пользователем вручную),
+    а автоматическое сохранение текущего состояния интерфейса:
+    - выбранный период, даты, источники;
+    - выбранные метрики (включенные/отключенные);
+    - порядок разделов и метрик;
+    - развернутые разделы;
+    - пороги;
+    - настройки графика (режим отображения, режим метрик);
+    - расписание;
+    - настройки приложения.
+
+    Сохраняется только для PRO-порталов.
+    При FREE-доступе backend не создаёт и не возвращает эту запись.
+    При истечении PRO запись остаётся в БД, но не применяется.
+    При повторной активации PRO ранее сохранённые настройки восстанавливаются.
+    """
+
+    portal = models.OneToOneField(
+        BitrixPortal,
+        on_delete=models.CASCADE,
+        related_name="report_settings",
+        verbose_name="Портал",
+    )
+
+    settings = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Настройки отчета",
+        help_text=(
+            "Полный слепок настроек интерфейса: "
+            "фильтры, метрики, порядок, пороги, график, расписание, настройки приложения."
+        ),
+    )
+
+    saved_views = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="Сохранённые представления",
+        help_text="Список пользовательских пресетов (SavedReportViewOption) для портала.",
+    )
+
+    app_settings = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Настройки приложения",
+        help_text="AppSettings: reportBuilderUserIds, moneyViewerUserIds, viewSaverUserIds.",
+    )
+
+    detail_column_widths = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Ширины колонок детализации",
+        help_text="Сохранённые ширины колонок в модалке детализации.",
+    )
+
+    last_saved_at = models.DateTimeField(
+        default=timezone.now,
+        db_index=True,
+        verbose_name="Дата последнего сохранения",
+    )
+
+    class Meta:
+        verbose_name = "Настройки отчета портала"
+        verbose_name_plural = "Настройки отчетов порталов"
+        ordering = ["portal"]
+
+    def __str__(self):
+        return f"{self.portal.domain} — настройки отчета"

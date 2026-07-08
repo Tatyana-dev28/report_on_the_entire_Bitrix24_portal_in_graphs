@@ -180,6 +180,10 @@ import {
   type BillingPlan,
 } from './services/api/billingApiClient';
 import {
+  loadReportSettings,
+  saveReportSettings,
+} from './services/api/reportApiClient';
+import {
   ConfigureChartMenu,
   DateRangePicker,
   RowActionsMenu,
@@ -649,6 +653,197 @@ function App() {
       refreshBillingState();
     }
   }, [refreshBillingState]);
+
+  //
+  // Subscription-based settings persistence
+  //
+  // PRO:  load saved settings from backend on startup, auto-save on changes
+  // FREE: reset to defaults, clear localStorage, never save to backend
+  //
+
+  const resetToDefaultSettings = useCallback(() => {
+    setDraftFilters(createDefaultFilters());
+    setAppliedFilters(createDefaultFilters());
+    setEnabledMetricIdsBySection(
+      metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
+        acc[section.id] = new Set(section.metricIds);
+        return acc;
+      }, {}),
+    );
+    setAppliedEnabledMetricIdsBySection(
+      metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
+        acc[section.id] = new Set(section.metricIds);
+        return acc;
+      }, {}),
+    );
+    setSectionOrder(metricSections.map((section) => section.id));
+    setMetricOrderBySection(
+      metricSections.reduce<Record<string, string[]>>((acc, section) => {
+        acc[section.id] = section.metricIds;
+        return acc;
+      }, {}),
+    );
+    setExpandedSections(new Set(metricSections.map((section) => section.id)));
+    setExpandedSourceSections(new Set());
+    setMainThreshold({ upper: '', lower: '', mode: null });
+    setRowThresholds({});
+    setSavedViews([defaultSavedView]);
+    setAppSettings(defaultAppSettings);
+    setHasBuiltReport(false);
+    setBuildMoment(0);
+
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.removeItem('sapp24-saved-report-views');
+        window.localStorage.removeItem('sapp24-app-settings');
+        window.localStorage.removeItem('sapp24-detail-column-widths-v2');
+      } catch {
+        // ignore storage errors
+      }
+    }
+  }, [metricSections]);
+
+  // Load settings from backend when PRO is detected
+  const applyBackendSettings = useCallback(() => {
+    loadReportSettings()
+      .then((response) => {
+        if (!response.ok) {
+          return;
+        }
+
+        const settings = response.settings as Record<string, unknown>;
+        const savedViewsData = response.savedViews as Array<Record<string, unknown>>;
+        const appSettingsData = response.appSettings as Record<string, unknown>;
+
+        if (settings && Object.keys(settings).length > 0) {
+          // Apply saved filters
+          if (typeof settings.period === 'string') {
+            setDraftFilters((current) => ({ ...current, period: settings.period as Period }));
+            setAppliedFilters((current) => ({ ...current, period: settings.period as Period }));
+          }
+
+          if (settings.selectedSources && Array.isArray(settings.selectedSources)) {
+            setDraftFilters((current) => ({ ...current, selectedSources: settings.selectedSources as string[] }));
+            setAppliedFilters((current) => ({ ...current, selectedSources: settings.selectedSources as string[] }));
+          }
+
+          if (typeof settings.chartDisplayMode === 'string') {
+            setDraftFilters((current) => ({ ...current, chartDisplayMode: settings.chartDisplayMode as ChartDisplayMode }));
+            setAppliedFilters((current) => ({ ...current, chartDisplayMode: settings.chartDisplayMode as ChartDisplayMode }));
+          }
+
+          if (typeof settings.metricMode === 'string') {
+            setDraftFilters((current) => ({ ...current, metricMode: settings.metricMode as ChartMetricMode }));
+            setAppliedFilters((current) => ({ ...current, metricMode: settings.metricMode as ChartMetricMode }));
+          }
+
+          if (settings.schedule && typeof settings.schedule === 'object') {
+            const schedule = settings.schedule as Record<string, unknown>;
+            setDraftFilters((current) => ({
+              ...current,
+              schedule: {
+                workdayStart: String(schedule.workdayStart ?? ''),
+                workdayEnd: String(schedule.workdayEnd ?? ''),
+                weekendDayIds: Array.isArray(schedule.weekendDayIds) ? schedule.weekendDayIds as number[] : [],
+                calendarWeekStart: Number(schedule.calendarWeekStart ?? 0),
+              },
+            }));
+          }
+
+          // Apply saved thresholds
+          if (settings.mainThreshold && typeof settings.mainThreshold === 'object') {
+            const mt = settings.mainThreshold as Record<string, unknown>;
+            setMainThreshold({
+              upper: String(mt.upper ?? ''),
+              lower: String(mt.lower ?? ''),
+              mode: (mt.mode as 'manual' | 'recommended' | null) ?? null,
+            });
+          }
+
+          if (settings.rowThresholds && typeof settings.rowThresholds === 'object') {
+            setRowThresholds(settings.rowThresholds as Record<string, { upper: string; lower: string; mode: 'manual' | 'recommended' | null }>);
+          }
+
+          // Apply saved metric visibility
+          if (settings.enabledMetricIdsBySection && typeof settings.enabledMetricIdsBySection === 'object') {
+            const saved = settings.enabledMetricIdsBySection as Record<string, string[]>;
+            setEnabledMetricIdsBySection(
+              Object.fromEntries(
+                Object.entries(saved).map(([sectionId, metricIds]) => [sectionId, new Set(metricIds)]),
+              ),
+            );
+            setAppliedEnabledMetricIdsBySection(
+              Object.fromEntries(
+                Object.entries(saved).map(([sectionId, metricIds]) => [sectionId, new Set(metricIds)]),
+              ),
+            );
+          }
+
+          // Apply saved section order
+          if (settings.sectionOrder && Array.isArray(settings.sectionOrder)) {
+            setSectionOrder(settings.sectionOrder as string[]);
+          }
+
+          // Apply saved metric order
+          if (settings.metricOrderBySection && typeof settings.metricOrderBySection === 'object') {
+            setMetricOrderBySection(settings.metricOrderBySection as Record<string, string[]>);
+          }
+
+          // Apply saved expanded sections
+          if (settings.expandedSections && Array.isArray(settings.expandedSections)) {
+            setExpandedSections(new Set(settings.expandedSections as string[]));
+          }
+
+          setHasBuiltReport(true);
+          setBuildMoment(Date.now());
+        }
+
+        // Apply saved views
+        if (savedViewsData.length > 0) {
+          const restoredViews: SavedReportViewOption[] = [
+            defaultSavedView,
+            ...savedViewsData.map((item) => ({
+              value: String(item.value ?? ''),
+              label: String(item.label ?? ''),
+              isSystem: Boolean(item.isSystem),
+              state: item.state as SavedReportViewState | undefined,
+            })),
+          ];
+          setSavedViews(restoredViews);
+        }
+
+        // Apply app settings
+        if (appSettingsData && Object.keys(appSettingsData).length > 0) {
+          setAppSettings({
+            reportBuilderUserIds: Array.isArray(appSettingsData.reportBuilderUserIds)
+              ? appSettingsData.reportBuilderUserIds as string[]
+              : [],
+            moneyViewerUserIds: Array.isArray(appSettingsData.moneyViewerUserIds)
+              ? appSettingsData.moneyViewerUserIds as string[]
+              : [],
+            viewSaverUserIds: Array.isArray(appSettingsData.viewSaverUserIds)
+              ? appSettingsData.viewSaverUserIds as string[]
+              : [],
+          });
+        }
+      })
+      .catch((error) => {
+        console.warn('[Settings] Failed to load settings from backend', error);
+      });
+  }, []);
+
+  // Effect: on billing state change, either load settings (PRO) or reset (FREE)
+  useEffect(() => {
+    if (billingLoading) {
+      return;
+    }
+
+    if (billingHasPro) {
+      applyBackendSettings();
+    } else {
+      resetToDefaultSettings();
+    }
+  }, [billingHasPro, billingLoading, applyBackendSettings, resetToDefaultSettings]);
 
   useEffect(() => {
     let isActive = true;
@@ -1900,6 +2095,73 @@ function App() {
     setSavedViews(views);
     persistSavedViews(views);
   }, []);
+
+  // Debounced auto-save to backend for PRO users
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const triggerAutoSave = useCallback(() => {
+    if (!billingHasPro) {
+      return;
+    }
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = setTimeout(() => {
+      const currentState = captureCurrentViewState();
+
+      const payload = {
+        settings: {
+          period: currentState.draftFilters.period,
+          dateRange: currentState.draftFilters.dateRange,
+          selectedSources: currentState.draftFilters.selectedSources,
+          chartDisplayMode: currentState.draftFilters.chartDisplayMode,
+          metricMode: currentState.draftFilters.metricMode,
+          schedule: currentState.draftFilters.schedule,
+          enabledMetricIdsBySection: currentState.enabledMetricIdsBySection,
+          sectionOrder: currentState.sectionOrder,
+          metricOrderBySection: currentState.metricOrderBySection,
+          expandedSections: currentState.expandedSections,
+          mainThreshold: currentState.mainThreshold,
+          rowThresholds: currentState.rowThresholds,
+        },
+        savedViews: savedViews.filter((view) => !view.isSystem).map((view) => ({
+          value: view.value,
+          label: view.label,
+          isSystem: view.isSystem,
+          state: view.state,
+        })),
+        appSettings: {
+          reportBuilderUserIds: appSettings.reportBuilderUserIds,
+          moneyViewerUserIds: appSettings.moneyViewerUserIds,
+          viewSaverUserIds: appSettings.viewSaverUserIds,
+        },
+        detailColumnWidths: {},
+      };
+
+      saveReportSettings(payload).catch((error) => {
+        console.warn('[Settings] Auto-save failed', error);
+      });
+    }, 2000);
+  }, [billingHasPro, captureCurrentViewState, savedViews, appSettings]);
+
+  // Watch for changes and trigger auto-save
+  useEffect(() => {
+    triggerAutoSave();
+  }, [
+    draftFilters,
+    appliedFilters,
+    enabledMetricIdsBySection,
+    sectionOrder,
+    metricOrderBySection,
+    expandedSections,
+    mainThreshold,
+    rowThresholds,
+    savedViews,
+    appSettings,
+    triggerAutoSave,
+  ]);
 
   const openSaveCurrentView = useCallback(() => {
     const userViewsCount = savedViews.filter((view) => !view.isSystem).length;

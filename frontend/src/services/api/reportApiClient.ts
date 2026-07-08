@@ -232,3 +232,40 @@ const delay = (ms: number) =>
     new Promise((resolve) => {
         window.setTimeout(resolve, ms);
     });
+
+// --- Report Settings Persistence ---
+
+export type ReportSettingsResponse = {
+    ok: boolean;
+    settings: Record<string, unknown>;
+    savedViews: Array<Record<string, unknown>>;
+    appSettings: Record<string, unknown>;
+    detailColumnWidths: Record<string, unknown>;
+};
+
+export type ReportSettingsSavePayload = {
+    settings: Record<string, unknown>;
+    savedViews: Array<Record<string, unknown>>;
+    appSettings: Record<string, unknown>;
+    detailColumnWidths: Record<string, unknown>;
+};
+
+export type ReportSettingsSaveResponse = {
+    ok: boolean;
+    created: boolean;
+    lastSavedAt: string;
+};
+
+export const loadReportSettings = () =>
+    requestJson<ReportSettingsResponse>(
+        appendQuery('/api/reports/settings/', getBitrixContext()),
+    );
+
+export const saveReportSettings = (payload: ReportSettingsSavePayload) =>
+    requestJson<ReportSettingsSaveResponse>('/api/reports/settings/save/', {
+        method: 'POST',
+        body: JSON.stringify({
+            ...getBitrixContext(),
+            ...payload,
+        }),
+    });

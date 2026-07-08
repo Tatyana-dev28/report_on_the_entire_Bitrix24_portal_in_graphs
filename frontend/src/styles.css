@@ -1195,19 +1195,18 @@ button {
 .multi-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 8px 0 10px;
-  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 8px;
 }
 
 .multi-action-button {
-  height: 36px;
-  padding: 0 14px;
-  border-radius: 12px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 10px;
   border: 1px solid rgba(205, 216, 228, 0.95);
   background: #f8fbff;
   color: #596678;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   line-height: 1;

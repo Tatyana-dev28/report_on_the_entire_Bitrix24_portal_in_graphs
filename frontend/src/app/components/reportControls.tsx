@@ -597,7 +597,7 @@ export function MultiSelect({
           open={open}
           className="select-menu multi-menu"
           expectedWidth={280}
-          expectedHeight={320}
+          expectedHeight={420}
         >
           {renderOptionsList()}
         </FloatingPopover>
@@ -770,6 +770,7 @@ export function TableSettingsMenu({
             </button>
           </div>
           <MultiSelect
+            variant="inline"
             values={selectedSources}
             options={crmSourceOptions}
             onChange={onSourcesChange}

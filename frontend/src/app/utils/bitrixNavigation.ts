@@ -92,11 +92,11 @@ export function openBitrixUser(userId: string | number) {
 }
 
 export const getEntityTypeForMetric = (metric: MetricRow, sectionId?: string): BitrixEntityType => {
-  if (metric.id.startsWith('deals_') || metric.id.startsWith('sales_') || sectionId === 'sales_funnel') {
+  if (metric.id.startsWith('deals_') || metric.id.startsWith('sales_')) {
     return 'deal';
   }
 
-  if (metric.id.startsWith('leads_') || metric.id.startsWith('lead_') || sectionId === 'lead_funnel') {
+  if (metric.id.startsWith('leads_') || metric.id.startsWith('lead_')) {
     return 'lead';
   }
 
@@ -120,7 +120,7 @@ export const getEntityTypeForMetric = (metric: MetricRow, sectionId?: string): B
     return 'task';
   }
 
-  if (metric.id.startsWith('activities_') || metric.id.startsWith('production_') || sectionId === 'production_funnel') {
+  if (metric.id.startsWith('activities_') || metric.id.startsWith('production_')) {
     return 'activity';
   }
 

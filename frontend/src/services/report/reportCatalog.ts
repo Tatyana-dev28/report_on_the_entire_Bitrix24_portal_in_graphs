@@ -62,9 +62,6 @@ export const periodOptions: Array<{ value: Period; label: string }> = [
 ];
 
 export const reportSources = [
-    'Воронка лидов',
-    'Воронка продажи',
-    'Воронка производство',
     'Счета',
 ];
 
@@ -107,21 +104,6 @@ export const metrics: MetricRow[] = [
     { id: 'activities_created', label: 'Создано дел', type: 'number', base: 63 },
     { id: 'activities_done', label: 'Выполненных дел', type: 'number', base: 55 },
     { id: 'activities_undone', label: 'Невыполненных дел', type: 'number', base: 11 },
-    { id: 'lead_new', label: 'Новый', group: 'Воронка лидов', type: 'number', base: 28 },
-    { id: 'lead_work', label: 'В работе', group: 'Воронка лидов', type: 'number', base: 21 },
-    { id: 'lead_qualified', label: 'Квалифицирован', group: 'Воронка лидов', type: 'number', base: 17 },
-    { id: 'lead_bad_stage', label: 'Некачественный', group: 'Воронка лидов', type: 'number', base: 8 },
-    { id: 'sales_new', label: 'Новая сделка', group: 'Воронка продажи', type: 'number', base: 19 },
-    { id: 'sales_talk', label: 'Переговоры', group: 'Воронка продажи', type: 'number', base: 14 },
-    { id: 'sales_invoice', label: 'Счет выставлен', group: 'Воронка продажи', type: 'number', base: 12 },
-    { id: 'sales_won', label: 'Успешно', group: 'Воронка продажи', type: 'number', base: 9 },
-    { id: 'sales_lost', label: 'Проиграно', group: 'Воронка продажи', type: 'number', base: 4 },
-    { id: 'production_accepted', label: 'Принято', group: 'Воронка производство', type: 'number', base: 16 },
-    { id: 'production_work', label: 'В производстве', group: 'Воронка производство', type: 'number', base: 13 },
-    { id: 'production_check', label: 'Проверка', group: 'Воронка производство', type: 'number', base: 8 },
-    { id: 'production_ready', label: 'Готово', group: 'Воронка производство', type: 'number', base: 7 },
-    { id: 'production_closed', label: 'Закрыто', group: 'Воронка производство', type: 'number', base: 6 },
-    { id: 'smart_process_success_sum', label: 'Сумма успешных смарт-процессов', group: 'Воронка производство', type: 'money', base: 500000 },
 ];
 
 export const metricSections: MetricSection[] = [
@@ -200,28 +182,6 @@ export const metricSections: MetricSection[] = [
         id: 'activities',
         label: 'Дела',
         metricIds: ['activities_created', 'activities_done', 'activities_undone'],
-    },
-    {
-        id: 'lead_funnel',
-        label: 'Воронка лидов',
-        metricIds: ['lead_new', 'lead_work', 'lead_qualified', 'lead_bad_stage'],
-    },
-    {
-        id: 'sales_funnel',
-        label: 'Воронка продажи',
-        metricIds: ['sales_new', 'sales_talk', 'sales_invoice', 'sales_won', 'sales_lost'],
-    },
-    {
-        id: 'production_funnel',
-        label: 'Воронка производство',
-        metricIds: [
-            'production_accepted',
-            'production_work',
-            'production_check',
-            'production_ready',
-            'production_closed',
-            'smart_process_success_sum',
-        ],
     },
 ];
 

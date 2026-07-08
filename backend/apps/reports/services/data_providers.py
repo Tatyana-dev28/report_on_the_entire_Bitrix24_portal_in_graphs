@@ -20,6 +20,7 @@ class ReportDataResult:
     data: list[dict] = field(default_factory=list)
     employees: list[dict] = field(default_factory=list)
     details: list[dict] = field(default_factory=list)
+    source_metrics: dict[str, dict] = field(default_factory=dict)
     status: str = "empty"
     message: str = "Сессия отчета создана. Расчет через Bitrix REST будет подключен следующим этапом."
     metadata: dict = field(default_factory=dict)
@@ -29,6 +30,7 @@ class ReportDataResult:
             "data": self.data,
             "employees": self.employees,
             "details": self.details,
+            "source_metrics": self.source_metrics,
             "metadata": self.metadata,
             "meta": {
                 "status": self.status,

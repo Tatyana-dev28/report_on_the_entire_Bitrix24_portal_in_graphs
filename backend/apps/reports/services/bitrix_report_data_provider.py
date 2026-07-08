@@ -40,6 +40,7 @@ from apps.reports.services.data_providers import (
     ReportDataProviderContext,
     ReportDataResult,
 )
+from apps.reports.services.source_metrics_service import build_source_metrics_by_period
 from apps.reports.services.employee_breakdown import build_employee_breakdown
 from apps.reports.services.entity_details import build_entity_details
 from apps.reports.services.exceptions import ReportPreviewSessionError
@@ -159,10 +160,21 @@ class BitrixReportDataProvider:
             for source_id, rows in rows_by_source.items()
         }
 
+        # Compute per-source metrics for deal pipelines and smart processes
+        source_metrics = build_source_metrics_by_period(
+            buckets=buckets,
+            rows_by_source=rows_by_source,
+            selected_sources=selected_sources,
+            date_from=date_from,
+            date_to=date_to,
+            client=client,
+        )
+
         return ReportDataResult(
             data=data,
             employees=employees,
             details=details,
+            source_metrics=source_metrics,
             status="ready",
             message=DEFAULT_REPORT_MESSAGE,
             metadata={

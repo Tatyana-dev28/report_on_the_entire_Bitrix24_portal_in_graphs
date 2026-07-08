@@ -64,6 +64,7 @@ def get_report_preview_session_status(request, session_key: str) -> dict:
                 "data": cached_payload.get("data", []),
                 "employees": cached_payload.get("employees", []),
                 "details": cached_payload.get("details", []),
+                "source_metrics": cached_payload.get("source_metrics", {}),
                 "metadata": cached_payload.get("metadata", {}),
                 "message": (cached_payload.get("meta") or {}).get("message", ""),
             }

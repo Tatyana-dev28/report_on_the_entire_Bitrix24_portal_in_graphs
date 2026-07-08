@@ -393,6 +393,10 @@ function App() {
   const [selectedView, setSelectedView] = useState('default');
   const [draftFilters, setDraftFilters] = useState<ReportFilters>(() => createDefaultFilters());
   const [appliedFilters, setAppliedFilters] = useState<ReportFilters>(() => createDefaultFilters());
+  // Separate state for table settings — these are the sources the user selected
+  // specifically in "Настройка таблицы". They are NOT the same as chart sources.
+  // tableRows uses ONLY these to decide which source sections to show.
+  const [tableSelectedSources, setTableSelectedSources] = useState<string[]>([]);
   const [periodOptions, setPeriodOptions] = useState(defaultPeriodOptions);
   const [metricSections, setMetricSections] = useState(defaultMetricSections);
   const [metrics, setMetrics] = useState(defaultMetrics);
@@ -664,6 +668,7 @@ function App() {
   const resetToDefaultSettings = useCallback(() => {
     setDraftFilters(createDefaultFilters());
     setAppliedFilters(createDefaultFilters());
+    setTableSelectedSources([]);
     setEnabledMetricIdsBySection(
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
         acc[section.id] = new Set(section.metricIds);
@@ -726,6 +731,13 @@ function App() {
           if (settings.selectedSources && Array.isArray(settings.selectedSources)) {
             setDraftFilters((current) => ({ ...current, selectedSources: settings.selectedSources as string[] }));
             setAppliedFilters((current) => ({ ...current, selectedSources: settings.selectedSources as string[] }));
+            // For backward compatibility, initialize tableSelectedSources from saved settings.
+            // If the backend has a separate tableSelectedSources field, use that instead.
+            if (settings.tableSelectedSources && Array.isArray(settings.tableSelectedSources)) {
+              setTableSelectedSources(settings.tableSelectedSources as string[]);
+            } else {
+              setTableSelectedSources(settings.selectedSources as string[]);
+            }
           }
 
           if (typeof settings.chartDisplayMode === 'string') {
@@ -973,6 +985,12 @@ function App() {
               }, {}),
             );
             applyAutomaticThresholdsRef.current = false;
+          } else {
+            // Regular build (not automatic): clear thresholds after data load
+            // to prevent applyBackendSettings from restoring stale values
+            // that may still be on the server (before triggerAutoSave saves empty ones).
+            setMainThreshold({ upper: '', lower: '', mode: null });
+            setRowThresholds({});
           }
         }
       })
@@ -1346,9 +1364,10 @@ function App() {
       });
 
       // Add source-based sections (deal pipelines and smart processes) from sourceMetrics.
-      // Only include sources that the user has selected in table settings (appliedFilters.selectedSources).
+      // Only include sources that the user has selected in table settings (tableSelectedSources).
+      // This is CRITICAL: table rows must ONLY depend on table settings, NOT on chart settings.
       const sourceSectionRows: TableRow[] = [];
-      const tableSelectedSourceIds = new Set(appliedFilters.selectedSources);
+      const tableSelectedSourceIds = new Set(tableSelectedSources);
       const sourceMetricsEntries = Object.entries(sourceMetrics);
 
       if (hasBuiltReport && sourceMetricsEntries.length > 0) {
@@ -1387,20 +1406,20 @@ function App() {
       }
 
       return [...standardRows, ...sourceSectionRows];
-    },
-    [
-      visibleSections,
-      expandedSections,
-      enabledMetricIdsBySection,
-      availableEmployees,
-      metricMap,
-      metricOrderBySection,
-      expandedEmployeeMetricIds,
-      expandedChartMetricIds,
-      sourceMetrics,
-      hasBuiltReport,
-      appliedFilters,
-    ],
+      },
+      [
+        visibleSections,
+        expandedSections,
+        enabledMetricIdsBySection,
+        availableEmployees,
+        metricMap,
+        metricOrderBySection,
+        expandedEmployeeMetricIds,
+        expandedChartMetricIds,
+        sourceMetrics,
+        hasBuiltReport,
+        tableSelectedSources,
+      ],
   );
 
   // Track source sections the user has manually collapsed, so auto-expand does not re-open them
@@ -1733,15 +1752,21 @@ function App() {
         return acc;
       }, {}),
     );
-  }, [crmSourceIds]);
+  }, [crmSourceIds, metricSections]);
 
   const resetTableSettings = useCallback(() => {
     setDraftFilters((current) => ({
       ...current,
       selectedSources: [],
-      enabledSectionIds: new Set(),
+      enabledSectionIds: new Set(metricSections.map((section) => section.id)),
     }));
-  }, []);
+    setEnabledMetricIdsBySection(
+      metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
+        acc[section.id] = new Set(section.metricIds);
+        return acc;
+      }, {}),
+    );
+  }, [metricSections]);
 
   const toggleEnabledMetric = useCallback((sectionId: string, metricId: string) => {
     setEnabledMetricIdsBySection((current) => {
@@ -1830,14 +1855,17 @@ function App() {
   const applyTableSettings = useCallback(() => {
     const selectedSources = normalizeSelectedSources(draftFilters.selectedSources);
 
+    // IMPORTANT: tableSelectedSources stores ONLY what the user selected in table settings.
+    // This is separate from appliedFilters.selectedSources (which is for chart).
+    // tableRows uses tableSelectedSources exclusively to filter source sections.
+    setTableSelectedSources(selectedSources);
+
     setDraftFilters((current) => ({
       ...current,
-      selectedSources,
       enabledSectionIds: new Set(draftFilters.enabledSectionIds),
     }));
     setAppliedFilters((current) => ({
       ...current,
-      selectedSources,
       enabledSectionIds: new Set(draftFilters.enabledSectionIds),
     }));
     setAppliedEnabledMetricIdsBySection(
@@ -2163,6 +2191,7 @@ function App() {
           period: currentState.draftFilters.period,
           dateRange: currentState.draftFilters.dateRange,
           selectedSources: currentState.draftFilters.selectedSources,
+          tableSelectedSources: [...tableSelectedSources],
           chartDisplayMode: currentState.draftFilters.chartDisplayMode,
           metricMode: currentState.draftFilters.metricMode,
           schedule: currentState.draftFilters.schedule,
@@ -2191,7 +2220,7 @@ function App() {
         console.warn('[Settings] Auto-save failed', error);
       });
     }, 2000);
-  }, [billingHasPro, captureCurrentViewState, savedViews, appSettings]);
+  }, [billingHasPro, captureCurrentViewState, savedViews, appSettings, tableSelectedSources]);
 
   // Watch for changes and trigger auto-save
   useEffect(() => {
@@ -2207,6 +2236,7 @@ function App() {
     rowThresholds,
     savedViews,
     appSettings,
+    tableSelectedSources,
     triggerAutoSave,
   ]);
 
@@ -2224,8 +2254,13 @@ function App() {
   }, [isProUser, savedViews]);
 
   const applySavedViewState = useCallback((state: SavedReportViewState) => {
-    setDraftFilters(deserializeFilters(state.draftFilters));
-    setAppliedFilters(deserializeFilters(state.appliedFilters));
+    const deserializedDraft = deserializeFilters(state.draftFilters);
+    const deserializedApplied = deserializeFilters(state.appliedFilters);
+    setDraftFilters(deserializedDraft);
+    setAppliedFilters(deserializedApplied);
+    // Restore tableSelectedSources from the saved view's applied filters for backward compatibility.
+    // In future saved views, this could be stored as a separate field.
+    setTableSelectedSources([...deserializedApplied.selectedSources]);
     const restoredMetricIds = Object.fromEntries(
       Object.entries(state.enabledMetricIdsBySection).map(([sectionId, metricIds]) => [
         sectionId,

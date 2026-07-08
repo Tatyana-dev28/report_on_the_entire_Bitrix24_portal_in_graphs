@@ -794,9 +794,6 @@ function App() {
           if (settings.expandedSections && Array.isArray(settings.expandedSections)) {
             setExpandedSections(new Set(settings.expandedSections as string[]));
           }
-
-          setHasBuiltReport(true);
-          setBuildMoment(Date.now());
         }
 
         // Apply saved views

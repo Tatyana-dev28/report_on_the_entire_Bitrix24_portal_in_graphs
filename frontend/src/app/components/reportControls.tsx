@@ -882,7 +882,7 @@ export function ConfigureChartMenu({
           open={open}
           className="settings-popover configure-chart-popover"
           expectedWidth={360}
-          expectedHeight={560}
+          expectedHeight={640}
         >
           <div className="configure-chart-head">
             <p>Настроить график</p>
@@ -897,6 +897,7 @@ export function ConfigureChartMenu({
           </div>
           <div className="configure-chart-fields">
             <MultiSelect
+              variant="inline"
               values={draftSettings.selectedSources}
               options={crmSourceOptions}
               onChange={(selectedSources) =>

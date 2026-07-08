@@ -538,17 +538,17 @@ export function MultiSelect({
       {(onSelectAll || onReset || onApply) && (
         <div className="multi-actions">
           {onSelectAll && (
-            <button type="button" onClick={onSelectAll}>
+            <button type="button" className="multi-action-button" onClick={onSelectAll}>
               Выбрать все
             </button>
           )}
           {onReset && (
-            <button type="button" onClick={onReset}>
+            <button type="button" className="multi-action-button" onClick={onReset}>
               Сбросить
             </button>
           )}
           {onApply && (
-            <button type="button" className="apply-settings-button" onClick={onApply}>
+            <button type="button" className="multi-action-button multi-action-button--primary" onClick={onApply}>
               Применить
             </button>
           )}
@@ -770,7 +770,6 @@ export function TableSettingsMenu({
             </button>
           </div>
           <MultiSelect
-            variant="inline"
             values={selectedSources}
             options={crmSourceOptions}
             onChange={onSourcesChange}
@@ -897,7 +896,6 @@ export function ConfigureChartMenu({
           </div>
           <div className="configure-chart-fields">
             <MultiSelect
-              variant="inline"
               values={draftSettings.selectedSources}
               options={crmSourceOptions}
               onChange={(selectedSources) =>

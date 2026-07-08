@@ -1192,6 +1192,44 @@ button {
   color: #242932;
 }
 
+.multi-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 10px;
+  flex-wrap: wrap;
+}
+
+.multi-action-button {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(205, 216, 228, 0.95);
+  background: #f8fbff;
+  color: #596678;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.multi-action-button:hover {
+  background: #eef5ff;
+  border-color: rgba(175, 194, 218, 1);
+}
+
+.multi-action-button--primary {
+  border-color: #168f4f;
+  background: #169452;
+  color: #ffffff;
+}
+
+.multi-action-button--primary:hover {
+  background: #128246;
+  border-color: #128246;
+}
+
 .multi-options-list {
   max-height: 220px;
   overflow-y: auto;

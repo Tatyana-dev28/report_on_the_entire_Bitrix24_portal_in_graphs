@@ -1230,7 +1230,7 @@ button {
 }
 
 .multi-options-list {
-  max-height: min(52vh, 420px);
+  max-height: min(60vh, 520px);
   overflow-y: auto;
   padding: 0 2px;
 }

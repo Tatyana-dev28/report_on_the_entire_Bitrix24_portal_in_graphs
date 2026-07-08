@@ -597,7 +597,7 @@ export function MultiSelect({
           open={open}
           className="select-menu multi-menu"
           expectedWidth={280}
-          expectedHeight={560}
+          expectedHeight={640}
         >
           {renderOptionsList()}
         </FloatingPopover>
@@ -897,7 +897,6 @@ export function ConfigureChartMenu({
           </div>
           <div className="configure-chart-fields">
             <MultiSelect
-              variant="inline"
               values={draftSettings.selectedSources}
               options={crmSourceOptions}
               onChange={(selectedSources) =>

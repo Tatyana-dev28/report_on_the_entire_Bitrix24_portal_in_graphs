@@ -61,6 +61,7 @@ export type MetricDetailItem = {
   responsibleName?: string;
   createdAt?: string;
   entityType?: string;
+  sourceId?: string;
 };
 
 export type EmployeeMetricPeriodValue = {

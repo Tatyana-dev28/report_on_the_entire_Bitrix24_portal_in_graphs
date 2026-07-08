@@ -114,6 +114,7 @@ export type DetailContext = {
   value: number;
   entityType: BitrixEntityType;
   employee?: ReportEmployee;
+  sourceId?: string;
 };
 
 export type DetailRow = {

@@ -172,7 +172,7 @@ def _invoice_metric_ids(row: dict) -> list[str]:
 
 
 def _smart_process_metric_ids(row: dict) -> list[str]:
-    metric_ids = []
+    metric_ids = ["smart_process_total"]
 
     if is_production_accepted(row):
         metric_ids.append("production_accepted")
@@ -188,6 +188,7 @@ def _smart_process_metric_ids(row: dict) -> list[str]:
 
     if is_success_smart_process(row):
         metric_ids.append("production_closed")
+        metric_ids.append("smart_process_success")
 
     return metric_ids
 

@@ -269,6 +269,10 @@ const buildBackendDetailRows = (
         return false;
       }
 
+      if (context.sourceId && detail.sourceId && detail.sourceId !== context.sourceId) {
+        return false;
+      }
+
       return true;
     })
     .map((detail, index) => {
@@ -1648,19 +1652,48 @@ function App() {
     });
   }, [applyReportBuild, crmSources, normalizeSelectedSources]);
 
+  const sourceMetricKeyToBackendId: Record<string, string> = {
+    created: 'deals_created',
+    won: 'deals_won',
+    lost: 'deals_lost',
+    won_sum: 'deals_won_sum',
+    lost_sum: 'deals_lost_sum',
+    conversion: 'deals_conversion',
+    working: 'smart_process_total',
+    success: 'smart_process_success',
+    failed: 'smart_process_failed',
+    success_sum: 'smart_process_success_sum',
+  };
+
   const openDetail = useCallback((
     metric: MetricRow,
     point: ReportPoint,
     value: number,
     sectionId: string,
     employee?: ReportEmployee,
+    sourceId?: string,
+    sourceMetricKey?: string,
   ) => {
+    let resolvedMetric = metric;
+    let resolvedSourceId = sourceId;
+
+    if (sourceMetricKey) {
+      const backendId = sourceMetricKeyToBackendId[sourceMetricKey] || sourceMetricKey;
+      resolvedMetric = {
+        id: backendId,
+        label: metric.label,
+        type: metric.type,
+        base: 0,
+      };
+    }
+
     setDetailContext({
-      metric,
+      metric: resolvedMetric,
       point,
       value,
       employee,
-      entityType: getEntityTypeForMetric(metric, sectionId),
+      entityType: getEntityTypeForMetric(resolvedMetric, sectionId),
+      sourceId: resolvedSourceId,
     });
   }, []);
   const detailRows = useMemo(
@@ -2804,12 +2837,18 @@ function App() {
                           const value = metricData?.valuesByPeriod[point.key] ?? 0;
                           const valueType = row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number';
                           const valueLabel = formatMetricValue(value, valueType);
+                          const syntheticMetric: MetricRow = {
+                            id: row.metricKey,
+                            label: row.metricLabel,
+                            type: valueType,
+                            base: 0,
+                          };
 
                           return (
                             <ValueCellButton
                               valueLabel={valueLabel}
                               key={`${row.rowId}-${point.key}`}
-                              onClick={() => {}}
+                              onClick={() => openDetail(syntheticMetric, point, value, '', undefined, row.sourceId, row.metricKey)}
                             />
                           );
                         })}

@@ -1891,6 +1891,8 @@ function App() {
 
   const buildReport = useCallback(() => {
     applyAutomaticThresholdsRef.current = false;
+    setMainThreshold({ upper: '', lower: '', mode: null });
+    setRowThresholds({});
     applyReportBuild(normalizeSelectedSources(draftFilters.selectedSources));
   }, [applyReportBuild, draftFilters.selectedSources, normalizeSelectedSources]);
 

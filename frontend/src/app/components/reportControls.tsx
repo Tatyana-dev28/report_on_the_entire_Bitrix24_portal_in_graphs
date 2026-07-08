@@ -743,26 +743,11 @@ export function TableSettingsMenu({
               Применить
             </button>
           </div>
-          <div className="table-settings-sources">
-            <p>Источники</p>
-            <MultiSelect
-              values={selectedSources}
-              options={crmSourceOptions}
-              onChange={onSourcesChange}
-            />
-          </div>
-          <div className="settings-list">
-            {metricSections.map((section) => (
-              <label className="settings-option" key={section.id}>
-                <input
-                  type="checkbox"
-                  checked={enabledSectionIds.has(section.id)}
-                  onChange={() => onToggleSection(section.id)}
-                />
-                <span>{section.label}</span>
-              </label>
-            ))}
-          </div>
+          <MultiSelect
+            values={selectedSources}
+            options={crmSourceOptions}
+            onChange={onSourcesChange}
+          />
         </FloatingPopover>
       )}
     </div>
@@ -879,6 +864,37 @@ export function ConfigureChartMenu({
             </button>
           </div>
           <div className="configure-chart-fields">
+            <div className="table-settings-actions">
+              <button
+                type="button"
+                onClick={() =>
+                  updateDraftSettings((current) => ({
+                    ...current,
+                    selectedSources: crmSourceOptions.map((option) => option.value),
+                  }))
+                }
+              >
+                Выбрать все
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  updateDraftSettings((current) => ({
+                    ...current,
+                    selectedSources: [],
+                  }))
+                }
+              >
+                Сбросить
+              </button>
+              <button
+                type="button"
+                className="apply-settings-button"
+                onClick={applySettings}
+              >
+                Применить
+              </button>
+            </div>
             <MultiSelect
               values={draftSettings.selectedSources}
               options={crmSourceOptions}

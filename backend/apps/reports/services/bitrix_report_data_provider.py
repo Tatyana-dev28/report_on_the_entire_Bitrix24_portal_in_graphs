@@ -874,10 +874,17 @@ def _build_indicator_value(
     source_ids=None,
 ) -> int | float:
     if source_ids is not None:
-        return sum(
+        indicator = sum(
             _build_source_indicator_value(values, str(source_id), metric_mode)
             for source_id in source_ids
         )
+        logger.info(
+            "Indicator debug (source_ids path) metric_mode=%s source_ids=%s indicator=%s",
+            metric_mode,
+            list(source_ids),
+            indicator,
+        )
+        return indicator
 
     if metric_mode == "count":
         metric_ids = [
@@ -885,7 +892,13 @@ def _build_indicator_value(
             for metric in metric_catalog
             if metric.get("type") not in {"money", "percent"}
         ]
-        return sum(values.get(metric_id, 0) for metric_id in metric_ids)
+        indicator = sum(values.get(metric_id, 0) for metric_id in metric_ids)
+        logger.info(
+            "Indicator debug (count path) metric_ids=%s indicator=%s",
+            metric_ids,
+            indicator,
+        )
+        return indicator
 
     # "money" mode: only sum successful/won money metrics that the user has selected.
     # This ensures the chart indicator is traceable back to visible table rows
@@ -893,7 +906,16 @@ def _build_indicator_value(
     # Lost/declined/bad money metrics are excluded.
     selected_metric_ids = {metric["id"] for metric in metric_catalog}
     relevant_ids = SUCCESS_MONEY_METRIC_IDS & selected_metric_ids
-    return sum(values.get(metric_id, 0) for metric_id in relevant_ids)
+    metric_values = {metric_id: values.get(metric_id, 0) for metric_id in relevant_ids}
+    indicator = sum(metric_values.values())
+    logger.info(
+        "Indicator debug (money path) selected_metric_ids=%s relevant_ids=%s metric_values=%s indicator=%s",
+        selected_metric_ids,
+        relevant_ids,
+        metric_values,
+        indicator,
+    )
+    return indicator
 
 
 def _build_source_indicator_value(

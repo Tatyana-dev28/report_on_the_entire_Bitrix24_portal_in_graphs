@@ -2392,3 +2392,113 @@ class ReportSettingsApiTests(TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["settings"]["period"], "months")
         self.assertEqual(payload["settings"]["selectedSources"], ["lead-default"])
+
+
+class BuildIndicatorValueTests(TestCase):
+    """Tests for _build_indicator_value — verifies that only successful/won
+    money metrics contribute to the chart indicator, and lost/declined/bad
+    money metrics are excluded."""
+
+    def test_money_mode_includes_only_success_metrics_from_catalog(self):
+        """money mode: only SUCCESS_MONEY_METRIC_IDS that are also in metric_catalog."""
+        from apps.reports.services.bitrix_report_data_provider import _build_indicator_value
+
+        values = {
+            "deals_won_sum": 13990,
+            "invoices_won_sum": 14000,
+            "quotes_accepted_sum": 13980,
+            "deals_lost_sum": 999999,
+            "quotes_declined_sum": 999999,
+            "invoices_lost_sum": 999999,
+            "leads_bad_sum": 999999,
+        }
+        metric_catalog = [
+            {"id": "deals_won_sum", "type": "money"},
+            {"id": "invoices_won_sum", "type": "money"},
+            {"id": "quotes_accepted_sum", "type": "money"},
+            {"id": "deals_lost_sum", "type": "money"},
+            {"id": "quotes_declined_sum", "type": "money"},
+        ]
+        result = _build_indicator_value(values, metric_catalog, "money")
+        # 13990 + 14000 + 13980 = 41970
+        self.assertEqual(result, 41970)
+
+    def test_money_mode_excludes_lost_declined_bad_metrics(self):
+        """money mode: lost/declined/bad money metrics are NOT included even if in catalog."""
+        from apps.reports.services.bitrix_report_data_provider import _build_indicator_value
+
+        values = {
+            "deals_won_sum": 1000,
+            "deals_lost_sum": 999999,
+            "invoices_lost_sum": 999999,
+            "quotes_declined_sum": 999999,
+            "leads_bad_sum": 999999,
+        }
+        metric_catalog = [
+            {"id": "deals_won_sum", "type": "money"},
+            {"id": "deals_lost_sum", "type": "money"},
+            {"id": "invoices_lost_sum", "type": "money"},
+            {"id": "quotes_declined_sum", "type": "money"},
+            {"id": "leads_bad_sum", "type": "money"},
+        ]
+        result = _build_indicator_value(values, metric_catalog, "money")
+        # Only deals_won_sum = 1000
+        self.assertEqual(result, 1000)
+
+    def test_money_mode_returns_zero_when_no_success_metrics_selected(self):
+        """money mode: returns 0 if no SUCCESS_MONEY_METRIC_IDS are in the catalog."""
+        from apps.reports.services.bitrix_report_data_provider import _build_indicator_value
+
+        values = {
+            "deals_won_sum": 5000,
+            "invoices_won_sum": 3000,
+        }
+        metric_catalog = [
+            {"id": "deals_lost_sum", "type": "money"},
+            {"id": "invoices_lost_sum", "type": "money"},
+        ]
+        result = _build_indicator_value(values, metric_catalog, "money")
+        self.assertEqual(result, 0)
+
+    def test_count_mode_excludes_money_and_percent_metrics(self):
+        """count mode: only non-money, non-percent metrics are summed."""
+        from apps.reports.services.bitrix_report_data_provider import _build_indicator_value
+
+        values = {
+            "deals_created": 35,
+            "deals_won": 18,
+            "deals_won_sum": 999999,
+            "deals_conversion": 42,
+        }
+        metric_catalog = [
+            {"id": "deals_created", "type": "number"},
+            {"id": "deals_won", "type": "number"},
+            {"id": "deals_won_sum", "type": "money"},
+            {"id": "deals_conversion", "type": "percent"},
+        ]
+        result = _build_indicator_value(values, metric_catalog, "count")
+        # 35 + 18 = 53
+        self.assertEqual(result, 53)
+
+    def test_source_ids_path_delegates_to_source_indicator(self):
+        """source_ids path: delegates to _build_source_indicator_value per source."""
+        from apps.reports.services.bitrix_report_data_provider import _build_indicator_value
+
+        values = {
+            "deals_won_sum": 10000,
+            "invoices_won_sum": 5000,
+            "quotes_accepted_sum": 3000,
+            "deals_lost_sum": 999999,
+        }
+        metric_catalog = [
+            {"id": "deals_won_sum", "type": "money"},
+            {"id": "invoices_won_sum", "type": "money"},
+            {"id": "quotes_accepted_sum", "type": "money"},
+            {"id": "deals_lost_sum", "type": "money"},
+        ]
+        result = _build_indicator_value(
+            values, metric_catalog, "money",
+            source_ids=["deal-default", "invoice-default", "quote-default"],
+        )
+        # deals_won_sum(10000) + invoices_won_sum(5000) + quotes_accepted_sum(3000) = 18000
+        self.assertEqual(result, 18000)

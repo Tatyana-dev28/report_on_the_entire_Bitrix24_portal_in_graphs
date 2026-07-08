@@ -685,6 +685,7 @@ function App() {
     );
     setExpandedSections(new Set(metricSections.map((section) => section.id)));
     setExpandedSourceSections(new Set());
+    collapsedSourceSectionsByUser.current = new Set();
     setMainThreshold({ upper: '', lower: '', mode: null });
     setRowThresholds({});
     setSavedViews([defaultSavedView]);
@@ -1365,19 +1366,20 @@ function App() {
             label: sourceData.label,
           });
 
-          if (expandedSourceSections.has(sourceKey)) {
-            metricKeys.forEach((metricKey) => {
-              const metric = sourceData.metrics[metricKey];
-              sourceSectionRows.push({
-                kind: 'source_metric',
-                rowId: `source-metric-${sourceKey}-${metricKey}`,
-                sourceId: sourceKey,
-                metricKey,
-                metricLabel: metric.label,
-                valueType: metric.valueType,
-              });
+          // Always include source_metric rows in tableRows regardless of expandedSourceSections.
+          // The collapse/expand filtering is done in the render phase to avoid a circular
+          // dependency: tableRows → expandedSourceSections → tableRows.
+          metricKeys.forEach((metricKey) => {
+            const metric = sourceData.metrics[metricKey];
+            sourceSectionRows.push({
+              kind: 'source_metric',
+              rowId: `source-metric-${sourceKey}-${metricKey}`,
+              sourceId: sourceKey,
+              metricKey,
+              metricLabel: metric.label,
+              valueType: metric.valueType,
             });
-          }
+          });
         });
       }
 
@@ -1394,9 +1396,38 @@ function App() {
       expandedChartMetricIds,
       sourceMetrics,
       hasBuiltReport,
-      expandedSourceSections,
     ],
   );
+
+  // Track source sections the user has manually collapsed, so auto-expand does not re-open them
+  const collapsedSourceSectionsByUser = useRef<Set<string>>(new Set());
+
+  // Auto-expand newly added source sections (smart processes, deal pipelines)
+  // while preserving user-initiated manual collapses
+  useEffect(() => {
+    const sourceSectionIds = tableRows
+      .filter((row) => row.kind === 'source_section')
+      .map((row) => row.sourceId);
+
+    if (!sourceSectionIds.length) {
+      return;
+    }
+
+    setExpandedSourceSections((previous) => {
+      let changed = false;
+      const next = new Set(previous);
+
+      for (const id of sourceSectionIds) {
+        // Only auto-expand if the user has not manually collapsed this section
+        if (!next.has(id) && !collapsedSourceSectionsByUser.current.has(id)) {
+          next.add(id);
+          changed = true;
+        }
+      }
+
+      return changed ? next : previous;
+    });
+  }, [tableRows]);
 
   const rightContentWidth = CHART_AXIS_WIDTH + reportData.length * periodColumnWidth;
   const periodGridTemplate = `${CHART_AXIS_WIDTH}px repeat(${Math.max(reportData.length, 1)}, minmax(${periodColumnWidth}px, 1fr))`;
@@ -1646,6 +1677,16 @@ function App() {
   };
 
   const toggleSourceSection = (sourceId: string) => {
+    // Track user-initiated collapses so auto-expand does not re-open them
+    if (expandedSourceSections.has(sourceId)) {
+      collapsedSourceSectionsByUser.current = new Set(collapsedSourceSectionsByUser.current);
+      collapsedSourceSectionsByUser.current.add(sourceId);
+    } else {
+      // User is expanding — remove from collapsed tracking
+      collapsedSourceSectionsByUser.current = new Set(collapsedSourceSectionsByUser.current);
+      collapsedSourceSectionsByUser.current.delete(sourceId);
+    }
+
     setExpandedSourceSections((current) => {
       const next = new Set(current);
 
@@ -3086,6 +3127,13 @@ function App() {
               }
 
               if (row.kind === 'source_metric') {
+                // Render source_metric rows only when their parent section is expanded.
+                // This check lives in the render phase (not in tableRows) to avoid a
+                // circular dependency: tableRows → expandedSourceSections → tableRows.
+                if (!expandedSourceSections.has(row.sourceId)) {
+                  return null;
+                }
+
                 const sourceData = sourceMetrics[row.sourceId];
                 const metricData = sourceData?.metrics[row.metricKey];
 

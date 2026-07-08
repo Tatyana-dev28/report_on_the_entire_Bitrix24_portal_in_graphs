@@ -1149,6 +1149,8 @@ button {
 
 .multi-menu {
   width: 100%;
+  max-height: min(78vh, 680px);
+  overflow: hidden;
 }
 
 .multi-search-wrapper {
@@ -1233,6 +1235,11 @@ button {
   max-height: min(60vh, 520px);
   overflow-y: auto;
   padding: 0 2px;
+}
+
+.multi-menu .multi-options-list {
+  max-height: min(68vh, 580px);
+  overflow-y: auto;
 }
 .multi-option-group {
   display: grid;

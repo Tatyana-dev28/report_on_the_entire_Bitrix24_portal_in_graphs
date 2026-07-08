@@ -24,6 +24,7 @@ from apps.reports.services.calculators.quote_calculator import (
     is_sent_quote,
 )
 from apps.reports.services.calculators.smart_process_calculator import (
+    is_failed_smart_process,
     is_production_accepted,
     is_production_check,
     is_production_ready,
@@ -189,6 +190,10 @@ def _smart_process_metric_ids(row: dict) -> list[str]:
     if is_success_smart_process(row):
         metric_ids.append("production_closed")
         metric_ids.append("smart_process_success")
+        metric_ids.append("smart_process_success_sum")
+
+    if is_failed_smart_process(row):
+        metric_ids.append("smart_process_failed")
 
     return metric_ids
 

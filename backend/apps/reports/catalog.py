@@ -171,6 +171,15 @@ METRICS = [
     {"id": "activities_created", "label": "Создано дел", "type": "number", "base": 63},
     {"id": "activities_done", "label": "Выполнено дел", "type": "number", "base": 55},
     {"id": "activities_undone", "label": "Невыполнено дел", "type": "number", "base": 11},
+    {"id": "production_accepted", "label": "Принято в производство", "type": "number", "base": 16},
+    {"id": "production_work", "label": "В производстве", "type": "number", "base": 13},
+    {"id": "production_check", "label": "На проверке", "type": "number", "base": 8},
+    {"id": "production_ready", "label": "Готово", "type": "number", "base": 7},
+    {"id": "production_closed", "label": "Закрыто", "type": "number", "base": 6},
+    {"id": "smart_process_total", "label": "Всего смарт-процессов", "type": "number", "base": 32},
+    {"id": "smart_process_success", "label": "Успешных смарт-процессов", "type": "number", "base": 18},
+    {"id": "smart_process_failed", "label": "Проваленных смарт-процессов", "type": "number", "base": 4},
+    {"id": "smart_process_success_sum", "label": "Сумма успешных смарт-процессов", "type": "money", "base": 500000},
 ]
 
 
@@ -295,6 +304,21 @@ METRIC_SECTIONS = [
             "activities_created",
             "activities_done",
             "activities_undone",
+        ],
+    },
+    {
+        "id": "smart_processes",
+        "label": "Смарт-процессы",
+        "metricIds": [
+            "production_accepted",
+            "production_work",
+            "production_check",
+            "production_ready",
+            "production_closed",
+            "smart_process_total",
+            "smart_process_success",
+            "smart_process_failed",
+            "smart_process_success_sum",
         ],
     },
 ]

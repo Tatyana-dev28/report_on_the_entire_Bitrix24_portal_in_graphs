@@ -597,7 +597,7 @@ export function MultiSelect({
           open={open}
           className="select-menu multi-menu"
           expectedWidth={280}
-          expectedHeight={640}
+          expectedHeight={680}
         >
           {renderOptionsList()}
         </FloatingPopover>

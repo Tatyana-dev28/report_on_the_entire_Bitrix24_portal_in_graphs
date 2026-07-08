@@ -1602,7 +1602,8 @@ class BitrixReportDataProviderTests(TestCase):
         self.assertEqual(first_day["production_ready"], 1)
         self.assertEqual(first_day["production_closed"], 1)
         self.assertEqual(first_day["smart_process_success_sum"], 4000)
-
+        detail_pairs = {(detail["entityId"], detail["metricId"], detail["periodKey"]) for detail in result.details}
+        self.assertIn(("303", "smart_process_success_sum", "2026-05-01T00:00:00+03:00"), detail_pairs)
         second_day = result.data[1]["values"]
 
         self.assertEqual(second_day["production_accepted"], 0)

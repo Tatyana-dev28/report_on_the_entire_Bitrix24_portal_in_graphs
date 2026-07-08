@@ -1,7 +1,6 @@
 ﻿from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 import logging
@@ -40,6 +39,7 @@ from apps.reports.services.data_providers import (
     ReportDataProviderContext,
     ReportDataResult,
 )
+from apps.reports.services.report_periods import PeriodBucket
 from apps.reports.services.source_metrics_service import build_source_metrics_by_period
 from apps.reports.services.employee_breakdown import build_employee_breakdown
 from apps.reports.services.entity_details import build_entity_details
@@ -81,15 +81,6 @@ SALES_NUMERIC_STAGE_BUCKETS = {
     "talk": {"5", "6", "7"},
     "invoice": {"8"},
 }
-
-
-@dataclass(frozen=True)
-class PeriodBucket:
-    key: str
-    label: str
-    tooltip_label: str
-    start: datetime
-    end: datetime
 
 
 class BitrixReportDataProvider:

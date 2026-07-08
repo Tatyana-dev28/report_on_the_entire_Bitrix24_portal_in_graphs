@@ -770,6 +770,7 @@ export function TableSettingsMenu({
             </button>
           </div>
           <MultiSelect
+            variant="inline"
             values={selectedSources}
             options={crmSourceOptions}
             onChange={onSourcesChange}
@@ -895,38 +896,8 @@ export function ConfigureChartMenu({
             </button>
           </div>
           <div className="configure-chart-fields">
-            <div className="table-settings-actions">
-              <button
-                type="button"
-                onClick={() =>
-                  updateDraftSettings((current) => ({
-                    ...current,
-                    selectedSources: crmSourceOptions.map((option) => option.value),
-                  }))
-                }
-              >
-                Выбрать все
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  updateDraftSettings((current) => ({
-                    ...current,
-                    selectedSources: [],
-                  }))
-                }
-              >
-                Сбросить
-              </button>
-              <button
-                type="button"
-                className="apply-settings-button"
-                onClick={applySettings}
-              >
-                Применить
-              </button>
-            </div>
             <MultiSelect
+              variant="inline"
               values={draftSettings.selectedSources}
               options={crmSourceOptions}
               onChange={(selectedSources) =>
@@ -935,6 +906,19 @@ export function ConfigureChartMenu({
                   selectedSources,
                 }))
               }
+              onSelectAll={() =>
+                updateDraftSettings((current) => ({
+                  ...current,
+                  selectedSources: crmSourceOptions.map((option) => option.value),
+                }))
+              }
+              onReset={() =>
+                updateDraftSettings((current) => ({
+                  ...current,
+                  selectedSources: [],
+                }))
+              }
+              onApply={applySettings}
             />
             {draftSettings.selectedSources.length > 1 && (
               <CustomSelect

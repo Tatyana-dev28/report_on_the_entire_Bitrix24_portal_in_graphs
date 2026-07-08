@@ -8,24 +8,37 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import logging
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from apps.reports.services.bitrix_report_data_provider import (
-    PeriodBucket,
-    _sum_opportunity,
-    _conversion,
-    _row_in_bucket,
-    _row_field_in_bucket,
-    _is_won_stage,
-    _is_lost_stage,
-)
+from apps.reports.services.report_periods import PeriodBucket
 from apps.reports.services.calculators.smart_process_calculator import (
     is_success_smart_process,
     is_failed_smart_process,
     _sum_opportunity as smart_sum_opportunity,
 )
 
+if TYPE_CHECKING:
+    from apps.reports.services.bitrix_report_data_provider import (
+        _sum_opportunity,
+        _conversion,
+        _row_in_bucket,
+        _is_won_stage,
+        _is_lost_stage,
+    )
+
 logger = logging.getLogger(__name__)
+
+
+def _import_bitrix_helpers():
+    """Lazy-import runtime helpers from bitrix_report_data_provider to avoid circular imports."""
+    from apps.reports.services.bitrix_report_data_provider import (  # noqa: F811
+        _sum_opportunity,
+        _conversion,
+        _row_in_bucket,
+        _is_won_stage,
+        _is_lost_stage,
+    )
+    return _sum_opportunity, _conversion, _row_in_bucket, _is_won_stage, _is_lost_stage
 
 
 def build_source_metrics_by_period(
@@ -163,6 +176,9 @@ def _compute_deal_pipeline_metrics(
     rows_by_source: dict[str, list[dict]],
 ) -> dict[str, dict]:
     """Compute deal pipeline metrics by period."""
+    # Lazy import to avoid circular imports
+    _sum_opportunity, _conversion, _row_in_bucket, _is_won_stage, _is_lost_stage = _import_bitrix_helpers()
+
     # Collect all rows from matching source keys
     all_rows = []
     for key in source_keys:
@@ -259,6 +275,9 @@ def _compute_smart_process_metrics(
     rows_by_source: dict[str, list[dict]],
 ) -> dict[str, dict]:
     """Compute smart process metrics by period."""
+    # Lazy import to avoid circular imports
+    _sum_opportunity, _conversion, _row_in_bucket, _is_won_stage, _is_lost_stage = _import_bitrix_helpers()
+
     # Collect all rows from matching source keys
     all_rows = []
     for key in source_keys:

@@ -87,12 +87,6 @@ import {
   deserializeFilters,
   weekDayOptions,
 } from './app/constants';
-import {
-  loadAppSettings,
-  loadDetailColumnWidths,
-  loadSavedViews,
-  persistSavedViews,
-} from './app/storage';
 import type {
   ActiveChartPoint,
   AppSettings,
@@ -389,7 +383,11 @@ const getSourceGroupRank = (source: CrmSource) => (
   source.type === 'deal' || source.type === 'smartProcess' ? 1 : 0
 );
 function App() {
-  const [savedViews, setSavedViews] = useState<SavedReportViewOption[]>(() => loadSavedViews());
+  // Hydration guards: prevent auto-save until settings are fully loaded/applied
+  const settingsHydratedRef = useRef(false);
+  const applyingBackendSettingsRef = useRef(false);
+
+  const [savedViews, setSavedViews] = useState<SavedReportViewOption[]>(() => [defaultSavedView]);
   const [selectedView, setSelectedView] = useState('default');
   const [draftFilters, setDraftFilters] = useState<ReportFilters>(() => createDefaultFilters());
   const [appliedFilters, setAppliedFilters] = useState<ReportFilters>(() => createDefaultFilters());
@@ -439,7 +437,7 @@ function App() {
   const [editingViewId, setEditingViewId] = useState<string | null>(null);
   const [deleteViewId, setDeleteViewId] = useState<string | null>(null);
   const [notification, setNotification] = useState('');
-  const [appSettings, setAppSettings] = useState<AppSettings>(() => loadAppSettings());
+  const [appSettings, setAppSettings] = useState<AppSettings>(defaultAppSettings);
   const [newViewName, setNewViewName] = useState('');
   const [isPinned, setIsPinned] = useState(false);
   const [hasBuiltReport, setHasBuiltReport] = useState(false);
@@ -713,13 +711,20 @@ function App() {
         // ignore storage errors
       }
     }
+
+    // Mark as hydrated for Free version so auto-save won't fire
+    settingsHydratedRef.current = true;
   }, [metricSections]);
 
   // Load settings from backend when PRO is detected
   const applyBackendSettings = useCallback(() => {
+    applyingBackendSettingsRef.current = true;
+
     loadReportSettings()
       .then((response) => {
         if (!response.ok) {
+          // Backend responded but no settings — mark as hydrated so auto-save can start
+          settingsHydratedRef.current = true;
           return;
         }
 
@@ -812,6 +817,10 @@ function App() {
           if (settings.expandedSections && Array.isArray(settings.expandedSections)) {
             setExpandedSections(new Set(settings.expandedSections as string[]));
           }
+        } else {
+          // No saved settings on backend — apply defaults and mark hydrated
+          // so auto-save can start capturing user changes
+          settingsHydratedRef.current = true;
         }
 
         // Apply saved views
@@ -842,9 +851,18 @@ function App() {
               : [],
           });
         }
+
+        // Mark as hydrated after successful load (even if settings were empty)
+        settingsHydratedRef.current = true;
       })
       .catch((error) => {
         console.warn('[Settings] Failed to load settings from backend', error);
+        // Do NOT mark as hydrated on error — this prevents auto-save from
+        // overwriting saved backend settings with defaults on next render
+        settingsHydratedRef.current = false;
+      })
+      .finally(() => {
+        applyingBackendSettingsRef.current = false;
       });
   }, []);
 
@@ -2170,14 +2188,26 @@ function App() {
 
   const saveViews = useCallback((views: SavedReportViewOption[]) => {
     setSavedViews(views);
-    persistSavedViews(views);
+    // Pro сохраняет savedViews через triggerAutoSave → saveReportSettings() на backend.
+    // localStorage не используется — ни для Free, ни для Pro.
   }, []);
 
   // Debounced auto-save to backend for PRO users
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const triggerAutoSave = useCallback(() => {
+    // Free version: never save anything
     if (!billingHasPro) {
+      return;
+    }
+
+    // Do not save until settings have been hydrated from backend
+    if (!settingsHydratedRef.current) {
+      return;
+    }
+
+    // Do not save while backend settings are being applied
+    if (applyingBackendSettingsRef.current) {
       return;
     }
 
@@ -2342,7 +2372,8 @@ function App() {
 
   const saveAppSettings = useCallback((settings: AppSettings) => {
     setAppSettings(settings);
-    window.localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    // Pro сохраняет appSettings через triggerAutoSave → saveReportSettings() на backend.
+    // localStorage не используется — ни для Free, ни для Pro.
     setNotification('Настройки приложения сохранены');
     setIsAppSettingsOpen(false);
   }, []);

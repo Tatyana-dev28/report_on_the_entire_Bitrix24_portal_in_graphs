@@ -8,13 +8,12 @@
 } from 'react';
 import { CheckCircle2, ChevronDown, X } from 'lucide-react';
 import { formatMetricValue } from '../../services/report/reportCatalog';
-import { DETAIL_COLUMN_STORAGE_KEY, detailColumnMinWidthSum, detailColumns } from '../constants';
+import { defaultDetailColumnWidths, detailColumnMinWidthSum, detailColumns } from '../constants';
 import type { AppSettings, DetailColumnKey, DetailContext, DetailRow, DetailSort, ReportEmployee } from '../types';
 import { TooltipButton, useOutsideClose } from './common';
 import { bitrixEntityLabels, openBitrixEntity, openBitrixUser } from '../utils/bitrixNavigation';
 import { normalizeDetailColumnWidths, resizeDetailColumnWidths, sumDetailColumnWidths } from '../utils/detailColumns';
 import { compareDetailValues } from '../utils/detailRows';
-import { loadDetailColumnWidths } from '../storage';
 import type { BillingPlan } from '../../services/api/billingApiClient';
 
 export function SaveViewModal({
@@ -745,7 +744,7 @@ export function DetailModal({
 }) {
   const [sort, setSort] = useState<DetailSort>({ key: 'rowNumber', direction: 'asc' });
   const [columnWidths, setColumnWidths] = useState<Record<DetailColumnKey, number>>(
-    () => loadDetailColumnWidths(),
+    () => ({ ...defaultDetailColumnWidths }),
   );
   const resizeStateRef = useRef<{
     key: DetailColumnKey;
@@ -824,18 +823,6 @@ export function DetailModal({
         : normalized;
     });
   }, [detailTableViewportWidth]);
-
-  useEffect(() => {
-    if (detailTableViewportWidth <= 0 || typeof window === 'undefined') {
-      return;
-    }
-
-    try {
-      window.localStorage.setItem(DETAIL_COLUMN_STORAGE_KEY, JSON.stringify(columnWidths));
-    } catch {
-      // localStorage может быть недоступен в приватном режиме, resize при этом должен работать.
-    }
-  }, [columnWidths, detailTableViewportWidth]);
 
   useEffect(
     () => () => {

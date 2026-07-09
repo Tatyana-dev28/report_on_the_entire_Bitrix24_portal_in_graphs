@@ -444,6 +444,11 @@ function App() {
   const [isPinned, setIsPinned] = useState(false);
   const [hasBuiltReport, setHasBuiltReport] = useState(false);
   const [buildMoment, setBuildMoment] = useState(0);
+  // reportBuildRequest is a counter that increments ONLY when the user explicitly
+  // clicks "Построить отчет" or "Построить автоматически". The loadReportPreview
+  // useEffect depends ONLY on this counter (plus hasBuiltReport as a guard),
+  // NOT on appliedFilters or other UI state changes.
+  const [reportBuildRequest, setReportBuildRequest] = useState(0);
   const [periodColumnWidth, setPeriodColumnWidth] = useState(PERIOD_COLUMN_WIDTH);
   const [mainThreshold, setMainThreshold] = useState<ThresholdValues>({
     upper: '',
@@ -697,6 +702,7 @@ function App() {
     setAppSettings(defaultAppSettings);
     setHasBuiltReport(false);
     setBuildMoment(0);
+    setReportBuildRequest(0);
 
     if (typeof window !== 'undefined') {
       try {
@@ -1019,18 +1025,11 @@ function App() {
       isActive = false;
     };
   }, [
-    appliedFilters.chartDisplayMode,
-    appliedFilters.dateRange,
-    appliedFilters.metricMode,
-    appliedFilters.period,
-    appliedFilters.schedule,
-    appliedFilters.selectedSources,
-    appliedFilters.enabledSectionIds,
-    buildMoment,
-    appliedEnabledMetricIdsBySection,
+    // CRITICAL: Only depend on reportBuildRequest (incremented by explicit user actions)
+    // and hasBuiltReport (guard). Do NOT add appliedFilters or other UI state here —
+    // changes to filters/settings should NOT trigger report building.
     hasBuiltReport,
-    metrics,
-    metricSections,
+    reportBuildRequest,
   ]);
 
   const appliedReportData = useMemo(
@@ -1922,6 +1921,9 @@ function App() {
       }, {}),
     );
     setBuildMoment(Date.now());
+    // Increment reportBuildRequest to trigger the loadReportPreview effect.
+    // This is the ONLY mechanism that should trigger report building.
+    setReportBuildRequest((current) => current + 1);
   }, [draftFilters, enabledMetricIdsBySection]);
 
   const buildReport = useCallback(() => {
@@ -2290,6 +2292,8 @@ function App() {
     setRowThresholds({ ...state.rowThresholds });
     setHasBuiltReport(true);
     setBuildMoment(Date.now());
+    // Trigger report build for the restored view state
+    setReportBuildRequest((current) => current + 1);
   }, []);
 
   const handleSavedViewChange = useCallback((viewId: string) => {

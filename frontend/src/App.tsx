@@ -1309,10 +1309,6 @@ function App() {
     ? appliedFilters.enabledSectionIds
     : draftFilters.enabledSectionIds;
 
-  const visibleMetricIdsBySection = hasBuiltReport
-    ? appliedEnabledMetricIdsBySection
-    : enabledMetricIdsBySection;
-
   const visibleSections = useMemo(
     () => orderedSections.filter((section) => visibleSectionIds.has(section.id)),
     [orderedSections, visibleSectionIds],
@@ -1323,6 +1319,15 @@ function App() {
   );
   const tableRows = useMemo<TableRow[]>(
     () => {
+      // CRITICAL: When hasBuiltReport is true, the table must read from
+      // appliedEnabledMetricIdsBySection (the "applied" state), NOT from
+      // enabledMetricIdsBySection (the "draft" state). This ensures that
+      // table settings changes are reflected in the table only after the
+      // user clicks "Применить", and not during draft editing.
+      const activeMetricIdsBySection = hasBuiltReport
+        ? appliedEnabledMetricIdsBySection
+        : enabledMetricIdsBySection;
+
       const standardRows: TableRow[] = visibleSections.flatMap((section) => {
         const rows: TableRow[] = [
           { kind: 'section', rowId: `section-${section.id}`, sectionId: section.id, label: section.label },
@@ -1334,7 +1339,7 @@ function App() {
 
         const orderedMetricIds = metricOrderBySection[section.id] ?? section.metricIds;
 
-        const enabledMetricIds = visibleMetricIdsBySection[section.id] ?? new Set(section.metricIds);
+        const enabledMetricIds = activeMetricIdsBySection[section.id] ?? new Set(section.metricIds);
 
         orderedMetricIds.forEach((metricId) => {
           if (!enabledMetricIds.has(metricId)) {
@@ -1427,6 +1432,11 @@ function App() {
       [
         visibleSections,
         expandedSections,
+        // CRITICAL: Use appliedEnabledMetricIdsBySection instead of enabledMetricIdsBySection.
+        // When hasBuiltReport is true, the table reads from appliedEnabledMetricIdsBySection.
+        // Without this dependency, clicking "Применить" in table/section metrics settings
+        // would update appliedEnabledMetricIdsBySection but tableRows would NOT recalculate.
+        appliedEnabledMetricIdsBySection,
         enabledMetricIdsBySection,
         availableEmployees,
         metricMap,

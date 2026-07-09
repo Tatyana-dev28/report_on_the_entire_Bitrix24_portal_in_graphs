@@ -311,9 +311,9 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
       };
 
       const clampStationPoint = (stationPoint: { x: number; y: number }) => {
-        const stationLabelSafeX = 68;
-        const stationSafeTop = 44;
-        const stationSafeBottom = 30;
+        const stationLabelSafeX = 84;
+        const stationSafeTop = 52;
+        const stationSafeBottom = 36;
         const maxX = Math.max(stationLabelSafeX, sceneRect.width - stationLabelSafeX);
         const maxY = Math.max(stationSafeTop, sceneRect.height - stationSafeBottom);
 

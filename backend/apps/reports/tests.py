@@ -2481,7 +2481,7 @@ class BuildIndicatorValueTests(TestCase):
         self.assertEqual(result, 53)
 
     def test_source_ids_path_delegates_to_source_indicator(self):
-        """source_ids path: delegates to _build_source_indicator_value per source."""
+        """source_ids path: unique metrics per source (no double-count)."""
         from apps.reports.services.bitrix_report_data_provider import _build_indicator_value
 
         values = {
@@ -2502,3 +2502,37 @@ class BuildIndicatorValueTests(TestCase):
         )
         # deals_won_sum(10000) + invoices_won_sum(5000) + quotes_accepted_sum(3000) = 18000
         self.assertEqual(result, 18000)
+
+    def test_source_ids_path_does_not_triple_count_deals_via_fallback_sources(self):
+        """telephony/activity must not re-add deals_won_sum in money mode."""
+        from apps.reports.services.bitrix_report_data_provider import _build_indicator_value
+
+        values = {
+            "deals_won_sum": 13990,
+            "deals_lost_sum": 999999,
+        }
+        metric_catalog = [
+            {"id": "deals_won_sum", "type": "money"},
+            {"id": "deals_lost_sum", "type": "money"},
+        ]
+        result = _build_indicator_value(
+            values,
+            metric_catalog,
+            "money",
+            source_ids=["deal-default", "telephony-default", "activity-default"],
+        )
+        self.assertEqual(result, 13990)
+
+    def test_source_ids_path_dedupes_same_metric_across_sources(self):
+        """Two deal pipelines must not double-count the same deals_won_sum field."""
+        from apps.reports.services.bitrix_report_data_provider import _build_indicator_value
+
+        values = {"deals_won_sum": 13990}
+        metric_catalog = [{"id": "deals_won_sum", "type": "money"}]
+        result = _build_indicator_value(
+            values,
+            metric_catalog,
+            "money",
+            source_ids=["deal-1", "deal-2", "deal-3"],
+        )
+        self.assertEqual(result, 13990)

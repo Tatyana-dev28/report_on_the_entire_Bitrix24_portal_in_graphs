@@ -874,14 +874,20 @@ def _build_indicator_value(
     source_ids=None,
 ) -> int | float:
     if source_ids is not None:
-        indicator = sum(
-            _build_source_indicator_value(values, str(source_id), metric_mode)
-            for source_id in source_ids
-        )
+        # Sum unique per-source metrics so the same portal-wide money field
+        # (e.g. deals_won_sum) is not counted once per selected source.
+        metric_ids: set[str] = set()
+        for source_id in source_ids:
+            metric_id = _source_indicator_metric_id(str(source_id), metric_mode)
+            if metric_id:
+                metric_ids.add(metric_id)
+
+        indicator = sum(values.get(metric_id, 0) for metric_id in metric_ids)
         logger.info(
-            "Indicator debug (source_ids path) metric_mode=%s source_ids=%s indicator=%s",
+            "Indicator debug (source_ids path) metric_mode=%s source_ids=%s metric_ids=%s indicator=%s",
             metric_mode,
             list(source_ids),
+            sorted(metric_ids),
             indicator,
         )
         return indicator
@@ -918,71 +924,84 @@ def _build_indicator_value(
     return indicator
 
 
-def _build_source_indicator_value(
-    values: dict[str, int | float],
-    source_id: str,
-    metric_mode: str,
-) -> int | float:
+def _source_indicator_metric_id(source_id: str, metric_mode: str) -> str | None:
+    """Return the single metric id that represents this source on the main chart."""
     if metric_mode == "count":
         if source_id.startswith("company-"):
-            return values.get("companies_new", 0)
+            return "companies_new"
         if source_id.startswith("contact-"):
-            return values.get("contacts_new", 0)
+            return "contacts_new"
         if source_id.startswith("task-"):
-            return values.get("tasks_created", 0)
+            return "tasks_created"
         if source_id.startswith("crm-form-"):
-            return values.get("crm_forms", 0)
+            return "crm_forms"
         if source_id.startswith("smart-170-"):
-            return values.get("contracts_created", 0)
+            return "contracts_created"
         if source_id.startswith("smart-1070-"):
-            return values.get("meetings_created", 0)
+            return "meetings_created"
         if source_id.startswith("lead-"):
-            return values.get("leads_created", 0)
+            return "leads_created"
         if source_id.startswith("smart-"):
-            return (
-                values.get("smart_process_total", 0)
-                or values.get("production_accepted", 0)
-                + values.get("production_work", 0)
-                + values.get("production_check", 0)
-                + values.get("production_ready", 0)
-                + values.get("production_closed", 0)
-            )
+            return "smart_process_total"
         if source_id.startswith("invoice-"):
-            return values.get("invoices_created", 0)
+            return "invoices_created"
         if source_id.startswith("deal-"):
-            return values.get("deals_created", 0)
+            return "deals_created"
         if source_id.startswith("quote-"):
-            return values.get("quotes_created", 0)
+            return "quotes_created"
         if source_id.startswith("telephony-"):
-            return values.get("calls_total", 0)
+            return "calls_total"
         if source_id.startswith("activity-"):
-            return values.get("activities_created", 0)
-
-        return values.get("deals_created", 0)
+            return "activities_created"
+        return "deals_created"
 
     if source_id.startswith("lead-"):
-        return values.get("leads_quality_sum", 0)
+        return "leads_quality_sum"
     if source_id.startswith("smart-170-"):
-        return values.get("contracts_signed_sum", 0)
+        return "contracts_signed_sum"
     if source_id.startswith("smart-1070-"):
-        return 0
+        return None
     if (
         source_id.startswith("company-")
         or source_id.startswith("contact-")
         or source_id.startswith("task-")
         or source_id.startswith("crm-form-")
+        or source_id.startswith("telephony-")
+        or source_id.startswith("activity-")
     ):
-        return 0
+        return None
     if source_id.startswith("smart-"):
-        return values.get("smart_process_success_sum", 0)
+        return "smart_process_success_sum"
     if source_id.startswith("invoice-"):
-        return values.get("invoices_won_sum", 0)
+        return "invoices_won_sum"
     if source_id.startswith("deal-"):
-        return values.get("deals_won_sum", 0)
+        return "deals_won_sum"
     if source_id.startswith("quote-"):
-        return values.get("quotes_accepted_sum", 0)
+        return "quotes_accepted_sum"
 
-    return values.get("deals_won_sum", 0)
+    return None
+
+
+def _build_source_indicator_value(
+    values: dict[str, int | float],
+    source_id: str,
+    metric_mode: str,
+) -> int | float:
+    metric_id = _source_indicator_metric_id(source_id, metric_mode)
+    if not metric_id:
+        return 0
+
+    if metric_mode == "count" and metric_id == "smart_process_total":
+        return (
+            values.get("smart_process_total", 0)
+            or values.get("production_accepted", 0)
+            + values.get("production_work", 0)
+            + values.get("production_check", 0)
+            + values.get("production_ready", 0)
+            + values.get("production_closed", 0)
+        )
+
+    return values.get(metric_id, 0)
 
 
 def resolve_metric_catalog(selected_metric_ids: list[str] | None) -> list[dict]:

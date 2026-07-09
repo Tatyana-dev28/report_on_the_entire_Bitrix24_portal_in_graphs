@@ -138,6 +138,7 @@ import {
   formatMainChartValue,
   getChartDomain,
   getChartSeriesValue,
+  getChartSumValue,
   getEmployeeInitials,
 } from './app/utils/reportCalculations';
 import {
@@ -970,12 +971,10 @@ function App() {
           if (applyAutomaticThresholdsRef.current) {
             const scheduledData = applyScheduleToReportData(preview.data, filters.period, appliedFilters.schedule);
             const metricMode = filters.metricMode ?? appliedFilters.metricMode;
-            // Всегда считаем mainValues через сумму успешных money-метрик по выбранным источникам,
-            // чтобы автоматические пороги соответствовали значениям главного графика.
-            const mainValues = scheduledData.flatMap((point) =>
-              filters.selectedSources.map((source) =>
-                getChartSeriesValue(point, source, metricMode),
-              ),
+            // Всегда считаем mainValues так же, как главный график в режиме «Сумма»
+            // (уникальные успешные money-метрики по выбранным источникам).
+            const mainValues = scheduledData.map((point) =>
+              getChartSumValue(point, filters.selectedSources, metricMode),
             );
             const mainRecommended = calculateRecommendedThresholds(mainValues, metricMode);
 
@@ -1180,10 +1179,7 @@ function App() {
   const chartBaseValues = useMemo(
     () =>
       reportData.map((point) =>
-        selectedChartSources.reduce(
-          (sum, source) => sum + getChartSeriesValue(point, source, appliedFilters.metricMode),
-          0,
-        ),
+        getChartSumValue(point, selectedChartSources, appliedFilters.metricMode),
       ),
     [appliedFilters.metricMode, reportData, selectedChartSources],
   );

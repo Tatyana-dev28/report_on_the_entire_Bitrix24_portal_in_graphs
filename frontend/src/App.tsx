@@ -970,14 +970,13 @@ function App() {
           if (applyAutomaticThresholdsRef.current) {
             const scheduledData = applyScheduleToReportData(preview.data, filters.period, appliedFilters.schedule);
             const metricMode = filters.metricMode ?? appliedFilters.metricMode;
-            const separateChart = filters.selectedSources.length > 1 && filters.chartDisplayMode === 'separate';
-            const mainValues = separateChart
-              ? scheduledData.flatMap((point) =>
-                  filters.selectedSources.map((source) =>
-                    getChartSeriesValue(point, source, metricMode),
-                  ),
-                )
-              : scheduledData.map((point) => point.indicator);
+            // Всегда считаем mainValues через сумму успешных money-метрик по выбранным источникам,
+            // чтобы автоматические пороги соответствовали значениям главного графика.
+            const mainValues = scheduledData.flatMap((point) =>
+              filters.selectedSources.map((source) =>
+                getChartSeriesValue(point, source, metricMode),
+              ),
+            );
             const mainRecommended = calculateRecommendedThresholds(mainValues, metricMode);
 
             setMainThreshold({
@@ -1180,17 +1179,13 @@ function App() {
   );
   const chartBaseValues = useMemo(
     () =>
-      reportData.map((point) => {
-        if (!isSeparateChart) {
-          return point.indicator;
-        }
-
-        return selectedChartSources.reduce(
+      reportData.map((point) =>
+        selectedChartSources.reduce(
           (sum, source) => sum + getChartSeriesValue(point, source, appliedFilters.metricMode),
           0,
-        );
-      }),
-    [appliedFilters.metricMode, isSeparateChart, reportData, selectedChartSources],
+        ),
+      ),
+    [appliedFilters.metricMode, reportData, selectedChartSources],
   );
   const mainThresholdRecommendationValues = useMemo(
     () =>

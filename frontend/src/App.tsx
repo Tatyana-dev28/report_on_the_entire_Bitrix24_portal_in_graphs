@@ -1394,8 +1394,8 @@ function App() {
 
       if (hasBuiltReport && sourceMetricsEntries.length > 0) {
         sourceMetricsEntries.forEach(([sourceKey, sourceData]) => {
-          // Skip sources not selected in table settings
-          if (!tableSelectedSourceIds.has(sourceKey)) {
+          // sourceMetrics keys are "source_<id>", while table settings store the real catalog source id.
+          if (!tableSelectedSourceIds.has(sourceKey) && !tableSelectedSourceIds.has(sourceData.sourceId)) {
             return;
           }
           const metricKeys = Object.keys(sourceData.metrics);
@@ -1880,32 +1880,36 @@ function App() {
   }, []);
 
   const applyTableSettings = useCallback(() => {
-    // IMPORTANT: tableSelectedSources stores ONLY what the user selected in table settings.
-    // This is separate from appliedFilters.selectedSources (which is for chart).
-    // tableRows uses tableSelectedSources exclusively to filter source sections.
-    // Use draftFilters.selectedSources directly (the user's explicit choices),
-    // NOT normalizeSelectedSources which may inject defaults and break the
-    // user's explicit selection.
-    setTableSelectedSources([...draftFilters.selectedSources]);
+    const selectedSources = [...draftFilters.selectedSources];
+    const nextEnabledSectionIds = new Set(draftFilters.enabledSectionIds);
+    const nextEnabledMetricIdsBySection = Object.entries(enabledMetricIdsBySection).reduce<Record<string, Set<string>>>(
+      (acc, [sectionId, metricIds]) => {
+        acc[sectionId] = new Set(metricIds);
+        return acc;
+      },
+      {},
+    );
 
-    // Sync enabledSectionIds from draft to applied so visibleSections updates
+    // Table settings are source filters too: rebuild preview so table values/sourceMetrics
+    // are calculated from the selected pipelines and smart processes.
+    setTableSelectedSources(selectedSources);
     setDraftFilters((current) => ({
       ...current,
-      enabledSectionIds: new Set(draftFilters.enabledSectionIds),
+      selectedSources,
+      enabledSectionIds: nextEnabledSectionIds,
     }));
     setAppliedFilters((current) => ({
       ...current,
-      selectedSources: [...draftFilters.selectedSources],
-      enabledSectionIds: new Set(draftFilters.enabledSectionIds),
+      selectedSources,
+      enabledSectionIds: new Set(nextEnabledSectionIds),
     }));
-    // Sync metric visibility from draft to applied so tableRows updates
-    setAppliedEnabledMetricIdsBySection(
-      Object.entries(enabledMetricIdsBySection).reduce<Record<string, Set<string>>>((acc, [sectionId, metricIds]) => {
-        acc[sectionId] = new Set(metricIds);
-        return acc;
-      }, {}),
-    );
-  }, [draftFilters.enabledSectionIds, draftFilters.selectedSources, enabledMetricIdsBySection]);
+    setAppliedEnabledMetricIdsBySection(nextEnabledMetricIdsBySection);
+
+    if (hasBuiltReport) {
+      setBuildMoment(Date.now());
+      setReportBuildRequest((current) => current + 1);
+    }
+  }, [draftFilters.enabledSectionIds, draftFilters.selectedSources, enabledMetricIdsBySection, hasBuiltReport]);
 
   const applySectionMetrics = useCallback((sectionId: string) => {
     setAppliedEnabledMetricIdsBySection((current) => {

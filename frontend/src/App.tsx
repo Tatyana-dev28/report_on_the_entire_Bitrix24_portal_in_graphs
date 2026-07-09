@@ -1880,28 +1880,32 @@ function App() {
   }, []);
 
   const applyTableSettings = useCallback(() => {
-    const selectedSources = normalizeSelectedSources(draftFilters.selectedSources);
-
     // IMPORTANT: tableSelectedSources stores ONLY what the user selected in table settings.
     // This is separate from appliedFilters.selectedSources (which is for chart).
     // tableRows uses tableSelectedSources exclusively to filter source sections.
-    setTableSelectedSources(selectedSources);
+    // Use draftFilters.selectedSources directly (the user's explicit choices),
+    // NOT normalizeSelectedSources which may inject defaults and break the
+    // user's explicit selection.
+    setTableSelectedSources([...draftFilters.selectedSources]);
 
+    // Sync enabledSectionIds from draft to applied so visibleSections updates
     setDraftFilters((current) => ({
       ...current,
       enabledSectionIds: new Set(draftFilters.enabledSectionIds),
     }));
     setAppliedFilters((current) => ({
       ...current,
+      selectedSources: [...draftFilters.selectedSources],
       enabledSectionIds: new Set(draftFilters.enabledSectionIds),
     }));
+    // Sync metric visibility from draft to applied so tableRows updates
     setAppliedEnabledMetricIdsBySection(
       Object.entries(enabledMetricIdsBySection).reduce<Record<string, Set<string>>>((acc, [sectionId, metricIds]) => {
         acc[sectionId] = new Set(metricIds);
         return acc;
       }, {}),
     );
-  }, [draftFilters.enabledSectionIds, draftFilters.selectedSources, enabledMetricIdsBySection, normalizeSelectedSources]);
+  }, [draftFilters.enabledSectionIds, draftFilters.selectedSources, enabledMetricIdsBySection]);
 
   const applySectionMetrics = useCallback((sectionId: string) => {
     setAppliedEnabledMetricIdsBySection((current) => {
@@ -1942,6 +1946,11 @@ function App() {
       },
       enabledSectionIds: new Set(draftFilters.enabledSectionIds),
     });
+    // Sync tableSelectedSources with the sources used for report building.
+    // This ensures source-based sections (deal pipelines, smart processes)
+    // appear in the table immediately after building the report, without
+    // requiring the user to open table settings and click "Применить".
+    setTableSelectedSources([...selectedSources]);
     setAppliedEnabledMetricIdsBySection(
       Object.entries(enabledMetricIdsBySection).reduce<Record<string, Set<string>>>((acc, [sectionId, metricIds]) => {
         acc[sectionId] = new Set(metricIds);

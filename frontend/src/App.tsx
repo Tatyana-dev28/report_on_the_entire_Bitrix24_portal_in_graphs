@@ -79,7 +79,6 @@ import {
   createDefaultFilters,
   defaultAppSettings,
   defaultSavedView,
-  DEFAULT_SOURCE_IDS,
   detailColumnMinWidthSum,
   detailColumns,
   scheduleTimeOptions,
@@ -388,8 +387,10 @@ function App() {
   const settingsHydratedRef = useRef(false);
   const applyingBackendSettingsRef = useRef(false);
   // Skip Pro auto-save while applying one-shot "Построить автоматически" presets.
+  // Cleared when that auto-build generation finishes (not via a fixed timer).
   const skipAutoSaveRef = useRef(false);
-  const skipAutoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoBuildGenerationRef = useRef(0);
+  const activeAutoBuildGenerationRef = useRef<number | null>(null);
 
   const [savedViews, setSavedViews] = useState<SavedReportViewOption[]>(() => [defaultSavedView]);
   const [selectedView, setSelectedView] = useState('default');
@@ -1106,6 +1107,21 @@ function App() {
             setMainThreshold({ upper: '', lower: '', mode: null });
             setRowThresholds({});
           }
+
+          // End auto-build skip only after thresholds (and other presets) are applied.
+          // Defer clearing so the threshold setState autosave effect still sees skip=true.
+          const finishedGeneration = activeAutoBuildGenerationRef.current;
+          if (
+            finishedGeneration !== null &&
+            finishedGeneration === autoBuildGenerationRef.current
+          ) {
+            activeAutoBuildGenerationRef.current = null;
+            window.setTimeout(() => {
+              if (autoBuildGenerationRef.current === finishedGeneration) {
+                skipAutoSaveRef.current = false;
+              }
+            }, 0);
+          }
         }
       })
       .catch((error) => {
@@ -1121,6 +1137,14 @@ function App() {
           setReportEmployees([]);
           setReportDetails([]);
           applyAutomaticThresholdsRef.current = false;
+          const failedGeneration = activeAutoBuildGenerationRef.current;
+          if (
+            failedGeneration !== null &&
+            failedGeneration === autoBuildGenerationRef.current
+          ) {
+            activeAutoBuildGenerationRef.current = null;
+            skipAutoSaveRef.current = false;
+          }
         }
       })
       .finally(() => {
@@ -1198,27 +1222,6 @@ function App() {
       return sources.filter((source) => allowedSourceIds.has(source));
     },
     [crmSourceIds],
-  );
-
-  // Used only by "Построить отчет" when user left chart sources empty:
-  // fall back to a sensible default set, not to every CRM source.
-  const normalizeSelectedSources = useCallback(
-    (sources: string[]) => {
-      const sanitized = sanitizeChartSources(sources);
-
-      if (sanitized.length > 0) {
-        return sanitized;
-      }
-
-      if (!crmSourceIds.length) {
-        return [];
-      }
-
-      const allowedSourceIds = new Set(crmSourceIds);
-      const defaultSources = DEFAULT_SOURCE_IDS.filter((id) => allowedSourceIds.has(id));
-      return defaultSources.length > 0 ? defaultSources : [];
-    },
-    [crmSourceIds, sanitizeChartSources],
   );
 
   useEffect(() => {
@@ -1492,19 +1495,27 @@ function App() {
         return rows;
       });
 
-      // Add source-based sections (deal pipelines and smart processes) from sourceMetrics.
-      // Only include sources that the user has selected in table settings (tableSelectedSources).
-      // This is CRITICAL: table rows must ONLY depend on table settings, NOT on chart settings.
+      // Add source-based sections in the order of tableSelectedSources
+      // (so auto-build can put "Продажи" first).
       const sourceSectionRows: TableRow[] = [];
-      const tableSelectedSourceIds = new Set(tableSelectedSources);
-      const sourceMetricsEntries = Object.entries(sourceMetrics);
+      const sourceMetricsByLookup = new Map<string, { key: string; data: (typeof sourceMetrics)[string] }>();
 
-      if (hasBuiltReport && sourceMetricsEntries.length > 0) {
-        sourceMetricsEntries.forEach(([sourceKey, sourceData]) => {
-          // sourceMetrics keys are "source_<id>", while table settings store the real catalog source id.
-          if (!tableSelectedSourceIds.has(sourceKey) && !tableSelectedSourceIds.has(sourceData.sourceId)) {
+      Object.entries(sourceMetrics).forEach(([sourceKey, sourceData]) => {
+        sourceMetricsByLookup.set(sourceKey, { key: sourceKey, data: sourceData });
+        sourceMetricsByLookup.set(sourceData.sourceId, { key: sourceKey, data: sourceData });
+      });
+
+      if (hasBuiltReport && tableSelectedSources.length > 0) {
+        const seenSourceKeys = new Set<string>();
+
+        tableSelectedSources.forEach((selectedId) => {
+          const matched = sourceMetricsByLookup.get(selectedId);
+          if (!matched || seenSourceKeys.has(matched.key)) {
             return;
           }
+
+          seenSourceKeys.add(matched.key);
+          const { key: sourceKey, data: sourceData } = matched;
           const metricKeys = Object.keys(sourceData.metrics);
           if (metricKeys.length === 0) {
             return;
@@ -1517,9 +1528,6 @@ function App() {
             label: sourceData.label,
           });
 
-          // Always include source_metric rows in tableRows regardless of expandedSourceSections.
-          // The collapse/expand filtering is done in the render phase to avoid a circular
-          // dependency: tableRows → expandedSourceSections → tableRows.
           metricKeys.forEach((metricKey) => {
             const metric = sourceData.metrics[metricKey];
             sourceSectionRows.push({
@@ -1603,7 +1611,13 @@ function App() {
     [periodColumnWidth],
   );
 
+  // Manual user edits must outrank the auto-build autosave skip.
+  const markUserSettingsChange = useCallback(() => {
+    skipAutoSaveRef.current = false;
+  }, []);
+
   const handlePeriodChange = useCallback((nextPeriod: Period) => {
+    markUserSettingsChange();
     setDraftFilters((current) => ({
       ...current,
       period: nextPeriod,
@@ -1612,14 +1626,15 @@ function App() {
           ? getYesterdayRange()
           : constrainRangeForPeriod(nextPeriod, current.dateRange),
     }));
-  }, []);
+  }, [markUserSettingsChange]);
 
   const handleDateRangeChange = useCallback((nextRange: DateRange) => {
+    markUserSettingsChange();
     setDraftFilters((current) => ({
       ...current,
       dateRange: constrainRangeForPeriod(current.period, nextRange),
     }));
-  }, []);
+  }, [markUserSettingsChange]);
 
   const applySyncedScroll = useCallback((left: number) => {
     const transform = `translate3d(-${left}px, 0, 0)`;
@@ -1858,6 +1873,7 @@ function App() {
   };
 
   const toggleEnabledSection = (sectionId: string) => {
+    markUserSettingsChange();
     const section = metricSections.find((item) => item.id === sectionId);
     const enabling = !draftFilters.enabledSectionIds.has(sectionId);
 
@@ -1883,6 +1899,7 @@ function App() {
   };
 
   const enableAllTableSettings = useCallback(() => {
+    markUserSettingsChange();
     setDraftFilters((current) => ({
       ...current,
       enabledSectionIds: new Set(metricSections.map((section) => section.id)),
@@ -1894,9 +1911,10 @@ function App() {
         return acc;
       }, {}),
     );
-  }, [crmSourceIds, metricSections]);
+  }, [crmSourceIds, markUserSettingsChange, metricSections]);
 
   const resetTableSettings = useCallback(() => {
+    markUserSettingsChange();
     setDraftFilters((current) => ({
       ...current,
       enabledSectionIds: new Set(),
@@ -1908,9 +1926,10 @@ function App() {
         return acc;
       }, {}),
     );
-  }, [metricSections]);
+  }, [markUserSettingsChange, metricSections]);
 
   const toggleEnabledMetric = useCallback((sectionId: string, metricId: string) => {
+    markUserSettingsChange();
     setEnabledMetricIdsBySection((current) => {
       const currentMetricIds = current[sectionId] ?? new Set<string>();
       const nextMetricIds = new Set(currentMetricIds);
@@ -1926,7 +1945,7 @@ function App() {
         [sectionId]: nextMetricIds,
       };
     });
-  }, []);
+  }, [markUserSettingsChange]);
 
   const selectAllSectionMetrics = useCallback((sectionId: string) => {
     const section = metricSections.find((item) => item.id === sectionId);
@@ -1935,38 +1954,44 @@ function App() {
       return;
     }
 
+    markUserSettingsChange();
     setEnabledMetricIdsBySection((current) => ({
       ...current,
       [sectionId]: new Set(section.metricIds),
     }));
-  }, []);
+  }, [markUserSettingsChange, metricSections]);
 
   const resetSectionMetrics = useCallback((sectionId: string) => {
+    markUserSettingsChange();
     setEnabledMetricIdsBySection((current) => ({
       ...current,
       [sectionId]: new Set(),
     }));
-  }, []);
+  }, [markUserSettingsChange]);
 
   const handleTableSelectedSourcesChange = useCallback((values: string[]) => {
+    markUserSettingsChange();
     setDraftTableSelectedSources(values);
-  }, []);
+  }, [markUserSettingsChange]);
 
   const handleChartDisplayModeChange = useCallback((value: ChartDisplayMode) => {
+    markUserSettingsChange();
     setDraftFilters((current) => ({
       ...current,
       chartDisplayMode: value,
     }));
-  }, []);
+  }, [markUserSettingsChange]);
 
   const handleMetricModeChange = useCallback((value: ChartMetricMode) => {
+    markUserSettingsChange();
     setDraftFilters((current) => ({
       ...current,
       metricMode: value,
     }));
-  }, []);
+  }, [markUserSettingsChange]);
 
   const handleScheduleChange = useCallback((schedule: ScheduleFilters) => {
+    markUserSettingsChange();
     setDraftFilters((current) => ({
       ...current,
       schedule: {
@@ -1974,17 +1999,35 @@ function App() {
         weekendDayIds: [...schedule.weekendDayIds],
       },
     }));
-  }, []);
+  }, [markUserSettingsChange]);
 
-  const applyChartDraftSettings = useCallback((settings: ChartDraftSettings) => {
+  // Chart draft edits only — must NOT touch applied chart state or trigger preview.
+  const updateChartDraftSettings = useCallback((settings: ChartDraftSettings) => {
+    markUserSettingsChange();
+    setDraftFilters((current) => ({
+      ...current,
+      selectedSources: [...settings.selectedSources],
+      chartDisplayMode: settings.chartDisplayMode,
+      metricMode: settings.metricMode,
+      schedule: {
+        ...settings.schedule,
+        weekendDayIds: [...settings.schedule.weekendDayIds],
+      },
+    }));
+  }, [markUserSettingsChange]);
+
+  // Chart Apply — commits draft chart settings to applied. Does not change table settings.
+  // Rebuilds preview only when a report is already built and chart sources changed
+  // (so newly selected chart sources get data without opening settings alone building).
+  const applyChartSettings = useCallback((settings: ChartDraftSettings) => {
+    markUserSettingsChange();
     const nextSources = [...settings.selectedSources];
     const nextSchedule = {
       ...settings.schedule,
       weekendDayIds: [...settings.schedule.weekendDayIds],
     };
+    const sourcesChanged = !areStringArraysEqual(nextSources, appliedFilters.selectedSources);
 
-    // Chart settings must update BOTH draft and applied — otherwise UI shows one
-    // selection while the chart still plots the previous applied sources.
     setDraftFilters((current) => ({
       ...current,
       selectedSources: nextSources,
@@ -2002,9 +2045,15 @@ function App() {
         weekendDayIds: [...nextSchedule.weekendDayIds],
       },
     }));
-  }, []);
+
+    if (hasBuiltReport && sourcesChanged) {
+      setBuildMoment(Date.now());
+      setReportBuildRequest((current) => current + 1);
+    }
+  }, [appliedFilters.selectedSources, hasBuiltReport, markUserSettingsChange]);
 
   const applyTableSettings = useCallback(() => {
+    markUserSettingsChange();
     const nextTableSources = [...draftTableSelectedSources];
     const nextEnabledSectionIds = new Set(draftFilters.enabledSectionIds);
     const nextEnabledMetricIdsBySection = Object.entries(enabledMetricIdsBySection).reduce<Record<string, Set<string>>>(
@@ -2041,9 +2090,11 @@ function App() {
     draftTableSelectedSources,
     enabledMetricIdsBySection,
     hasBuiltReport,
+    markUserSettingsChange,
   ]);
 
   const applySectionMetrics = useCallback((sectionId: string) => {
+    markUserSettingsChange();
     setAppliedEnabledMetricIdsBySection((current) => {
       const draftMetricIds = enabledMetricIdsBySection[sectionId];
       if (!draftMetricIds) {
@@ -2054,12 +2105,13 @@ function App() {
         [sectionId]: new Set(draftMetricIds),
       };
     });
-  }, [enabledMetricIdsBySection]);
+  }, [enabledMetricIdsBySection, markUserSettingsChange]);
 
   const applyReportBuild = useCallback((
     selectedSources: string[],
     overrides: Partial<Pick<ReportFilters, 'period' | 'dateRange'>> = {},
   ) => {
+    markUserSettingsChange();
     const period = overrides.period ?? draftFilters.period;
     const dateRange = overrides.dateRange ?? draftFilters.dateRange;
 
@@ -2070,7 +2122,11 @@ function App() {
       dateRange,
       selectedSources,
     }));
-    setAppliedFilters({
+    // Build updates chart filters + period only.
+    // Table visibility stays under table settings (applied enabledSectionIds /
+    // tableSelectedSources / appliedEnabledMetricIdsBySection).
+    setAppliedFilters((current) => ({
+      ...current,
       period,
       dateRange,
       selectedSources,
@@ -2080,28 +2136,18 @@ function App() {
         ...draftFilters.schedule,
         weekendDayIds: [...draftFilters.schedule.weekendDayIds],
       },
-      enabledSectionIds: new Set(draftFilters.enabledSectionIds),
-    });
-    // Do NOT sync tableSelectedSources from chart sources.
-    // Table content is controlled only by "Настройка таблицы".
-    setAppliedEnabledMetricIdsBySection(
-      Object.entries(enabledMetricIdsBySection).reduce<Record<string, Set<string>>>((acc, [sectionId, metricIds]) => {
-        acc[sectionId] = new Set(metricIds);
-        return acc;
-      }, {}),
-    );
+    }));
     setBuildMoment(Date.now());
-    // Increment reportBuildRequest to trigger the loadReportPreview effect.
-    // This is the ONLY mechanism that should trigger report building.
     setReportBuildRequest((current) => current + 1);
-  }, [draftFilters, enabledMetricIdsBySection]);
+  }, [draftFilters, markUserSettingsChange]);
 
   const buildReport = useCallback(() => {
     applyAutomaticThresholdsRef.current = false;
     setMainThreshold({ upper: '', lower: '', mode: null });
     setRowThresholds({});
-    applyReportBuild(normalizeSelectedSources(draftFilters.selectedSources));
-  }, [applyReportBuild, draftFilters.selectedSources, normalizeSelectedSources]);
+    // Empty chart selection stays empty — never expand to all/default sources.
+    applyReportBuild(sanitizeChartSources(draftFilters.selectedSources));
+  }, [applyReportBuild, draftFilters.selectedSources, sanitizeChartSources]);
 
   const buildAutomaticReport = useCallback(() => {
     const dealSources = crmSources.filter((source) => source.type === 'deal');
@@ -2120,30 +2166,29 @@ function App() {
       return;
     }
 
-    const dealsSection =
-      metricSections.find((section) => section.id === 'deals') ??
-      metricSections.find((section) => section.metricIds.includes('deals_won_sum'));
-
     // Do not persist this beginner preset into Pro saved settings.
+    // Keep skip active until this generation finishes applying thresholds after preview.
+    const generation = autoBuildGenerationRef.current + 1;
+    autoBuildGenerationRef.current = generation;
+    activeAutoBuildGenerationRef.current = generation;
     skipAutoSaveRef.current = true;
-    if (skipAutoSaveTimerRef.current) {
-      clearTimeout(skipAutoSaveTimerRef.current);
-    }
-    skipAutoSaveTimerRef.current = setTimeout(() => {
-      skipAutoSaveRef.current = false;
-      skipAutoSaveTimerRef.current = null;
-    }, 3500);
 
     const dateRange = getPreviousWeekFromYesterdayRange();
     const chartSources = [salesSource.id];
-    const nextEnabledSectionIds = dealsSection ? new Set([dealsSection.id]) : new Set<string>();
+    // Table: all available sources/entities, with Sales funnel first.
+    const allTableSources = [
+      salesSource.id,
+      ...crmSourceIds.filter((id) => id !== salesSource.id),
+    ];
+    const nextEnabledSectionIds = new Set(metricSections.map((section) => section.id));
     const nextEnabledMetrics = metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
-      acc[section.id] =
-        dealsSection && section.id === dealsSection.id
-          ? new Set(section.metricIds)
-          : new Set();
+      acc[section.id] = new Set(section.metricIds);
       return acc;
     }, {});
+    const nextSectionOrder = [
+      ...(metricSections.some((section) => section.id === 'deals') ? ['deals'] : []),
+      ...metricSections.map((section) => section.id).filter((id) => id !== 'deals'),
+    ];
 
     applyAutomaticThresholdsRef.current = true;
 
@@ -2185,16 +2230,15 @@ function App() {
         ]),
       ),
     );
-    setTableSelectedSources(chartSources);
-    setDraftTableSelectedSources(chartSources);
-    if (dealsSection) {
-      setExpandedSections((current) => new Set([...current, dealsSection.id]));
-    }
+    setTableSelectedSources(allTableSources);
+    setDraftTableSelectedSources(allTableSources);
+    setSectionOrder(nextSectionOrder);
+    setExpandedSections(new Set(nextEnabledSectionIds));
 
     setHasBuiltReport(true);
     setBuildMoment(Date.now());
     setReportBuildRequest((current) => current + 1);
-  }, [crmSources, metricSections]);
+  }, [crmSourceIds, crmSources, metricSections]);
 
   const openDetail = useCallback((
     metric: MetricRow,
@@ -2251,17 +2295,19 @@ function App() {
   }, []);
 
   const updateRowThreshold = useCallback((metricId: string, value: ThresholdValues) => {
+    markUserSettingsChange();
     setRowThresholds((current) => ({
       ...current,
       [metricId]: value,
     }));
-  }, []);
+  }, [markUserSettingsChange]);
 
   const moveMetricWithinSection = useCallback((sectionId: string, sourceMetricId: string, targetMetricId: string) => {
     if (sourceMetricId === targetMetricId) {
       return;
     }
 
+    markUserSettingsChange();
     setMetricOrderBySection((current) => {
       const source = current[sectionId] ?? [];
       const fromIndex = source.indexOf(sourceMetricId);
@@ -2280,13 +2326,14 @@ function App() {
         [sectionId]: nextSectionOrder,
       };
     });
-  }, []);
+  }, [markUserSettingsChange]);
 
   const moveSection = useCallback((sourceSectionId: string, targetSectionId: string) => {
     if (sourceSectionId === targetSectionId) {
       return;
     }
 
+    markUserSettingsChange();
     setSectionOrder((current) => {
       const fromIndex = current.indexOf(sourceSectionId);
       const toIndex = current.indexOf(targetSectionId);
@@ -2301,7 +2348,7 @@ function App() {
 
       return nextOrder;
     });
-  }, []);
+  }, [markUserSettingsChange]);
 
   const handleMetricDragStart = useCallback((
     sectionId: string,
@@ -3062,10 +3109,14 @@ function App() {
                   crmSourceOptions={crmSourceOptions}
                   mainThreshold={mainThreshold}
                   mainRecommendedThreshold={mainRecommendedThreshold}
-                  onApply={applyChartDraftSettings}
-                  onDraftChange={applyChartDraftSettings}
-                  onThresholdApply={setMainThreshold}
+                  onApply={applyChartSettings}
+                  onDraftChange={updateChartDraftSettings}
+                  onThresholdApply={(value) => {
+                    markUserSettingsChange();
+                    setMainThreshold(value);
+                  }}
                   onThresholdReset={() => {
+                    markUserSettingsChange();
                     setMainThreshold({ upper: '', lower: '', mode: null });
                   }}
                 />

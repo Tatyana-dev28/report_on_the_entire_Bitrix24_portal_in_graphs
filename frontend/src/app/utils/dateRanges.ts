@@ -19,8 +19,8 @@ export const getPreviousWeekFromYesterdayRange = (): DateRange => {
   end.setDate(end.getDate() - 1);
 
   const start = new Date(end);
-  // Yesterday and 7 days back (8 calendar days inclusive).
-  start.setDate(start.getDate() - 7);
+  // 7 full days including yesterday: yesterday and 6 days before it.
+  start.setDate(start.getDate() - 6);
 
   return {
     start: toDateInputValue(start),

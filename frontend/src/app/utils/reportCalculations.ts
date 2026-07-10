@@ -144,7 +144,7 @@ export const getChartMetricId = (source: string, metricMode: ChartMetricMode): s
       return 'activities_created';
     }
 
-    return 'deals_created';
+    return null;
   }
 
   if (isLeadSource) {
@@ -169,9 +169,7 @@ export const getChartMetricId = (source: string, metricMode: ChartMetricMode): s
     return 'quotes_accepted_sum';
   }
 
-  // Telephony/activity and unknown sources have no own money metric — do not
-  // fall back to deals_won_sum (that caused 3× inflation when those sources
-  // were selected together with deals).
+  // Unknown sources must not fall back to deals metrics.
   return null;
 };
 

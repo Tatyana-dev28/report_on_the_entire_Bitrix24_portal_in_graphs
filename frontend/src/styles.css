@@ -848,8 +848,15 @@ button {
 
 .table-settings-sources-block {
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 6px;
   min-height: 0;
+}
+
+.table-settings-sources-block .multi-options-list {
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
 }
 
 .table-settings-actions {

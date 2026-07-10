@@ -798,12 +798,15 @@ export function TableSettingsMenu({
             </div>
           )}
           <div className="table-settings-sources-block">
-            <p className="table-settings-group-title">Воронки и источники</p>
             <MultiSelect
-              variant="inline"
               values={selectedSources}
               options={crmSourceOptions}
               onChange={onSourcesChange}
+              onSelectAll={() =>
+                onSourcesChange(crmSourceOptions.map((option) => option.value))
+              }
+              onReset={() => onSourcesChange([])}
+              onApply={handleApply}
               searchPlaceholder="Поиск по источникам"
               noResultsLabel="Источники не найдены"
             />

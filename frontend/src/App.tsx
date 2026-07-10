@@ -508,6 +508,23 @@ const resolveTableSelectionFromSources = (
 
   return { sectionIds, pipelineSourceIds, entitySourceIds };
 };
+
+/** Keep preferred order; append any new ids that are not yet listed. */
+const mergeIdOrder = (preferred: string[], available: string[]) => {
+  const availableSet = new Set(available);
+  const ordered = preferred.filter((id) => availableSet.has(id));
+  const seen = new Set(ordered);
+
+  available.forEach((id) => {
+    if (!seen.has(id)) {
+      seen.add(id);
+      ordered.push(id);
+    }
+  });
+
+  return ordered;
+};
+
 function App() {
   // Hydration guards: prevent auto-save until settings are fully loaded/applied
   const settingsHydratedRef = useRef(false);
@@ -619,6 +636,9 @@ function App() {
         return acc;
       }, {}),
   );
+  // Display-only order for funnel/smart source_section blocks (not CRM sections).
+  const [sourceSectionOrder, setSourceSectionOrder] = useState<string[]>([]);
+  const [sourceMetricOrderBySource, setSourceMetricOrderBySource] = useState<Record<string, string[]>>({});
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     () => new Set(metricSections.map((section) => section.id)),
   );
@@ -653,6 +673,8 @@ function App() {
   const canScrollForwardRef = useRef(false);
   const draggedMetricRef = useRef<{ sectionId: string; metricId: string } | null>(null);
   const draggedSectionRef = useRef<string | null>(null);
+  const draggedSourceSectionRef = useRef<string | null>(null);
+  const draggedSourceMetricRef = useRef<{ sourceId: string; metricKey: string } | null>(null);
   const reportStartTimeRef = useRef<number>(0);
 
   const upperThresholdNumber = useMemo(() => parseThreshold(mainThreshold.upper), [mainThreshold.upper]);
@@ -828,6 +850,8 @@ function App() {
         return acc;
       }, {}),
     );
+    setSourceSectionOrder([]);
+    setSourceMetricOrderBySource({});
     setExpandedSections(new Set());
     setExpandedSourceSections(new Set());
     collapsedSourceSectionsByUser.current = new Set();
@@ -1004,6 +1028,17 @@ function App() {
           // Apply saved metric order
           if (settings.metricOrderBySection && typeof settings.metricOrderBySection === 'object') {
             setMetricOrderBySection(settings.metricOrderBySection as Record<string, string[]>);
+          }
+
+          if (settings.sourceSectionOrder && Array.isArray(settings.sourceSectionOrder)) {
+            setSourceSectionOrder(settings.sourceSectionOrder as string[]);
+          }
+
+          if (
+            settings.sourceMetricOrderBySource
+            && typeof settings.sourceMetricOrderBySource === 'object'
+          ) {
+            setSourceMetricOrderBySource(settings.sourceMetricOrderBySource as Record<string, string[]>);
           }
 
           // Apply saved expanded sections
@@ -1650,8 +1685,8 @@ function App() {
         return rows;
       });
 
-      // Add source-based sections in the order of tableSelectedSources
-      // (so auto-build can put "Продажи" first).
+      // Add source-based sections in sourceSectionOrder (new ids append at end).
+      // Selection still comes from tableSelectedSources; this only affects display order.
       const sourceSectionRows: TableRow[] = [];
       const sourceMetricsByLookup = new Map<string, { key: string; data: (typeof sourceMetrics)[string] }>();
 
@@ -1662,6 +1697,7 @@ function App() {
 
       if (hasBuiltReport && tableSelectedSources.length > 0) {
         const seenSourceKeys = new Set<string>();
+        const matchedSources: Array<{ key: string; data: (typeof sourceMetrics)[string] }> = [];
 
         tableSelectedSources.forEach((selectedId) => {
           const matched = sourceMetricsByLookup.get(selectedId);
@@ -1670,11 +1706,30 @@ function App() {
           }
 
           seenSourceKeys.add(matched.key);
-          const { key: sourceKey, data: sourceData } = matched;
-          const metricKeys = Object.keys(sourceData.metrics);
-          if (metricKeys.length === 0) {
+          if (Object.keys(matched.data.metrics).length === 0) {
             return;
           }
+
+          matchedSources.push(matched);
+        });
+
+        const orderedSourceKeys = mergeIdOrder(
+          sourceSectionOrder,
+          matchedSources.map((item) => item.key),
+        );
+        const matchedByKey = new Map(matchedSources.map((item) => [item.key, item.data]));
+
+        orderedSourceKeys.forEach((sourceKey) => {
+          const sourceData = matchedByKey.get(sourceKey);
+          if (!sourceData) {
+            return;
+          }
+
+          const defaultMetricKeys = Object.keys(sourceData.metrics);
+          const orderedMetricKeys = mergeIdOrder(
+            sourceMetricOrderBySource[sourceKey] ?? [],
+            defaultMetricKeys,
+          );
 
           sourceSectionRows.push({
             kind: 'source_section',
@@ -1683,8 +1738,12 @@ function App() {
             label: sourceData.label,
           });
 
-          metricKeys.forEach((metricKey) => {
+          orderedMetricKeys.forEach((metricKey) => {
             const metric = sourceData.metrics[metricKey];
+            if (!metric) {
+              return;
+            }
+
             sourceSectionRows.push({
               kind: 'source_metric',
               rowId: `source-metric-${sourceKey}-${metricKey}`,
@@ -1716,6 +1775,8 @@ function App() {
         sourceMetrics,
         hasBuiltReport,
         tableSelectedSources,
+        sourceSectionOrder,
+        sourceMetricOrderBySource,
       ],
   );
 
@@ -2532,6 +2593,67 @@ function App() {
     });
   }, [markUserSettingsChange]);
 
+  const moveSourceSection = useCallback((sourceId: string, targetSourceId: string) => {
+    if (sourceId === targetSourceId) {
+      return;
+    }
+
+    markUserSettingsChange();
+    setSourceSectionOrder((current) => {
+      const nextOrder = [...current];
+      if (!nextOrder.includes(sourceId)) {
+        nextOrder.push(sourceId);
+      }
+      if (!nextOrder.includes(targetSourceId)) {
+        nextOrder.push(targetSourceId);
+      }
+
+      const fromIndex = nextOrder.indexOf(sourceId);
+      const toIndex = nextOrder.indexOf(targetSourceId);
+
+      if (fromIndex === -1 || toIndex === -1) {
+        return current;
+      }
+
+      const reordered = [...nextOrder];
+      const [moved] = reordered.splice(fromIndex, 1);
+      reordered.splice(toIndex, 0, moved);
+
+      return reordered;
+    });
+  }, [markUserSettingsChange]);
+
+  const moveSourceMetricWithinSource = useCallback((
+    sourceId: string,
+    sourceMetricKey: string,
+    targetMetricKey: string,
+  ) => {
+    if (sourceMetricKey === targetMetricKey) {
+      return;
+    }
+
+    markUserSettingsChange();
+    setSourceMetricOrderBySource((current) => {
+      const defaultKeys = Object.keys(sourceMetrics[sourceId]?.metrics ?? {});
+      const source = mergeIdOrder(current[sourceId] ?? [], defaultKeys);
+      const fromIndex = source.indexOf(sourceMetricKey);
+      const toIndex = source.indexOf(targetMetricKey);
+
+      if (fromIndex === -1 || toIndex === -1) {
+        return current;
+      }
+
+      const nextOrder = [...source];
+      const [moved] = nextOrder.splice(fromIndex, 1);
+      nextOrder.splice(toIndex, 0, moved);
+
+      return {
+        ...current,
+        [sourceId]: nextOrder,
+      };
+    });
+  }, [markUserSettingsChange, sourceMetrics]);
+
   const handleMetricDragStart = useCallback((
     sectionId: string,
     metricId: string,
@@ -2606,6 +2728,80 @@ function App() {
     moveSection(draggedSectionId, sectionId);
   }, [moveSection]);
 
+  const handleSourceSectionDragStart = useCallback((
+    sourceId: string,
+    event: ReactDragEvent<HTMLElement>,
+  ) => {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', sourceId);
+    draggedSourceSectionRef.current = sourceId;
+  }, []);
+
+  const handleSourceSectionDragOver = useCallback((
+    sourceId: string,
+    event: ReactDragEvent<HTMLElement>,
+  ) => {
+    if (!draggedSourceSectionRef.current || draggedSourceSectionRef.current === sourceId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const handleSourceSectionDrop = useCallback((
+    sourceId: string,
+    event: ReactDragEvent<HTMLElement>,
+  ) => {
+    event.preventDefault();
+    const draggedSourceId = draggedSourceSectionRef.current;
+    draggedSourceSectionRef.current = null;
+
+    if (!draggedSourceId) {
+      return;
+    }
+
+    moveSourceSection(draggedSourceId, sourceId);
+  }, [moveSourceSection]);
+
+  const handleSourceMetricDragStart = useCallback((
+    sourceId: string,
+    metricKey: string,
+    event: ReactDragEvent<HTMLElement>,
+  ) => {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', metricKey);
+    draggedSourceMetricRef.current = { sourceId, metricKey };
+  }, []);
+
+  const handleSourceMetricDragOver = useCallback((
+    sourceId: string,
+    event: ReactDragEvent<HTMLElement>,
+  ) => {
+    if (draggedSourceMetricRef.current?.sourceId !== sourceId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const handleSourceMetricDrop = useCallback((
+    sourceId: string,
+    metricKey: string,
+    event: ReactDragEvent<HTMLElement>,
+  ) => {
+    event.preventDefault();
+    const dragged = draggedSourceMetricRef.current;
+    draggedSourceMetricRef.current = null;
+
+    if (!dragged || dragged.sourceId !== sourceId) {
+      return;
+    }
+
+    moveSourceMetricWithinSource(sourceId, dragged.metricKey, metricKey);
+  }, [moveSourceMetricWithinSource]);
+
   const captureCurrentViewState = useCallback(
     (): SavedReportViewState => ({
       draftFilters: serializeFilters(draftFilters),
@@ -2624,6 +2820,13 @@ function App() {
           [...metricIds],
         ]),
       ),
+      sourceSectionOrder: [...sourceSectionOrder],
+      sourceMetricOrderBySource: Object.fromEntries(
+        Object.entries(sourceMetricOrderBySource).map(([sourceId, metricKeys]) => [
+          sourceId,
+          [...metricKeys],
+        ]),
+      ),
       expandedSections: [...expandedSections],
       mainThreshold: { ...mainThreshold },
       rowThresholds: { ...rowThresholds },
@@ -2637,6 +2840,8 @@ function App() {
       metricOrderBySection,
       rowThresholds,
       sectionOrder,
+      sourceMetricOrderBySource,
+      sourceSectionOrder,
       tableSelectedSources,
     ],
   );
@@ -2691,6 +2896,8 @@ function App() {
           enabledMetricIdsBySection: currentState.enabledMetricIdsBySection,
           sectionOrder: currentState.sectionOrder,
           metricOrderBySection: currentState.metricOrderBySection,
+          sourceSectionOrder: currentState.sourceSectionOrder,
+          sourceMetricOrderBySource: currentState.sourceMetricOrderBySource,
           expandedSections: currentState.expandedSections,
           mainThreshold: currentState.mainThreshold,
           rowThresholds: currentState.rowThresholds,
@@ -2724,6 +2931,8 @@ function App() {
     enabledMetricIdsBySection,
     sectionOrder,
     metricOrderBySection,
+    sourceSectionOrder,
+    sourceMetricOrderBySource,
     expandedSections,
     mainThreshold,
     rowThresholds,
@@ -2789,6 +2998,19 @@ function App() {
           [...metricIds],
         ]),
       ),
+    );
+    setSourceSectionOrder(
+      Array.isArray(state.sourceSectionOrder) ? [...state.sourceSectionOrder] : [],
+    );
+    setSourceMetricOrderBySource(
+      state.sourceMetricOrderBySource && typeof state.sourceMetricOrderBySource === 'object'
+        ? Object.fromEntries(
+            Object.entries(state.sourceMetricOrderBySource).map(([sourceId, metricKeys]) => [
+              sourceId,
+              [...metricKeys],
+            ]),
+          )
+        : {},
     );
     setExpandedSections(new Set(state.expandedSections));
     setMainThreshold({ ...state.mainThreshold });
@@ -3583,8 +3805,22 @@ function App() {
                     key={row.rowId}
                     role="row"
                     data-row-id={row.rowId}
+                    onDragOver={(event) => handleSourceSectionDragOver(row.sourceId, event)}
+                    onDrop={(event) => handleSourceSectionDrop(row.sourceId, event)}
                   >
                     <div className={leftCellClassName} role="rowheader">
+                      <button
+                        className="drag-handle-button"
+                        type="button"
+                        draggable
+                        aria-label="Перетащить раздел"
+                        onDragStart={(event) => handleSourceSectionDragStart(row.sourceId, event)}
+                        onDragEnd={() => {
+                          draggedSourceSectionRef.current = null;
+                        }}
+                      >
+                        <GripVertical size={15} />
+                      </button>
                       <button
                         className={`section-toggle ${expandedSourceSections.has(row.sourceId) ? '' : 'is-collapsed'}`}
                         type="button"
@@ -3688,8 +3924,22 @@ function App() {
                     key={row.rowId}
                     role="row"
                     data-row-id={row.rowId}
+                    onDragOver={(event) => handleSourceMetricDragOver(row.sourceId, event)}
+                    onDrop={(event) => handleSourceMetricDrop(row.sourceId, row.metricKey, event)}
                   >
                     <div className={leftCellClassName} role="rowheader">
+                      <button
+                        className="drag-handle-button"
+                        type="button"
+                        draggable
+                        aria-label="Перетащить строку"
+                        onDragStart={(event) => handleSourceMetricDragStart(row.sourceId, row.metricKey, event)}
+                        onDragEnd={() => {
+                          draggedSourceMetricRef.current = null;
+                        }}
+                      >
+                        <GripVertical size={15} />
+                      </button>
                       <span className="metric-name">{row.metricLabel}</span>
                     </div>
                     <div className="table-right-cell" role="cell">

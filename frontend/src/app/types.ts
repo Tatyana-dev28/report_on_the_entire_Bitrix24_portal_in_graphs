@@ -150,6 +150,10 @@ export type SavedReportViewState = {
   enabledMetricIdsBySection: Record<string, string[]>;
   sectionOrder: string[];
   metricOrderBySection: Record<string, string[]>;
+  /** Display order of funnel/smart source_section blocks (sourceMetrics keys). */
+  sourceSectionOrder?: string[];
+  /** Display order of source_metric keys within each source block. */
+  sourceMetricOrderBySource?: Record<string, string[]>;
   expandedSections: string[];
   mainThreshold: ThresholdValues;
   rowThresholds: Record<string, ThresholdValues>;

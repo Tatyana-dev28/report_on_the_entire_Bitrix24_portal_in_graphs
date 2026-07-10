@@ -3017,17 +3017,9 @@ function App() {
           </div>
           <div className="top-actions">
             <TableSettingsMenu
-              enabledSectionIds={draftFilters.enabledSectionIds}
-              sectionOptions={metricSections.map((section) => ({
-                id: section.id,
-                label: section.label,
-              }))}
               selectedSources={draftTableSelectedSources}
               crmSourceOptions={crmSourceOptions}
               onSourcesChange={handleTableSelectedSourcesChange}
-              onToggleSection={toggleEnabledSection}
-              onSelectAll={enableAllTableSettings}
-              onReset={resetTableSettings}
               onApply={applyTableSettings}
             />
             <TooltipButton
@@ -3121,17 +3113,9 @@ function App() {
                   }}
                 />
                 <TableSettingsMenu
-                  enabledSectionIds={draftFilters.enabledSectionIds}
-                  sectionOptions={metricSections.map((section) => ({
-                    id: section.id,
-                    label: section.label,
-                  }))}
                   selectedSources={draftTableSelectedSources}
                   crmSourceOptions={crmSourceOptions}
                   onSourcesChange={handleTableSelectedSourcesChange}
-                  onToggleSection={toggleEnabledSection}
-                  onSelectAll={enableAllTableSettings}
-                  onReset={resetTableSettings}
                   onApply={applyTableSettings}
                   trigger="text"
                 />

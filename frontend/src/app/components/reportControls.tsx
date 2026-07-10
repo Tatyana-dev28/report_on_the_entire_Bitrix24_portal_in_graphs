@@ -699,25 +699,15 @@ export function SectionMetricsMenu({
 }
 
 export function TableSettingsMenu({
-  enabledSectionIds,
-  sectionOptions,
   selectedSources,
   crmSourceOptions,
   onSourcesChange,
-  onToggleSection,
-  onSelectAll,
-  onReset,
   onApply,
   trigger = 'icon',
 }: {
-  enabledSectionIds: Set<string>;
-  sectionOptions: Array<{ id: string; label: string }>;
   selectedSources: string[];
   crmSourceOptions: SelectOption<string>[];
   onSourcesChange: (values: string[]) => void;
-  onToggleSection: (sectionId: string) => void;
-  onSelectAll: () => void;
-  onReset: () => void;
   onApply: () => void;
   trigger?: 'icon' | 'text';
 }) {
@@ -777,28 +767,15 @@ export function TableSettingsMenu({
               values={selectedSources}
               options={crmSourceOptions}
               onChange={onSourcesChange}
-              onSelectAll={onSelectAll}
-              onReset={onReset}
+              onSelectAll={() =>
+                onSourcesChange(crmSourceOptions.map((option) => option.value))
+              }
+              onReset={() => onSourcesChange([])}
               onApply={handleApply}
               searchPlaceholder="Поиск по источникам"
               noResultsLabel="Источники не найдены"
             />
           </div>
-          {sectionOptions.length > 0 && (
-            <div className="settings-list table-settings-sections">
-              <p className="table-settings-group-title">Разделы показателей</p>
-              {sectionOptions.map((section) => (
-                <label className="settings-option" key={section.id}>
-                  <input
-                    type="checkbox"
-                    checked={enabledSectionIds.has(section.id)}
-                    onChange={() => onToggleSection(section.id)}
-                  />
-                  <span>{section.label}</span>
-                </label>
-              ))}
-            </div>
-          )}
         </FloatingPopover>
       )}
     </div>

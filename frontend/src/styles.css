@@ -810,6 +810,7 @@ button {
   grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 10px;
   max-height: min(680px, calc(100vh - 72px));
+  overflow: hidden;
 }
 
 .table-settings-head {
@@ -847,13 +848,15 @@ button {
 }
 
 .table-settings-sources-block {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 6px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .table-settings-sources-block .multi-options-list {
+  flex: 1 1 auto;
   min-height: 0;
   max-height: none;
   overflow-y: auto;

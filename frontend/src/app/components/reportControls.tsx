@@ -785,9 +785,6 @@ export function TableSettingsMenu({
           {sectionOptions.length > 0 && (
             <div className="settings-list table-settings-sections">
               <p className="table-settings-group-title">Разделы показателей</p>
-              <p className="table-settings-group-hint">
-                Галочки = блоки в таблице (Сделки, Лиды, Счета…). Без галочки блока не будет.
-              </p>
               {sectionOptions.map((section) => (
                 <label className="settings-option" key={section.id}>
                   <input
@@ -802,9 +799,6 @@ export function TableSettingsMenu({
           )}
           <div className="table-settings-sources-block">
             <p className="table-settings-group-title">Воронки и источники</p>
-            <p className="table-settings-group-hint">
-              Отдельные воронки сделок / смарт-процессы и CRM-сущности. Это не то же самое, что раздел «Сделки» выше.
-            </p>
             <MultiSelect
               variant="inline"
               values={selectedSources}

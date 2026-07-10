@@ -1,4 +1,5 @@
 import { formatMoney, metrics, type MetricRow, type Period, type ReportPoint } from '../../services/report/reportCatalog';
+import type { SourceMetricsData } from '../../services/report/reportTypes';
 import type { ChartMetricMode, MockEmployee, ScheduleFilters } from '../types';
 
 /** Successful/won money metrics that may contribute to the main chart in "sum" mode. */
@@ -20,6 +21,77 @@ const readMetricValue = (values: ReportPoint['values'], metricId: string | undef
   const numeric = typeof raw === 'number' ? raw : Number(raw);
 
   return Number.isFinite(numeric) ? numeric : 0;
+};
+
+const readPeriodValue = (valuesByPeriod: Record<string, number> | undefined, periodKey: string) => {
+  if (!valuesByPeriod) {
+    return 0;
+  }
+
+  const raw = valuesByPeriod[periodKey];
+  const numeric = typeof raw === 'number' ? raw : Number(raw);
+
+  return Number.isFinite(numeric) ? numeric : 0;
+};
+
+/** Deal funnels / smart processes that have per-source sourceMetrics (not CRM-entity defaults). */
+export const isPipelineChartSource = (sourceId: string) => {
+  if (sourceId === 'deal-default') {
+    return false;
+  }
+
+  return sourceId.startsWith('deal-') || sourceId.startsWith('smart-');
+};
+
+export const findSourceMetricsEntry = (
+  sourceMetrics: Record<string, SourceMetricsData> | undefined,
+  sourceId: string,
+): SourceMetricsData | undefined => {
+  if (!sourceMetrics) {
+    return undefined;
+  }
+
+  const direct = sourceMetrics[sourceId];
+  if (direct) {
+    return direct;
+  }
+
+  return Object.values(sourceMetrics).find(
+    (entry) => entry.sourceId === sourceId || entry.id === sourceId,
+  );
+};
+
+/**
+ * Pick the chart metric key that actually exists on a sourceMetrics block.
+ * Deal: money → won_sum, count → created.
+ * Smart: money → success_sum, count → created.
+ */
+export const getSourceChartMetricKey = (
+  metricsMap: SourceMetricsData['metrics'] | undefined,
+  metricMode: ChartMetricMode,
+): string | null => {
+  if (!metricsMap) {
+    return null;
+  }
+
+  if (metricMode === 'money') {
+    if (metricsMap.won_sum) {
+      return 'won_sum';
+    }
+    if (metricsMap.success_sum) {
+      return 'success_sum';
+    }
+    return null;
+  }
+
+  if (metricsMap.created) {
+    return 'created';
+  }
+  if (metricsMap.success) {
+    return 'success';
+  }
+
+  return null;
 };
 
 type SourceKindFlags = {
@@ -85,8 +157,13 @@ const getSourceKindFlags = (source: string): SourceKindFlags => {
   };
 };
 
-/** Metric id used for a single chart series for the given source. */
+/** Metric id used for a single chart series for the given CRM-entity source. */
 export const getChartMetricId = (source: string, metricMode: ChartMetricMode): string | null => {
+  // Pipeline sources must use sourceMetrics — never fall through to portal-wide deals_*/smart_*.
+  if (isPipelineChartSource(source)) {
+    return null;
+  }
+
   const {
     isLeadSource,
     isDealSource,
@@ -173,29 +250,69 @@ export const getChartMetricId = (source: string, metricMode: ChartMetricMode): s
   return null;
 };
 
+const getChartSourceContribution = (
+  point: ReportPoint,
+  source: string,
+  metricMode: ChartMetricMode,
+  sourceMetrics?: Record<string, SourceMetricsData>,
+) => {
+  if (isPipelineChartSource(source)) {
+    const entry = findSourceMetricsEntry(sourceMetrics, source);
+    const metricKey = getSourceChartMetricKey(entry?.metrics, metricMode);
+
+    if (!entry || !metricKey) {
+      return { kind: 'pipeline' as const, value: 0 };
+    }
+
+    return {
+      kind: 'pipeline' as const,
+      value: readPeriodValue(entry.metrics[metricKey]?.valuesByPeriod, point.key),
+    };
+  }
+
+  const metricId = getChartMetricId(source, metricMode);
+
+  if (!metricId) {
+    return { kind: 'crm' as const, metricId: null, value: 0 };
+  }
+
+  return {
+    kind: 'crm' as const,
+    metricId,
+    value: readMetricValue(point.values, metricId),
+  };
+};
+
 /**
- * Sum-mode chart value: unique success metrics for selected sources.
- * Prevents double-counting the same portal-wide metric across several sources
- * (e.g. deal + telephony + activity all mapping to deals_won_sum).
+ * Sum-mode chart value.
+ * CRM entities: unique portal metrics from point.values (no double-count of same metric id).
+ * Deal/smart pipelines: per-source values from sourceMetrics, summed independently.
  */
 export const getChartSumValue = (
   point: ReportPoint,
   sources: string[],
   metricMode: ChartMetricMode,
+  sourceMetrics?: Record<string, SourceMetricsData>,
 ) => {
-  const metricIds = new Set<string>();
+  const crmMetricIds = new Set<string>();
+  let pipelineSum = 0;
 
   for (const source of sources) {
-    const metricId = getChartMetricId(source, metricMode);
+    const contribution = getChartSourceContribution(point, source, metricMode, sourceMetrics);
 
-    if (metricId) {
-      metricIds.add(metricId);
+    if (contribution.kind === 'pipeline') {
+      pipelineSum += contribution.value;
+      continue;
+    }
+
+    if (contribution.metricId) {
+      crmMetricIds.add(contribution.metricId);
     }
   }
 
-  let sum = 0;
+  let sum = pipelineSum;
 
-  for (const metricId of metricIds) {
+  for (const metricId of crmMetricIds) {
     sum += readMetricValue(point.values, metricId);
   }
 
@@ -314,16 +431,8 @@ export const getChartSeriesValue = (
   point: ReportPoint,
   source: string,
   metricMode: ChartMetricMode,
-) => {
-  const metricId = getChartMetricId(source, metricMode);
-
-  if (!metricId) {
-    return 0;
-  }
-
-  // smart_process_total historically used || 0; keep same semantics via readMetricValue.
-  return readMetricValue(point.values, metricId);
-};
+  sourceMetrics?: Record<string, SourceMetricsData>,
+) => getChartSourceContribution(point, source, metricMode, sourceMetrics).value;
 export const formatMainChartValue = (value: number, metricMode: ChartMetricMode) => {
   if (metricMode === 'money') {
     return formatMoney(value);

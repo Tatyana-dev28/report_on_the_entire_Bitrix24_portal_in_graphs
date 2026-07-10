@@ -639,6 +639,9 @@ function App() {
   // Display-only order for funnel/smart source_section blocks (not CRM sections).
   const [sourceSectionOrder, setSourceSectionOrder] = useState<string[]>([]);
   const [sourceMetricOrderBySource, setSourceMetricOrderBySource] = useState<Record<string, string[]>>({});
+  // Visibility of metrics inside source blocks (separate from CRM enabledMetricIdsBySection).
+  const [enabledMetricKeysBySource, setEnabledMetricKeysBySource] = useState<Record<string, Set<string>>>({});
+  const [appliedEnabledMetricKeysBySource, setAppliedEnabledMetricKeysBySource] = useState<Record<string, Set<string>>>({});
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     () => new Set(metricSections.map((section) => section.id)),
   );
@@ -852,6 +855,8 @@ function App() {
     );
     setSourceSectionOrder([]);
     setSourceMetricOrderBySource({});
+    setEnabledMetricKeysBySource({});
+    setAppliedEnabledMetricKeysBySource({});
     setExpandedSections(new Set());
     setExpandedSourceSections(new Set());
     collapsedSourceSectionsByUser.current = new Set();
@@ -1039,6 +1044,25 @@ function App() {
             && typeof settings.sourceMetricOrderBySource === 'object'
           ) {
             setSourceMetricOrderBySource(settings.sourceMetricOrderBySource as Record<string, string[]>);
+          }
+
+          if (
+            settings.enabledMetricKeysBySource
+            && typeof settings.enabledMetricKeysBySource === 'object'
+          ) {
+            const savedSourceMetrics = settings.enabledMetricKeysBySource as Record<string, string[]>;
+            const asSets = Object.fromEntries(
+              Object.entries(savedSourceMetrics).map(([sourceId, metricKeys]) => [
+                sourceId,
+                new Set(Array.isArray(metricKeys) ? metricKeys : []),
+              ]),
+            );
+            setEnabledMetricKeysBySource(
+              Object.fromEntries(
+                Object.entries(asSets).map(([sourceId, metricKeys]) => [sourceId, new Set(metricKeys)]),
+              ),
+            );
+            setAppliedEnabledMetricKeysBySource(asSets);
           }
 
           // Apply saved expanded sections
@@ -1252,7 +1276,12 @@ function App() {
             // Всегда считаем mainValues так же, как главный график в режиме «Сумма»
             // (уникальные успешные money-метрики по выбранным источникам).
             const mainValues = scheduledData.map((point) =>
-              getChartSumValue(point, appliedFilters.selectedSources, metricMode),
+              getChartSumValue(
+                point,
+                appliedFilters.selectedSources,
+                metricMode,
+                preview.sourceMetrics ?? {},
+              ),
             );
             const mainRecommended = calculateRecommendedThresholds(mainValues, metricMode);
 
@@ -1488,20 +1517,20 @@ function App() {
   const chartBaseValues = useMemo(
     () =>
       reportData.map((point) =>
-        getChartSumValue(point, selectedChartSources, appliedFilters.metricMode),
+        getChartSumValue(point, selectedChartSources, appliedFilters.metricMode, sourceMetrics),
       ),
-    [appliedFilters.metricMode, reportData, selectedChartSources],
+    [appliedFilters.metricMode, reportData, selectedChartSources, sourceMetrics],
   );
   const mainThresholdRecommendationValues = useMemo(
     () =>
       isSeparateChart
         ? reportData.flatMap((point) =>
             selectedChartSources.map((source) =>
-              getChartSeriesValue(point, source, appliedFilters.metricMode),
+              getChartSeriesValue(point, source, appliedFilters.metricMode, sourceMetrics),
             ),
           )
         : chartBaseValues,
-    [appliedFilters.metricMode, chartBaseValues, isSeparateChart, reportData, selectedChartSources],
+    [appliedFilters.metricMode, chartBaseValues, isSeparateChart, reportData, selectedChartSources, sourceMetrics],
   );
   const mainRecommendedThreshold = useMemo(
     () =>
@@ -1518,7 +1547,12 @@ function App() {
       reportData.map((point, index) => {
         const seriesValues = isSeparateChart
           ? selectedChartSources.reduce<Record<string, number>>((acc, source, sourceIndex) => {
-              acc[`series_${sourceIndex}`] = getChartSeriesValue(point, source, appliedFilters.metricMode);
+              acc[`series_${sourceIndex}`] = getChartSeriesValue(
+                point,
+                source,
+                appliedFilters.metricMode,
+                sourceMetrics,
+              );
               return acc;
             }, {})
           : {};
@@ -1538,6 +1572,7 @@ function App() {
       isSeparateChart,
       reportData,
       selectedChartSources,
+      sourceMetrics,
       trendValues,
     ],
   );
@@ -1553,7 +1588,7 @@ function App() {
       const values = isSeparateChart
         ? reportData.flatMap((point) =>
             selectedChartSources.map((source) =>
-              getChartSeriesValue(point, source, appliedFilters.metricMode),
+              getChartSeriesValue(point, source, appliedFilters.metricMode, sourceMetrics),
             ),
           )
         : [...chartBaseValues, ...trendValues];
@@ -1566,6 +1601,7 @@ function App() {
       isSeparateChart,
       reportData,
       selectedChartSources,
+      sourceMetrics,
       thresholdNumbers,
       trendValues,
     ],
@@ -1744,6 +1780,14 @@ function App() {
               return;
             }
 
+            const activeSourceMetricKeys = hasBuiltReport
+              ? appliedEnabledMetricKeysBySource[sourceKey]
+              : enabledMetricKeysBySource[sourceKey];
+            // Missing entry = default "all enabled"; empty Set = none.
+            if (activeSourceMetricKeys && !activeSourceMetricKeys.has(metricKey)) {
+              return;
+            }
+
             sourceSectionRows.push({
               kind: 'source_metric',
               rowId: `source-metric-${sourceKey}-${metricKey}`,
@@ -1767,6 +1811,8 @@ function App() {
         // would update appliedEnabledMetricIdsBySection but tableRows would NOT recalculate.
         appliedEnabledMetricIdsBySection,
         enabledMetricIdsBySection,
+        appliedEnabledMetricKeysBySource,
+        enabledMetricKeysBySource,
         availableEmployees,
         metricMap,
         metricOrderBySection,
@@ -2343,6 +2389,83 @@ function App() {
     });
   }, [enabledMetricIdsBySection, markUserSettingsChange]);
 
+  const toggleSourceMetric = useCallback((sourceId: string, metricKey: string) => {
+    markUserSettingsChange();
+    setEnabledMetricKeysBySource((current) => {
+      const defaultKeys = Object.keys(sourceMetrics[sourceId]?.metrics ?? {});
+      const currentKeys = current[sourceId] ?? new Set(defaultKeys);
+      const nextKeys = new Set(currentKeys);
+
+      if (nextKeys.has(metricKey)) {
+        nextKeys.delete(metricKey);
+      } else {
+        nextKeys.add(metricKey);
+      }
+
+      return {
+        ...current,
+        [sourceId]: nextKeys,
+      };
+    });
+  }, [markUserSettingsChange, sourceMetrics]);
+
+  const selectAllSourceMetrics = useCallback((sourceId: string) => {
+    const metricKeys = Object.keys(sourceMetrics[sourceId]?.metrics ?? {});
+    markUserSettingsChange();
+    setEnabledMetricKeysBySource((current) => ({
+      ...current,
+      [sourceId]: new Set(metricKeys),
+    }));
+  }, [markUserSettingsChange, sourceMetrics]);
+
+  const resetSourceMetrics = useCallback((sourceId: string) => {
+    markUserSettingsChange();
+    setEnabledMetricKeysBySource((current) => ({
+      ...current,
+      [sourceId]: new Set(),
+    }));
+  }, [markUserSettingsChange]);
+
+  const applySourceMetrics = useCallback((sourceId: string) => {
+    markUserSettingsChange();
+    setAppliedEnabledMetricKeysBySource((current) => {
+      const draftKeys = enabledMetricKeysBySource[sourceId];
+      if (!draftKeys) {
+        return current;
+      }
+      return {
+        ...current,
+        [sourceId]: new Set(draftKeys),
+      };
+    });
+  }, [enabledMetricKeysBySource, markUserSettingsChange]);
+
+  // Seed default "all metrics enabled" for newly appeared source blocks (no markUserSettingsChange).
+  useEffect(() => {
+    const entries = Object.entries(sourceMetrics);
+    if (!entries.length) {
+      return;
+    }
+
+    const seedMissing = (current: Record<string, Set<string>>) => {
+      let changed = false;
+      const next = { ...current };
+
+      entries.forEach(([sourceKey, sourceData]) => {
+        if (next[sourceKey]) {
+          return;
+        }
+        next[sourceKey] = new Set(Object.keys(sourceData.metrics));
+        changed = true;
+      });
+
+      return changed ? next : current;
+    };
+
+    setEnabledMetricKeysBySource(seedMissing);
+    setAppliedEnabledMetricKeysBySource(seedMissing);
+  }, [sourceMetrics]);
+
   const applyReportBuild = useCallback((
     selectedSources: string[],
     overrides: Partial<Pick<ReportFilters, 'period' | 'dateRange'>> = {},
@@ -2827,6 +2950,12 @@ function App() {
           [...metricKeys],
         ]),
       ),
+      enabledMetricKeysBySource: Object.fromEntries(
+        Object.entries(enabledMetricKeysBySource).map(([sourceId, metricKeys]) => [
+          sourceId,
+          [...metricKeys],
+        ]),
+      ),
       expandedSections: [...expandedSections],
       mainThreshold: { ...mainThreshold },
       rowThresholds: { ...rowThresholds },
@@ -2835,6 +2964,7 @@ function App() {
       appliedFilters,
       draftFilters,
       enabledMetricIdsBySection,
+      enabledMetricKeysBySource,
       expandedSections,
       mainThreshold,
       metricOrderBySection,
@@ -2898,6 +3028,7 @@ function App() {
           metricOrderBySection: currentState.metricOrderBySection,
           sourceSectionOrder: currentState.sourceSectionOrder,
           sourceMetricOrderBySource: currentState.sourceMetricOrderBySource,
+          enabledMetricKeysBySource: currentState.enabledMetricKeysBySource,
           expandedSections: currentState.expandedSections,
           mainThreshold: currentState.mainThreshold,
           rowThresholds: currentState.rowThresholds,
@@ -2933,6 +3064,7 @@ function App() {
     metricOrderBySection,
     sourceSectionOrder,
     sourceMetricOrderBySource,
+    enabledMetricKeysBySource,
     expandedSections,
     mainThreshold,
     rowThresholds,
@@ -3012,6 +3144,26 @@ function App() {
           )
         : {},
     );
+    if (state.enabledMetricKeysBySource && typeof state.enabledMetricKeysBySource === 'object') {
+      const restoredSourceMetrics = Object.fromEntries(
+        Object.entries(state.enabledMetricKeysBySource).map(([sourceId, metricKeys]) => [
+          sourceId,
+          new Set(metricKeys),
+        ]),
+      );
+      setEnabledMetricKeysBySource(
+        Object.fromEntries(
+          Object.entries(restoredSourceMetrics).map(([sourceId, metricKeys]) => [
+            sourceId,
+            new Set(metricKeys),
+          ]),
+        ),
+      );
+      setAppliedEnabledMetricKeysBySource(restoredSourceMetrics);
+    } else {
+      setEnabledMetricKeysBySource({});
+      setAppliedEnabledMetricKeysBySource({});
+    }
     setExpandedSections(new Set(state.expandedSections));
     setMainThreshold({ ...state.mainThreshold });
     setRowThresholds({ ...state.rowThresholds });
@@ -3799,6 +3951,30 @@ function App() {
               }
 
               if (row.kind === 'source_section') {
+                const sourceData = sourceMetrics[row.sourceId];
+                const sourceMetricIds = Object.keys(sourceData?.metrics ?? {});
+                const sourceMetricMap = new Map(
+                  sourceMetricIds.map((metricKey) => {
+                    const metric = sourceData?.metrics[metricKey];
+                    const valueType = metric?.valueType === 'money'
+                      ? 'money'
+                      : metric?.valueType === 'percent'
+                        ? 'percent'
+                        : 'number';
+                    return [
+                      metricKey,
+                      {
+                        id: metricKey,
+                        label: metric?.label ?? metricKey,
+                        type: valueType as MetricRow['type'],
+                        base: 0,
+                      } satisfies MetricRow,
+                    ] as const;
+                  }),
+                );
+                const enabledSourceMetricIds =
+                  enabledMetricKeysBySource[row.sourceId] ?? new Set(sourceMetricIds);
+
                 return (
                   <div
                     className={rowClassName}
@@ -3830,6 +4006,21 @@ function App() {
                         <ChevronDown size={16} />
                         <span>{row.label}</span>
                       </button>
+                      {sourceData && (
+                        <SectionMetricsMenu
+                          section={{
+                            id: row.sourceId,
+                            label: row.label,
+                            metricIds: sourceMetricIds,
+                          }}
+                          metricMap={sourceMetricMap}
+                          enabledMetricIds={enabledSourceMetricIds}
+                          onToggleMetric={(metricKey) => toggleSourceMetric(row.sourceId, metricKey)}
+                          onSelectAll={() => selectAllSourceMetrics(row.sourceId)}
+                          onReset={() => resetSourceMetrics(row.sourceId)}
+                          onApply={applySourceMetrics}
+                        />
+                      )}
                     </div>
                     <div className="table-right-cell" role="cell">
                       <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
@@ -3917,70 +4108,115 @@ function App() {
 
                 const sourceData = sourceMetrics[row.sourceId];
                 const metricData = sourceData?.metrics[row.metricKey];
+                const actionId = `${row.sourceId}::${row.metricKey}`;
+                const rowThreshold = rowThresholds[actionId] ?? { upper: '', lower: '' };
+                const periodValues = reportData.map(
+                  (point) => metricData?.valuesByPeriod[point.key] ?? 0,
+                );
+                const rowRecommendedThreshold = calculateRecommendedThresholds(
+                  periodValues,
+                  row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number',
+                );
+                const chartOpen = expandedChartMetricIds.has(actionId);
+                const valueType = row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number';
+                const syntheticMetric: MetricRow = {
+                  id: row.metricKey,
+                  label: row.metricLabel,
+                  type: valueType,
+                  base: 0,
+                };
 
                 return (
-                  <div
-                    className={rowClassName}
-                    key={row.rowId}
-                    role="row"
-                    data-row-id={row.rowId}
-                    onDragOver={(event) => handleSourceMetricDragOver(row.sourceId, event)}
-                    onDrop={(event) => handleSourceMetricDrop(row.sourceId, row.metricKey, event)}
-                  >
-                    <div className={leftCellClassName} role="rowheader">
-                      <button
-                        className="drag-handle-button"
-                        type="button"
-                        draggable
-                        aria-label="Перетащить строку"
-                        onDragStart={(event) => handleSourceMetricDragStart(row.sourceId, row.metricKey, event)}
-                        onDragEnd={() => {
-                          draggedSourceMetricRef.current = null;
-                        }}
-                      >
-                        <GripVertical size={15} />
-                      </button>
-                      <span className="metric-name">{row.metricLabel}</span>
-                    </div>
-                    <div className="table-right-cell" role="cell">
-                      <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
-                        <div className="value-axis-gutter" aria-hidden="true" />
-                        {reportData.map((point) => {
-                          const value = metricData?.valuesByPeriod[point.key] ?? 0;
-                          const valueType = row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number';
-                          const valueLabel = formatMetricValue(value, valueType);
-                          const syntheticMetric: MetricRow = {
-                            id: row.metricKey,
-                            label: row.metricLabel,
-                            type: valueType,
-                            base: 0,
-                          };
+                  <>
+                    <div
+                      className={rowClassName}
+                      key={row.rowId}
+                      role="row"
+                      data-row-id={row.rowId}
+                      onDragOver={(event) => handleSourceMetricDragOver(row.sourceId, event)}
+                      onDrop={(event) => handleSourceMetricDrop(row.sourceId, row.metricKey, event)}
+                    >
+                      <div className={leftCellClassName} role="rowheader">
+                        <button
+                          className="drag-handle-button"
+                          type="button"
+                          draggable
+                          aria-label="Перетащить строку"
+                          onDragStart={(event) => handleSourceMetricDragStart(row.sourceId, row.metricKey, event)}
+                          onDragEnd={() => {
+                            draggedSourceMetricRef.current = null;
+                          }}
+                        >
+                          <GripVertical size={15} />
+                        </button>
+                        <span className="metric-name">{row.metricLabel}</span>
+                        <RowActionsMenu
+                          employeesOpen={false}
+                          chartOpen={chartOpen}
+                          threshold={rowThreshold}
+                          recommendedThreshold={rowRecommendedThreshold}
+                          showEmployees={false}
+                          onToggleEmployees={() => undefined}
+                          onToggleChart={() => toggleMetricChart(actionId)}
+                          onThresholdChange={(value) => updateRowThreshold(actionId, value)}
+                        />
+                      </div>
+                      <div className="table-right-cell" role="cell">
+                        <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
+                          <div className="value-axis-gutter" aria-hidden="true" />
+                          {reportData.map((point) => {
+                            const value = metricData?.valuesByPeriod[point.key] ?? 0;
+                            const valueLabel = formatMetricValue(value, valueType);
+                            const thresholdClass = getThresholdClass(value, rowThreshold);
+                            const detailSourceIds = sourceData?.detailSourceIds ?? [];
+                            const detailMetricIds = metricData?.detailMetricIds ?? [];
 
-                          // Pass detailSourceIds and detailMetricIds so buildBackendDetailRows
-                          // can filter reportDetails by the real source IDs and metric IDs
-                          const detailSourceIds = sourceData?.detailSourceIds ?? [];
-                          const detailMetricIds = metricData?.detailMetricIds ?? [];
-
-                          return (
-                            <ValueCellButton
-                              valueLabel={valueLabel}
-                              key={`${row.rowId}-${point.key}`}
-                              onClick={() => openDetail(
-                                syntheticMetric,
-                                point,
-                                value,
-                                '',
-                                undefined,
-                                row.sourceId,
-                                detailSourceIds,
-                                detailMetricIds,
-                              )}
-                            />
-                          );
-                        })}
+                            return (
+                              <ValueCellButton
+                                className={thresholdClass}
+                                valueLabel={valueLabel}
+                                key={`${row.rowId}-${point.key}`}
+                                onClick={() => openDetail(
+                                  syntheticMetric,
+                                  point,
+                                  value,
+                                  '',
+                                  undefined,
+                                  row.sourceId,
+                                  detailSourceIds,
+                                  detailMetricIds,
+                                )}
+                              />
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
-                  </div>
+                    {chartOpen && (
+                      <div
+                        className="report-table-row is-chart-row"
+                        key={`${row.rowId}-chart`}
+                        role="row"
+                        data-row-id={`${row.rowId}-chart`}
+                      >
+                        <div className="table-left-cell chart-left-cell" role="rowheader">
+                          График: {row.metricLabel}
+                        </div>
+                        <div className="table-right-cell" role="cell">
+                          <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
+                            <div className="row-chart-cell">
+                              <RowMetricChart
+                                metric={syntheticMetric}
+                                reportData={reportData}
+                                threshold={rowThreshold}
+                                valuesByPeriod={metricData?.valuesByPeriod}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 );
               }
 

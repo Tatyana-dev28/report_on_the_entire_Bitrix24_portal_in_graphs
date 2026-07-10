@@ -615,7 +615,7 @@ export function SectionMetricsMenu({
   onReset,
   onApply,
 }: {
-  section: (typeof metricSections)[number];
+  section: { id: string; label: string; metricIds: string[] };
   metricMap: Map<string, MetricRow>;
   enabledMetricIds: Set<string>;
   onToggleMetric: (metricId: string) => void;
@@ -1331,6 +1331,7 @@ export function RowActionsMenu({
   onToggleEmployees,
   onToggleChart,
   onThresholdChange,
+  showEmployees = true,
 }: {
   employeesOpen: boolean;
   chartOpen: boolean;
@@ -1339,6 +1340,8 @@ export function RowActionsMenu({
   onToggleEmployees: () => void;
   onToggleChart: () => void;
   onThresholdChange: (value: ThresholdValues) => void;
+  /** Hide employees action when per-source employee breakdown is unavailable. */
+  showEmployees?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<'actions' | 'thresholds'>('actions');
@@ -1383,17 +1386,19 @@ export function RowActionsMenu({
                   <X size={14} />
                 </button>
               </div>
-              <button
-                className={`row-action-menu-item ${employeesOpen ? 'is-active' : ''}`}
-                type="button"
-                onClick={() => {
-                  onToggleEmployees();
-                  setOpen(false);
-                }}
-              >
-                <span>{employeesOpen ? 'Скрыть сотрудников' : 'Показать сотрудников'}</span>
-                {employeesOpen && <Check size={14} />}
-              </button>
+              {showEmployees && (
+                <button
+                  className={`row-action-menu-item ${employeesOpen ? 'is-active' : ''}`}
+                  type="button"
+                  onClick={() => {
+                    onToggleEmployees();
+                    setOpen(false);
+                  }}
+                >
+                  <span>{employeesOpen ? 'Скрыть сотрудников' : 'Показать сотрудников'}</span>
+                  {employeesOpen && <Check size={14} />}
+                </button>
+              )}
               <button
                 className={`row-action-menu-item ${chartOpen ? 'is-active' : ''}`}
                 type="button"
@@ -1447,23 +1452,33 @@ export function RowMetricChart({
   metric,
   reportData,
   threshold,
+  valuesByPeriod,
 }: {
   metric: MetricRow;
   reportData: ReportPoint[];
   threshold?: ThresholdValues;
+  /** When set, chart reads these period values instead of point.values[metric.id]. */
+  valuesByPeriod?: Record<string, number>;
 }) {
   const chartWrapRef = useRef<HTMLDivElement>(null);
   const [activePoint, setActivePoint] = useState<ActiveChartPoint | null>(null);
   const chartData = useMemo(
     () =>
-      reportData.map((point, index) => ({
-        label: point.label,
-        tooltipLabel: point.tooltipLabel,
-        value: point.values[metric.id],
-        chartIndex: index,
-        xIndex: index + 0.5,
-      })),
-    [metric.id, reportData],
+      reportData.map((point, index) => {
+        const raw = valuesByPeriod
+          ? valuesByPeriod[point.key]
+          : point.values[metric.id];
+        const numeric = typeof raw === 'number' ? raw : Number(raw);
+
+        return {
+          label: point.label,
+          tooltipLabel: point.tooltipLabel,
+          value: Number.isFinite(numeric) ? numeric : 0,
+          chartIndex: index,
+          xIndex: index + 0.5,
+        };
+      }),
+    [metric.id, reportData, valuesByPeriod],
   );
   const thresholdValues = useMemo(
     () =>

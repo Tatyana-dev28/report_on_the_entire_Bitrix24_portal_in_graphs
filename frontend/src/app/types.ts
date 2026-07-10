@@ -154,6 +154,8 @@ export type SavedReportViewState = {
   sourceSectionOrder?: string[];
   /** Display order of source_metric keys within each source block. */
   sourceMetricOrderBySource?: Record<string, string[]>;
+  /** Enabled source_metric keys per source block (draft/applied saved as arrays). */
+  enabledMetricKeysBySource?: Record<string, string[]>;
   expandedSections: string[];
   mainThreshold: ThresholdValues;
   rowThresholds: Record<string, ThresholdValues>;

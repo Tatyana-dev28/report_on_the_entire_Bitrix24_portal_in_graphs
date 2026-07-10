@@ -387,6 +387,9 @@ function App() {
   // Hydration guards: prevent auto-save until settings are fully loaded/applied
   const settingsHydratedRef = useRef(false);
   const applyingBackendSettingsRef = useRef(false);
+  // Skip Pro auto-save while applying one-shot "Построить автоматически" presets.
+  const skipAutoSaveRef = useRef(false);
+  const skipAutoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [savedViews, setSavedViews] = useState<SavedReportViewOption[]>(() => [defaultSavedView]);
   const [selectedView, setSelectedView] = useState('default');
@@ -2075,12 +2078,81 @@ function App() {
       return;
     }
 
+    const dealsSection =
+      metricSections.find((section) => section.id === 'deals') ??
+      metricSections.find((section) => section.metricIds.includes('deals_won_sum'));
+
+    // Do not persist this beginner preset into Pro saved settings.
+    skipAutoSaveRef.current = true;
+    if (skipAutoSaveTimerRef.current) {
+      clearTimeout(skipAutoSaveTimerRef.current);
+    }
+    skipAutoSaveTimerRef.current = setTimeout(() => {
+      skipAutoSaveRef.current = false;
+      skipAutoSaveTimerRef.current = null;
+    }, 3500);
+
+    const dateRange = getPreviousWeekFromYesterdayRange();
+    const chartSources = [salesSource.id];
+    const nextEnabledSectionIds = dealsSection ? new Set([dealsSection.id]) : new Set<string>();
+    const nextEnabledMetrics = metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
+      acc[section.id] =
+        dealsSection && section.id === dealsSection.id
+          ? new Set(section.metricIds)
+          : new Set();
+      return acc;
+    }, {});
+
     applyAutomaticThresholdsRef.current = true;
-    applyReportBuild(normalizeSelectedSources([salesSource.id]), {
+
+    setDraftFilters((current) => ({
+      ...current,
       period: 'days',
-      dateRange: getPreviousWeekFromYesterdayRange(),
-    });
-  }, [applyReportBuild, crmSources, normalizeSelectedSources]);
+      dateRange,
+      selectedSources: chartSources,
+      metricMode: 'money',
+      chartDisplayMode: 'sum',
+      enabledSectionIds: nextEnabledSectionIds,
+    }));
+    setAppliedFilters((current) => ({
+      ...current,
+      period: 'days',
+      dateRange,
+      selectedSources: chartSources,
+      metricMode: 'money',
+      chartDisplayMode: 'sum',
+      enabledSectionIds: new Set(nextEnabledSectionIds),
+      schedule: {
+        ...current.schedule,
+        weekendDayIds: [...current.schedule.weekendDayIds],
+      },
+    }));
+    setEnabledMetricIdsBySection(
+      Object.fromEntries(
+        Object.entries(nextEnabledMetrics).map(([sectionId, metricIds]) => [
+          sectionId,
+          new Set(metricIds),
+        ]),
+      ),
+    );
+    setAppliedEnabledMetricIdsBySection(
+      Object.fromEntries(
+        Object.entries(nextEnabledMetrics).map(([sectionId, metricIds]) => [
+          sectionId,
+          new Set(metricIds),
+        ]),
+      ),
+    );
+    setTableSelectedSources(chartSources);
+    setDraftTableSelectedSources(chartSources);
+    if (dealsSection) {
+      setExpandedSections((current) => new Set([...current, dealsSection.id]));
+    }
+
+    setHasBuiltReport(true);
+    setBuildMoment(Date.now());
+    setReportBuildRequest((current) => current + 1);
+  }, [crmSources, metricSections]);
 
   const openDetail = useCallback((
     metric: MetricRow,
@@ -2308,6 +2380,11 @@ function App() {
   const triggerAutoSave = useCallback(() => {
     // Free version: never save anything
     if (!billingHasPro) {
+      return;
+    }
+
+    // One-shot automatic build must not overwrite saved user settings.
+    if (skipAutoSaveRef.current) {
       return;
     }
 

@@ -575,7 +575,7 @@ export function MultiSelect({
   );
 
   if (variant === 'inline') {
-    return renderOptionsList();
+    return <div className="multi-select-inline">{renderOptionsList()}</div>;
   }
 
   return (
@@ -771,16 +771,18 @@ export function TableSettingsMenu({
               <X size={14} />
             </button>
           </div>
-          <div className="table-settings-actions">
-            <button type="button" onClick={onSelectAll}>
-              Выбрать все
-            </button>
-            <button type="button" onClick={onReset}>
-              Сбросить
-            </button>
-            <button type="button" className="apply-settings-button" onClick={handleApply}>
-              Применить
-            </button>
+          <div className="table-settings-sources-block">
+            <MultiSelect
+              variant="inline"
+              values={selectedSources}
+              options={crmSourceOptions}
+              onChange={onSourcesChange}
+              onSelectAll={onSelectAll}
+              onReset={onReset}
+              onApply={handleApply}
+              searchPlaceholder="Поиск по источникам"
+              noResultsLabel="Источники не найдены"
+            />
           </div>
           {sectionOptions.length > 0 && (
             <div className="settings-list table-settings-sections">
@@ -797,20 +799,6 @@ export function TableSettingsMenu({
               ))}
             </div>
           )}
-          <div className="table-settings-sources-block">
-            <MultiSelect
-              values={selectedSources}
-              options={crmSourceOptions}
-              onChange={onSourcesChange}
-              onSelectAll={() =>
-                onSourcesChange(crmSourceOptions.map((option) => option.value))
-              }
-              onReset={() => onSourcesChange([])}
-              onApply={handleApply}
-              searchPlaceholder="Поиск по источникам"
-              noResultsLabel="Источники не найдены"
-            />
-          </div>
         </FloatingPopover>
       )}
     </div>

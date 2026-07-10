@@ -807,10 +807,10 @@ button {
 
 .table-settings-popover {
   display: grid;
-  grid-template-rows: auto auto auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 10px;
   max-height: min(680px, calc(100vh - 72px));
-  overflow: auto;
+  overflow: hidden;
 }
 
 .table-settings-head {
@@ -848,9 +848,33 @@ button {
 }
 
 .table-settings-sources-block {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
+}
+
+.table-settings-sources-block .multi-select-inline {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.table-settings-sources-block .multi-select-inline .multi-search-wrapper,
+.table-settings-sources-block .multi-select-inline .multi-actions {
+  flex: 0 0 auto;
+}
+
+.table-settings-sources-block .multi-select-inline .multi-options-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
 }
 
 .table-settings-actions {

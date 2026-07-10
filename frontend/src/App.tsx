@@ -468,14 +468,14 @@ function App() {
   const [enabledMetricIdsBySection, setEnabledMetricIdsBySection] = useState<Record<string, Set<string>>>(
     () =>
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
-        acc[section.id] = new Set(section.metricIds);
+        acc[section.id] = new Set();
         return acc;
       }, {}),
   );
   const [appliedEnabledMetricIdsBySection, setAppliedEnabledMetricIdsBySection] = useState<Record<string, Set<string>>>(
     () =>
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
-        acc[section.id] = new Set(section.metricIds);
+        acc[section.id] = new Set();
         return acc;
       }, {}),
   );
@@ -680,13 +680,13 @@ function App() {
     setDraftTableSelectedSources([]);
     setEnabledMetricIdsBySection(
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
-        acc[section.id] = new Set(section.metricIds);
+        acc[section.id] = new Set();
         return acc;
       }, {}),
     );
     setAppliedEnabledMetricIdsBySection(
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
-        acc[section.id] = new Set(section.metricIds);
+        acc[section.id] = new Set();
         return acc;
       }, {}),
     );
@@ -697,7 +697,7 @@ function App() {
         return acc;
       }, {}),
     );
-    setExpandedSections(new Set(metricSections.map((section) => section.id)));
+    setExpandedSections(new Set());
     setExpandedSourceSections(new Set());
     collapsedSourceSectionsByUser.current = new Set();
     setMainThreshold({ upper: '', lower: '', mode: null });
@@ -967,7 +967,7 @@ function App() {
             const next = { ...current };
             sections.forEach((section) => {
               if (!next[section.id]) {
-                next[section.id] = new Set(section.metricIds);
+                next[section.id] = new Set();
               }
             });
             return next;
@@ -976,7 +976,7 @@ function App() {
             const next = { ...current };
             sections.forEach((section) => {
               if (!next[section.id]) {
-                next[section.id] = new Set(section.metricIds);
+                next[section.id] = new Set();
               }
             });
             return next;
@@ -993,17 +993,17 @@ function App() {
         );
         setEnabledMetricIdsBySection(
           sections.reduce<Record<string, Set<string>>>((acc, section) => {
-            acc[section.id] = new Set(section.metricIds);
+            acc[section.id] = new Set();
             return acc;
           }, {}),
         );
         setAppliedEnabledMetricIdsBySection(
           sections.reduce<Record<string, Set<string>>>((acc, section) => {
-            acc[section.id] = new Set(section.metricIds);
+            acc[section.id] = new Set();
             return acc;
           }, {}),
         );
-        setExpandedSections(new Set(sections.map((section) => section.id)));
+        setExpandedSections(new Set());
       })
       .catch((error) => {
         console.warn('[Report data source] CRM sources were not loaded', error);
@@ -1033,7 +1033,7 @@ function App() {
         return [];
       }
 
-      const enabledMetricIds = appliedEnabledMetricIdsBySection[section.id] ?? new Set(section.metricIds);
+      const enabledMetricIds = appliedEnabledMetricIdsBySection[section.id] ?? new Set<string>();
       return section.metricIds.filter((metricId) => enabledMetricIds.has(metricId));
     });
     const reportSourceIds = Array.from(
@@ -1151,7 +1151,9 @@ function App() {
   const crmSourceOptions = useMemo(
     () =>
       [...crmSources]
-        .filter((source) => source.isAvailable)
+        // Keep deal/smart pipelines visible even if Bitrix marks them unavailable —
+        // otherwise "Сделки" vanish from table/chart source pickers.
+        .filter((source) => source.isAvailable || source.type === 'deal' || source.type === 'smartProcess')
         .sort((left, right) => {
           const groupDiff = getSourceGroupRank(left) - getSourceGroupRank(right);
 
@@ -1185,26 +1187,38 @@ function App() {
     [crmSourceOptions],
   );
 
-  const normalizeSelectedSources = useCallback(
+  // Chart sources: keep only IDs that still exist. Never expand empty → all/default.
+  const sanitizeChartSources = useCallback(
     (sources: string[]) => {
       if (!crmSourceIds.length) {
         return sources;
       }
 
       const allowedSourceIds = new Set(crmSourceIds);
-
-      // Если пользователь явно выбрал источники — фильтруем по доступным
-      if (sources.length > 0) {
-        const selectedSources = sources.filter((source) => allowedSourceIds.has(source));
-        return selectedSources.length ? selectedSources : crmSourceIds;
-      }
-
-      // Если источники не выбраны — подставляем разумный набор по умолчанию
-      // (пересечение DEFAULT_SOURCE_IDS с реально доступными на портале источниками)
-      const defaultSources = DEFAULT_SOURCE_IDS.filter((id) => allowedSourceIds.has(id));
-      return defaultSources.length > 0 ? defaultSources : crmSourceIds;
+      return sources.filter((source) => allowedSourceIds.has(source));
     },
     [crmSourceIds],
+  );
+
+  // Used only by "Построить отчет" when user left chart sources empty:
+  // fall back to a sensible default set, not to every CRM source.
+  const normalizeSelectedSources = useCallback(
+    (sources: string[]) => {
+      const sanitized = sanitizeChartSources(sources);
+
+      if (sanitized.length > 0) {
+        return sanitized;
+      }
+
+      if (!crmSourceIds.length) {
+        return [];
+      }
+
+      const allowedSourceIds = new Set(crmSourceIds);
+      const defaultSources = DEFAULT_SOURCE_IDS.filter((id) => allowedSourceIds.has(id));
+      return defaultSources.length > 0 ? defaultSources : [];
+    },
+    [crmSourceIds, sanitizeChartSources],
   );
 
   useEffect(() => {
@@ -1212,8 +1226,9 @@ function App() {
       return;
     }
 
+    // Only prune invalid IDs. Do not auto-fill empty chart selection.
     setDraftFilters((current) => {
-      const selectedSources = normalizeSelectedSources(current.selectedSources);
+      const selectedSources = sanitizeChartSources(current.selectedSources);
 
       if (areStringArraysEqual(selectedSources, current.selectedSources)) {
         return current;
@@ -1226,7 +1241,7 @@ function App() {
     });
 
     setAppliedFilters((current) => {
-      const selectedSources = normalizeSelectedSources(current.selectedSources);
+      const selectedSources = sanitizeChartSources(current.selectedSources);
 
       if (areStringArraysEqual(selectedSources, current.selectedSources)) {
         return current;
@@ -1237,13 +1252,22 @@ function App() {
         selectedSources,
       };
     });
-  }, [crmSourceIds, normalizeSelectedSources]);
+
+    setDraftTableSelectedSources((current) => {
+      const next = sanitizeChartSources(current);
+      return areStringArraysEqual(next, current) ? current : next;
+    });
+
+    setTableSelectedSources((current) => {
+      const next = sanitizeChartSources(current);
+      return areStringArraysEqual(next, current) ? current : next;
+    });
+  }, [crmSourceIds, sanitizeChartSources]);
+
+  // Chart uses EXACTLY applied chart sources — never silently switch to all sources.
   const selectedChartSources = useMemo(
-    () =>
-      appliedFilters.selectedSources.length
-        ? appliedFilters.selectedSources
-        : crmSourceIds,
-    [appliedFilters.selectedSources, crmSourceIds],
+    () => appliedFilters.selectedSources,
+    [appliedFilters.selectedSources],
   );
   const selectedChartSourceLabels = useMemo(
     () =>
@@ -1422,7 +1446,7 @@ function App() {
 
         const orderedMetricIds = metricOrderBySection[section.id] ?? section.metricIds;
 
-        const enabledMetricIds = activeMetricIdsBySection[section.id] ?? new Set(section.metricIds);
+        const enabledMetricIds = activeMetricIdsBySection[section.id] ?? new Set<string>();
 
         orderedMetricIds.forEach((metricId) => {
           if (!enabledMetricIds.has(metricId)) {
@@ -1833,6 +1857,31 @@ function App() {
     });
   };
 
+  const toggleEnabledSection = (sectionId: string) => {
+    const section = metricSections.find((item) => item.id === sectionId);
+    const enabling = !draftFilters.enabledSectionIds.has(sectionId);
+
+    setDraftFilters((current) => {
+      const nextSectionIds = new Set(current.enabledSectionIds);
+
+      if (enabling) {
+        nextSectionIds.add(sectionId);
+      } else {
+        nextSectionIds.delete(sectionId);
+      }
+
+      return {
+        ...current,
+        enabledSectionIds: nextSectionIds,
+      };
+    });
+
+    setEnabledMetricIdsBySection((current) => ({
+      ...current,
+      [sectionId]: enabling && section ? new Set(section.metricIds) : new Set(),
+    }));
+  };
+
   const enableAllTableSettings = useCallback(() => {
     setDraftFilters((current) => ({
       ...current,
@@ -1850,12 +1899,12 @@ function App() {
   const resetTableSettings = useCallback(() => {
     setDraftFilters((current) => ({
       ...current,
-      enabledSectionIds: new Set(metricSections.map((section) => section.id)),
+      enabledSectionIds: new Set(),
     }));
     setDraftTableSelectedSources([]);
     setEnabledMetricIdsBySection(
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
-        acc[section.id] = new Set(section.metricIds);
+        acc[section.id] = new Set();
         return acc;
       }, {}),
     );
@@ -1863,9 +1912,7 @@ function App() {
 
   const toggleEnabledMetric = useCallback((sectionId: string, metricId: string) => {
     setEnabledMetricIdsBySection((current) => {
-      const currentMetricIds =
-        current[sectionId] ??
-        new Set(metricSections.find((section) => section.id === sectionId)?.metricIds ?? []);
+      const currentMetricIds = current[sectionId] ?? new Set<string>();
       const nextMetricIds = new Set(currentMetricIds);
 
       if (nextMetricIds.has(metricId)) {
@@ -1930,14 +1977,29 @@ function App() {
   }, []);
 
   const applyChartDraftSettings = useCallback((settings: ChartDraftSettings) => {
+    const nextSources = [...settings.selectedSources];
+    const nextSchedule = {
+      ...settings.schedule,
+      weekendDayIds: [...settings.schedule.weekendDayIds],
+    };
+
+    // Chart settings must update BOTH draft and applied — otherwise UI shows one
+    // selection while the chart still plots the previous applied sources.
     setDraftFilters((current) => ({
       ...current,
-      selectedSources: [...settings.selectedSources],
+      selectedSources: nextSources,
+      chartDisplayMode: settings.chartDisplayMode,
+      metricMode: settings.metricMode,
+      schedule: nextSchedule,
+    }));
+    setAppliedFilters((current) => ({
+      ...current,
+      selectedSources: nextSources,
       chartDisplayMode: settings.chartDisplayMode,
       metricMode: settings.metricMode,
       schedule: {
-        ...settings.schedule,
-        weekendDayIds: [...settings.schedule.weekendDayIds],
+        ...nextSchedule,
+        weekendDayIds: [...nextSchedule.weekendDayIds],
       },
     }));
   }, []);
@@ -2042,13 +2104,16 @@ function App() {
   }, [applyReportBuild, draftFilters.selectedSources, normalizeSelectedSources]);
 
   const buildAutomaticReport = useCallback(() => {
-    const dealSources = crmSources.filter((source) => source.isAvailable && source.type === 'deal');
+    const dealSources = crmSources.filter((source) => source.type === 'deal');
     const salesSource =
+      dealSources.find((source) => source.isAvailable && (source.id === 'deal-0' || source.categoryId === 0)) ??
       dealSources.find((source) => source.id === 'deal-0' || source.categoryId === 0) ??
       dealSources.find((source) => {
         const label = `${source.sourceLabel} ${source.title}`.toLocaleLowerCase('ru-RU');
         return label.includes('продаж');
-      });
+      }) ??
+      dealSources.find((source) => source.isAvailable) ??
+      dealSources[0];
 
     if (!salesSource) {
       setNotification('В каталоге отчета нет доступной воронки "Продажи".');
@@ -2316,6 +2381,7 @@ function App() {
     (): SavedReportViewState => ({
       draftFilters: serializeFilters(draftFilters),
       appliedFilters: serializeFilters(appliedFilters),
+      tableSelectedSources: [...tableSelectedSources],
       enabledMetricIdsBySection: Object.fromEntries(
         Object.entries(enabledMetricIdsBySection).map(([sectionId, metricIds]) => [
           sectionId,
@@ -2342,6 +2408,7 @@ function App() {
       metricOrderBySection,
       rowThresholds,
       sectionOrder,
+      tableSelectedSources,
     ],
   );
 
@@ -2456,9 +2523,10 @@ function App() {
     const deserializedApplied = deserializeFilters(state.appliedFilters);
     setDraftFilters(deserializedDraft);
     setAppliedFilters(deserializedApplied);
-    // Restore tableSelectedSources from the saved view's applied filters for backward compatibility.
-    // In future saved views, this could be stored as a separate field.
-    const restoredTableSources = [...deserializedApplied.selectedSources];
+    // Table sources are independent from chart sources.
+    const restoredTableSources = Array.isArray(state.tableSelectedSources)
+      ? [...state.tableSelectedSources]
+      : [];
     setTableSelectedSources(restoredTableSources);
     setDraftTableSelectedSources(restoredTableSources);
     const restoredMetricIds = Object.fromEntries(
@@ -2902,9 +2970,15 @@ function App() {
           </div>
           <div className="top-actions">
             <TableSettingsMenu
+              enabledSectionIds={draftFilters.enabledSectionIds}
+              sectionOptions={metricSections.map((section) => ({
+                id: section.id,
+                label: section.label,
+              }))}
               selectedSources={draftTableSelectedSources}
               crmSourceOptions={crmSourceOptions}
               onSourcesChange={handleTableSelectedSourcesChange}
+              onToggleSection={toggleEnabledSection}
               onSelectAll={enableAllTableSettings}
               onReset={resetTableSettings}
               onApply={applyTableSettings}
@@ -2996,9 +3070,15 @@ function App() {
                   }}
                 />
                 <TableSettingsMenu
+                  enabledSectionIds={draftFilters.enabledSectionIds}
+                  sectionOptions={metricSections.map((section) => ({
+                    id: section.id,
+                    label: section.label,
+                  }))}
                   selectedSources={draftTableSelectedSources}
                   crmSourceOptions={crmSourceOptions}
                   onSourcesChange={handleTableSelectedSourcesChange}
+                  onToggleSection={toggleEnabledSection}
                   onSelectAll={enableAllTableSettings}
                   onReset={resetTableSettings}
                   onApply={applyTableSettings}

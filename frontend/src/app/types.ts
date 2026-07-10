@@ -146,6 +146,7 @@ export type SerializableReportFilters = Omit<ReportFilters, 'enabledSectionIds'>
 export type SavedReportViewState = {
   draftFilters: SerializableReportFilters;
   appliedFilters: SerializableReportFilters;
+  tableSelectedSources?: string[];
   enabledMetricIdsBySection: Record<string, string[]>;
   sectionOrder: string[];
   metricOrderBySection: Record<string, string[]>;

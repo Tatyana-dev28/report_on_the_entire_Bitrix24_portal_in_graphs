@@ -699,17 +699,23 @@ export function SectionMetricsMenu({
 }
 
 export function TableSettingsMenu({
+  enabledSectionIds,
+  sectionOptions,
   selectedSources,
   crmSourceOptions,
   onSourcesChange,
+  onToggleSection,
   onSelectAll,
   onReset,
   onApply,
   trigger = 'icon',
 }: {
+  enabledSectionIds: Set<string>;
+  sectionOptions: Array<{ id: string; label: string }>;
   selectedSources: string[];
   crmSourceOptions: SelectOption<string>[];
   onSourcesChange: (values: string[]) => void;
+  onToggleSection: (sectionId: string) => void;
   onSelectAll: () => void;
   onReset: () => void;
   onApply: () => void;
@@ -765,17 +771,49 @@ export function TableSettingsMenu({
               <X size={14} />
             </button>
           </div>
-          <MultiSelect
-            variant="inline"
-            values={selectedSources}
-            options={crmSourceOptions}
-            onChange={onSourcesChange}
-            searchPlaceholder="Поиск по источникам"
-            noResultsLabel="Источники не найдены"
-            onSelectAll={onSelectAll}
-            onReset={onReset}
-            onApply={handleApply}
-          />
+          <div className="table-settings-actions">
+            <button type="button" onClick={onSelectAll}>
+              Выбрать все
+            </button>
+            <button type="button" onClick={onReset}>
+              Сбросить
+            </button>
+            <button type="button" className="apply-settings-button" onClick={handleApply}>
+              Применить
+            </button>
+          </div>
+          {sectionOptions.length > 0 && (
+            <div className="settings-list table-settings-sections">
+              <p className="table-settings-group-title">Разделы показателей</p>
+              <p className="table-settings-group-hint">
+                Галочки = блоки в таблице (Сделки, Лиды, Счета…). Без галочки блока не будет.
+              </p>
+              {sectionOptions.map((section) => (
+                <label className="settings-option" key={section.id}>
+                  <input
+                    type="checkbox"
+                    checked={enabledSectionIds.has(section.id)}
+                    onChange={() => onToggleSection(section.id)}
+                  />
+                  <span>{section.label}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <div className="table-settings-sources-block">
+            <p className="table-settings-group-title">Воронки и источники</p>
+            <p className="table-settings-group-hint">
+              Отдельные воронки сделок / смарт-процессы и CRM-сущности. Это не то же самое, что раздел «Сделки» выше.
+            </p>
+            <MultiSelect
+              variant="inline"
+              values={selectedSources}
+              options={crmSourceOptions}
+              onChange={onSourcesChange}
+              searchPlaceholder="Поиск по источникам"
+              noResultsLabel="Источники не найдены"
+            />
+          </div>
         </FloatingPopover>
       )}
     </div>

@@ -468,14 +468,14 @@ function App() {
   const [enabledMetricIdsBySection, setEnabledMetricIdsBySection] = useState<Record<string, Set<string>>>(
     () =>
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
-        acc[section.id] = new Set();
+        acc[section.id] = new Set(section.metricIds);
         return acc;
       }, {}),
   );
   const [appliedEnabledMetricIdsBySection, setAppliedEnabledMetricIdsBySection] = useState<Record<string, Set<string>>>(
     () =>
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
-        acc[section.id] = new Set();
+        acc[section.id] = new Set(section.metricIds);
         return acc;
       }, {}),
   );
@@ -680,13 +680,13 @@ function App() {
     setDraftTableSelectedSources([]);
     setEnabledMetricIdsBySection(
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
-        acc[section.id] = new Set();
+        acc[section.id] = new Set(section.metricIds);
         return acc;
       }, {}),
     );
     setAppliedEnabledMetricIdsBySection(
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
-        acc[section.id] = new Set();
+        acc[section.id] = new Set(section.metricIds);
         return acc;
       }, {}),
     );
@@ -697,7 +697,7 @@ function App() {
         return acc;
       }, {}),
     );
-    setExpandedSections(new Set());
+    setExpandedSections(new Set(metricSections.map((section) => section.id)));
     setExpandedSourceSections(new Set());
     collapsedSourceSectionsByUser.current = new Set();
     setMainThreshold({ upper: '', lower: '', mode: null });
@@ -967,7 +967,7 @@ function App() {
             const next = { ...current };
             sections.forEach((section) => {
               if (!next[section.id]) {
-                next[section.id] = new Set();
+                next[section.id] = new Set(section.metricIds);
               }
             });
             return next;
@@ -976,7 +976,7 @@ function App() {
             const next = { ...current };
             sections.forEach((section) => {
               if (!next[section.id]) {
-                next[section.id] = new Set();
+                next[section.id] = new Set(section.metricIds);
               }
             });
             return next;
@@ -993,17 +993,17 @@ function App() {
         );
         setEnabledMetricIdsBySection(
           sections.reduce<Record<string, Set<string>>>((acc, section) => {
-            acc[section.id] = new Set();
+            acc[section.id] = new Set(section.metricIds);
             return acc;
           }, {}),
         );
         setAppliedEnabledMetricIdsBySection(
           sections.reduce<Record<string, Set<string>>>((acc, section) => {
-            acc[section.id] = new Set();
+            acc[section.id] = new Set(section.metricIds);
             return acc;
           }, {}),
         );
-        setExpandedSections(new Set());
+        setExpandedSections(new Set(sections.map((section) => section.id)));
       })
       .catch((error) => {
         console.warn('[Report data source] CRM sources were not loaded', error);
@@ -1033,7 +1033,7 @@ function App() {
         return [];
       }
 
-      const enabledMetricIds = appliedEnabledMetricIdsBySection[section.id] ?? new Set<string>();
+      const enabledMetricIds = appliedEnabledMetricIdsBySection[section.id] ?? new Set(section.metricIds);
       return section.metricIds.filter((metricId) => enabledMetricIds.has(metricId));
     });
     const reportSourceIds = Array.from(
@@ -1422,7 +1422,7 @@ function App() {
 
         const orderedMetricIds = metricOrderBySection[section.id] ?? section.metricIds;
 
-        const enabledMetricIds = activeMetricIdsBySection[section.id] ?? new Set<string>();
+        const enabledMetricIds = activeMetricIdsBySection[section.id] ?? new Set(section.metricIds);
 
         orderedMetricIds.forEach((metricId) => {
           if (!enabledMetricIds.has(metricId)) {
@@ -1833,31 +1833,6 @@ function App() {
     });
   };
 
-  const toggleEnabledSection = (sectionId: string) => {
-    const section = metricSections.find((item) => item.id === sectionId);
-    const enabling = !draftFilters.enabledSectionIds.has(sectionId);
-
-    setDraftFilters((current) => {
-      const nextSectionIds = new Set(current.enabledSectionIds);
-
-      if (enabling) {
-        nextSectionIds.add(sectionId);
-      } else {
-        nextSectionIds.delete(sectionId);
-      }
-
-      return {
-        ...current,
-        enabledSectionIds: nextSectionIds,
-      };
-    });
-
-    setEnabledMetricIdsBySection((current) => ({
-      ...current,
-      [sectionId]: enabling && section ? new Set(section.metricIds) : new Set(),
-    }));
-  };
-
   const enableAllTableSettings = useCallback(() => {
     setDraftFilters((current) => ({
       ...current,
@@ -1875,12 +1850,12 @@ function App() {
   const resetTableSettings = useCallback(() => {
     setDraftFilters((current) => ({
       ...current,
-      enabledSectionIds: new Set(),
+      enabledSectionIds: new Set(metricSections.map((section) => section.id)),
     }));
     setDraftTableSelectedSources([]);
     setEnabledMetricIdsBySection(
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
-        acc[section.id] = new Set();
+        acc[section.id] = new Set(section.metricIds);
         return acc;
       }, {}),
     );
@@ -1888,7 +1863,9 @@ function App() {
 
   const toggleEnabledMetric = useCallback((sectionId: string, metricId: string) => {
     setEnabledMetricIdsBySection((current) => {
-      const currentMetricIds = current[sectionId] ?? new Set<string>();
+      const currentMetricIds =
+        current[sectionId] ??
+        new Set(metricSections.find((section) => section.id === sectionId)?.metricIds ?? []);
       const nextMetricIds = new Set(currentMetricIds);
 
       if (nextMetricIds.has(metricId)) {
@@ -2925,15 +2902,9 @@ function App() {
           </div>
           <div className="top-actions">
             <TableSettingsMenu
-              enabledSectionIds={draftFilters.enabledSectionIds}
-              sectionOptions={metricSections.map((section) => ({
-                id: section.id,
-                label: section.label,
-              }))}
               selectedSources={draftTableSelectedSources}
               crmSourceOptions={crmSourceOptions}
               onSourcesChange={handleTableSelectedSourcesChange}
-              onToggleSection={toggleEnabledSection}
               onSelectAll={enableAllTableSettings}
               onReset={resetTableSettings}
               onApply={applyTableSettings}
@@ -3025,15 +2996,9 @@ function App() {
                   }}
                 />
                 <TableSettingsMenu
-                  enabledSectionIds={draftFilters.enabledSectionIds}
-                  sectionOptions={metricSections.map((section) => ({
-                    id: section.id,
-                    label: section.label,
-                  }))}
                   selectedSources={draftTableSelectedSources}
                   crmSourceOptions={crmSourceOptions}
                   onSourcesChange={handleTableSelectedSourcesChange}
-                  onToggleSection={toggleEnabledSection}
                   onSelectAll={enableAllTableSettings}
                   onReset={resetTableSettings}
                   onApply={applyTableSettings}

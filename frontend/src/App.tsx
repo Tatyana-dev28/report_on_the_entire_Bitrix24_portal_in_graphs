@@ -396,6 +396,7 @@ function App() {
   // specifically in "Настройка таблицы". They are NOT the same as chart sources.
   // tableRows uses ONLY these to decide which source sections to show.
   const [tableSelectedSources, setTableSelectedSources] = useState<string[]>([]);
+  const [draftTableSelectedSources, setDraftTableSelectedSources] = useState<string[]>([]);
   const [periodOptions, setPeriodOptions] = useState(defaultPeriodOptions);
   const [metricSections, setMetricSections] = useState(defaultMetricSections);
   const [metrics, setMetrics] = useState(defaultMetrics);
@@ -464,14 +465,14 @@ function App() {
   const [enabledMetricIdsBySection, setEnabledMetricIdsBySection] = useState<Record<string, Set<string>>>(
     () =>
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
-        acc[section.id] = new Set(section.metricIds);
+        acc[section.id] = new Set();
         return acc;
       }, {}),
   );
   const [appliedEnabledMetricIdsBySection, setAppliedEnabledMetricIdsBySection] = useState<Record<string, Set<string>>>(
     () =>
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
-        acc[section.id] = new Set(section.metricIds);
+        acc[section.id] = new Set();
         return acc;
       }, {}),
   );
@@ -673,15 +674,16 @@ function App() {
     setDraftFilters(createDefaultFilters());
     setAppliedFilters(createDefaultFilters());
     setTableSelectedSources([]);
+    setDraftTableSelectedSources([]);
     setEnabledMetricIdsBySection(
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
-        acc[section.id] = new Set(section.metricIds);
+        acc[section.id] = new Set();
         return acc;
       }, {}),
     );
     setAppliedEnabledMetricIdsBySection(
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
-        acc[section.id] = new Set(section.metricIds);
+        acc[section.id] = new Set();
         return acc;
       }, {}),
     );
@@ -692,7 +694,7 @@ function App() {
         return acc;
       }, {}),
     );
-    setExpandedSections(new Set(metricSections.map((section) => section.id)));
+    setExpandedSections(new Set());
     setExpandedSourceSections(new Set());
     collapsedSourceSectionsByUser.current = new Set();
     setMainThreshold({ upper: '', lower: '', mode: null });
@@ -740,16 +742,48 @@ function App() {
             setAppliedFilters((current) => ({ ...current, period: settings.period as Period }));
           }
 
+          if (settings.dateRange && typeof settings.dateRange === 'object') {
+            const dateRange = settings.dateRange as { start?: string; end?: string };
+            if (dateRange.start && dateRange.end) {
+              const nextRange = { start: dateRange.start, end: dateRange.end };
+              setDraftFilters((current) => ({ ...current, dateRange: nextRange }));
+              setAppliedFilters((current) => ({ ...current, dateRange: nextRange }));
+            }
+          }
+
           if (settings.selectedSources && Array.isArray(settings.selectedSources)) {
             setDraftFilters((current) => ({ ...current, selectedSources: settings.selectedSources as string[] }));
             setAppliedFilters((current) => ({ ...current, selectedSources: settings.selectedSources as string[] }));
-            // For backward compatibility, initialize tableSelectedSources from saved settings.
-            // If the backend has a separate tableSelectedSources field, use that instead.
-            if (settings.tableSelectedSources && Array.isArray(settings.tableSelectedSources)) {
-              setTableSelectedSources(settings.tableSelectedSources as string[]);
-            } else {
-              setTableSelectedSources(settings.selectedSources as string[]);
-            }
+          }
+
+          if (settings.tableSelectedSources && Array.isArray(settings.tableSelectedSources)) {
+            const tableSources = settings.tableSelectedSources as string[];
+            setTableSelectedSources(tableSources);
+            setDraftTableSelectedSources(tableSources);
+          } else if (settings.selectedSources && Array.isArray(settings.selectedSources)) {
+            // Backward compatibility: older saves used chart sources for the table.
+            const tableSources = settings.selectedSources as string[];
+            setTableSelectedSources(tableSources);
+            setDraftTableSelectedSources(tableSources);
+          }
+
+          if (settings.enabledSectionIds && Array.isArray(settings.enabledSectionIds)) {
+            const sectionIds = new Set(settings.enabledSectionIds as string[]);
+            setDraftFilters((current) => ({ ...current, enabledSectionIds: sectionIds }));
+            setAppliedFilters((current) => ({ ...current, enabledSectionIds: new Set(sectionIds) }));
+          } else if (
+            settings.enabledMetricIdsBySection &&
+            typeof settings.enabledMetricIdsBySection === 'object'
+          ) {
+            // Legacy Pro saves: derive visible sections from saved metric visibility.
+            const savedMetrics = settings.enabledMetricIdsBySection as Record<string, string[]>;
+            const sectionIds = new Set(
+              Object.entries(savedMetrics)
+                .filter(([, metricIds]) => Array.isArray(metricIds) && metricIds.length > 0)
+                .map(([sectionId]) => sectionId),
+            );
+            setDraftFilters((current) => ({ ...current, enabledSectionIds: sectionIds }));
+            setAppliedFilters((current) => ({ ...current, enabledSectionIds: new Set(sectionIds) }));
           }
 
           if (typeof settings.chartDisplayMode === 'string') {
@@ -764,13 +798,21 @@ function App() {
 
           if (settings.schedule && typeof settings.schedule === 'object') {
             const schedule = settings.schedule as Record<string, unknown>;
+            const nextSchedule = {
+              workdayStart: String(schedule.workdayStart ?? ''),
+              workdayEnd: String(schedule.workdayEnd ?? ''),
+              weekendDayIds: Array.isArray(schedule.weekendDayIds) ? schedule.weekendDayIds as number[] : [],
+              calendarWeekStart: Number(schedule.calendarWeekStart ?? 0),
+            };
             setDraftFilters((current) => ({
               ...current,
+              schedule: nextSchedule,
+            }));
+            setAppliedFilters((current) => ({
+              ...current,
               schedule: {
-                workdayStart: String(schedule.workdayStart ?? ''),
-                workdayEnd: String(schedule.workdayEnd ?? ''),
-                weekendDayIds: Array.isArray(schedule.weekendDayIds) ? schedule.weekendDayIds as number[] : [],
-                calendarWeekStart: Number(schedule.calendarWeekStart ?? 0),
+                ...nextSchedule,
+                weekendDayIds: [...nextSchedule.weekendDayIds],
               },
             }));
           }
@@ -858,9 +900,9 @@ function App() {
       })
       .catch((error) => {
         console.warn('[Settings] Failed to load settings from backend', error);
-        // Do NOT mark as hydrated on error — this prevents auto-save from
-        // overwriting saved backend settings with defaults on next render
-        settingsHydratedRef.current = false;
+        // Allow auto-save after a failed load so Pro users can still persist
+        // new changes (e.g. after a transient network error).
+        settingsHydratedRef.current = true;
       })
       .finally(() => {
         applyingBackendSettingsRef.current = false;
@@ -901,6 +943,44 @@ function App() {
         setPeriodOptions(periods);
         setMetricSections(sections);
         setMetrics(nextMetrics);
+
+        // Do not wipe Pro-restored (or user) visibility/order when catalog arrives late.
+        if (settingsHydratedRef.current || applyingBackendSettingsRef.current) {
+          setSectionOrder((current) => {
+            const known = new Set(current);
+            const missing = sections.map((section) => section.id).filter((id) => !known.has(id));
+            return missing.length ? [...current, ...missing] : current;
+          });
+          setMetricOrderBySection((current) => {
+            const next = { ...current };
+            sections.forEach((section) => {
+              if (!next[section.id]) {
+                next[section.id] = section.metricIds;
+              }
+            });
+            return next;
+          });
+          setEnabledMetricIdsBySection((current) => {
+            const next = { ...current };
+            sections.forEach((section) => {
+              if (!next[section.id]) {
+                next[section.id] = new Set();
+              }
+            });
+            return next;
+          });
+          setAppliedEnabledMetricIdsBySection((current) => {
+            const next = { ...current };
+            sections.forEach((section) => {
+              if (!next[section.id]) {
+                next[section.id] = new Set();
+              }
+            });
+            return next;
+          });
+          return;
+        }
+
         setSectionOrder(sections.map((section) => section.id));
         setMetricOrderBySection(
           sections.reduce<Record<string, string[]>>((acc, section) => {
@@ -910,11 +990,17 @@ function App() {
         );
         setEnabledMetricIdsBySection(
           sections.reduce<Record<string, Set<string>>>((acc, section) => {
-            acc[section.id] = new Set(section.metricIds);
+            acc[section.id] = new Set();
             return acc;
           }, {}),
         );
-        setExpandedSections(new Set(sections.map((section) => section.id)));
+        setAppliedEnabledMetricIdsBySection(
+          sections.reduce<Record<string, Set<string>>>((acc, section) => {
+            acc[section.id] = new Set();
+            return acc;
+          }, {}),
+        );
+        setExpandedSections(new Set());
       })
       .catch((error) => {
         console.warn('[Report data source] CRM sources were not loaded', error);
@@ -944,13 +1030,16 @@ function App() {
         return [];
       }
 
-      const enabledMetricIds = appliedEnabledMetricIdsBySection[section.id] ?? new Set(section.metricIds);
+      const enabledMetricIds = appliedEnabledMetricIdsBySection[section.id] ?? new Set<string>();
       return section.metricIds.filter((metricId) => enabledMetricIds.has(metricId));
     });
+    const reportSourceIds = Array.from(
+      new Set([...appliedFilters.selectedSources, ...tableSelectedSources]),
+    );
     const filters: ReportLoadFilters = {
       period: appliedFilters.period,
       dateRange: appliedFilters.dateRange,
-      selectedSources: appliedFilters.selectedSources,
+      selectedSources: reportSourceIds,
       selectedMetricIds,
       metricMode: appliedFilters.metricMode,
       chartDisplayMode: appliedFilters.chartDisplayMode,
@@ -974,7 +1063,7 @@ function App() {
             // Всегда считаем mainValues так же, как главный график в режиме «Сумма»
             // (уникальные успешные money-метрики по выбранным источникам).
             const mainValues = scheduledData.map((point) =>
-              getChartSumValue(point, filters.selectedSources, metricMode),
+              getChartSumValue(point, appliedFilters.selectedSources, metricMode),
             );
             const mainRecommended = calculateRecommendedThresholds(mainValues, metricMode);
 
@@ -1330,7 +1419,7 @@ function App() {
 
         const orderedMetricIds = metricOrderBySection[section.id] ?? section.metricIds;
 
-        const enabledMetricIds = activeMetricIdsBySection[section.id] ?? new Set(section.metricIds);
+        const enabledMetricIds = activeMetricIdsBySection[section.id] ?? new Set<string>();
 
         orderedMetricIds.forEach((metricId) => {
           if (!enabledMetricIds.has(metricId)) {
@@ -1742,13 +1831,16 @@ function App() {
   };
 
   const toggleEnabledSection = (sectionId: string) => {
+    const section = metricSections.find((item) => item.id === sectionId);
+    const enabling = !draftFilters.enabledSectionIds.has(sectionId);
+
     setDraftFilters((current) => {
       const nextSectionIds = new Set(current.enabledSectionIds);
 
-      if (nextSectionIds.has(sectionId)) {
-        nextSectionIds.delete(sectionId);
-      } else {
+      if (enabling) {
         nextSectionIds.add(sectionId);
+      } else {
+        nextSectionIds.delete(sectionId);
       }
 
       return {
@@ -1756,14 +1848,19 @@ function App() {
         enabledSectionIds: nextSectionIds,
       };
     });
+
+    setEnabledMetricIdsBySection((current) => ({
+      ...current,
+      [sectionId]: enabling && section ? new Set(section.metricIds) : new Set(),
+    }));
   };
 
   const enableAllTableSettings = useCallback(() => {
     setDraftFilters((current) => ({
       ...current,
-      selectedSources: [...crmSourceIds],
       enabledSectionIds: new Set(metricSections.map((section) => section.id)),
     }));
+    setDraftTableSelectedSources([...crmSourceIds]);
     setEnabledMetricIdsBySection(
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
         acc[section.id] = new Set(section.metricIds);
@@ -1775,12 +1872,12 @@ function App() {
   const resetTableSettings = useCallback(() => {
     setDraftFilters((current) => ({
       ...current,
-      selectedSources: [],
-      enabledSectionIds: new Set(metricSections.map((section) => section.id)),
+      enabledSectionIds: new Set(),
     }));
+    setDraftTableSelectedSources([]);
     setEnabledMetricIdsBySection(
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
-        acc[section.id] = new Set(section.metricIds);
+        acc[section.id] = new Set();
         return acc;
       }, {}),
     );
@@ -1788,9 +1885,7 @@ function App() {
 
   const toggleEnabledMetric = useCallback((sectionId: string, metricId: string) => {
     setEnabledMetricIdsBySection((current) => {
-      const currentMetricIds =
-        current[sectionId] ??
-        new Set(metricSections.find((section) => section.id === sectionId)?.metricIds ?? []);
+      const currentMetricIds = current[sectionId] ?? new Set<string>();
       const nextMetricIds = new Set(currentMetricIds);
 
       if (nextMetricIds.has(metricId)) {
@@ -1826,11 +1921,8 @@ function App() {
     }));
   }, []);
 
-  const handleSelectedSourcesChange = useCallback((values: string[]) => {
-    setDraftFilters((current) => ({
-      ...current,
-      selectedSources: values,
-    }));
+  const handleTableSelectedSourcesChange = useCallback((values: string[]) => {
+    setDraftTableSelectedSources(values);
   }, []);
 
   const handleChartDisplayModeChange = useCallback((value: ChartDisplayMode) => {
@@ -1871,7 +1963,7 @@ function App() {
   }, []);
 
   const applyTableSettings = useCallback(() => {
-    const selectedSources = [...draftFilters.selectedSources];
+    const nextTableSources = [...draftTableSelectedSources];
     const nextEnabledSectionIds = new Set(draftFilters.enabledSectionIds);
     const nextEnabledMetricIdsBySection = Object.entries(enabledMetricIdsBySection).reduce<Record<string, Set<string>>>(
       (acc, [sectionId, metricIds]) => {
@@ -1881,26 +1973,33 @@ function App() {
       {},
     );
 
-    // Table settings are source filters too: rebuild preview so table values/sourceMetrics
-    // are calculated from the selected pipelines and smart processes.
-    setTableSelectedSources(selectedSources);
+    // Table settings must not overwrite chart sources.
+    setTableSelectedSources(nextTableSources);
     setDraftFilters((current) => ({
       ...current,
-      selectedSources,
       enabledSectionIds: nextEnabledSectionIds,
     }));
     setAppliedFilters((current) => ({
       ...current,
-      selectedSources,
       enabledSectionIds: new Set(nextEnabledSectionIds),
     }));
     setAppliedEnabledMetricIdsBySection(nextEnabledMetricIdsBySection);
+    setExpandedSections((current) => {
+      const next = new Set(current);
+      nextEnabledSectionIds.forEach((sectionId) => next.add(sectionId));
+      return next;
+    });
 
     if (hasBuiltReport) {
       setBuildMoment(Date.now());
       setReportBuildRequest((current) => current + 1);
     }
-  }, [draftFilters.enabledSectionIds, draftFilters.selectedSources, enabledMetricIdsBySection, hasBuiltReport]);
+  }, [
+    draftFilters.enabledSectionIds,
+    draftTableSelectedSources,
+    enabledMetricIdsBySection,
+    hasBuiltReport,
+  ]);
 
   const applySectionMetrics = useCallback((sectionId: string) => {
     setAppliedEnabledMetricIdsBySection((current) => {
@@ -1941,11 +2040,8 @@ function App() {
       },
       enabledSectionIds: new Set(draftFilters.enabledSectionIds),
     });
-    // Sync tableSelectedSources with the sources used for report building.
-    // This ensures source-based sections (deal pipelines, smart processes)
-    // appear in the table immediately after building the report, without
-    // requiring the user to open table settings and click "Применить".
-    setTableSelectedSources([...selectedSources]);
+    // Do NOT sync tableSelectedSources from chart sources.
+    // Table content is controlled only by "Настройка таблицы".
     setAppliedEnabledMetricIdsBySection(
       Object.entries(enabledMetricIdsBySection).reduce<Record<string, Set<string>>>((acc, [sectionId, metricIds]) => {
         acc[sectionId] = new Set(metricIds);
@@ -2238,6 +2334,7 @@ function App() {
           dateRange: currentState.draftFilters.dateRange,
           selectedSources: currentState.draftFilters.selectedSources,
           tableSelectedSources: [...tableSelectedSources],
+          enabledSectionIds: currentState.draftFilters.enabledSectionIds,
           chartDisplayMode: currentState.draftFilters.chartDisplayMode,
           metricMode: currentState.draftFilters.metricMode,
           schedule: currentState.draftFilters.schedule,
@@ -2283,6 +2380,7 @@ function App() {
     savedViews,
     appSettings,
     tableSelectedSources,
+    draftTableSelectedSources,
     triggerAutoSave,
   ]);
 
@@ -2306,7 +2404,9 @@ function App() {
     setAppliedFilters(deserializedApplied);
     // Restore tableSelectedSources from the saved view's applied filters for backward compatibility.
     // In future saved views, this could be stored as a separate field.
-    setTableSelectedSources([...deserializedApplied.selectedSources]);
+    const restoredTableSources = [...deserializedApplied.selectedSources];
+    setTableSelectedSources(restoredTableSources);
+    setDraftTableSelectedSources(restoredTableSources);
     const restoredMetricIds = Object.fromEntries(
       Object.entries(state.enabledMetricIdsBySection).map(([sectionId, metricIds]) => [
         sectionId,
@@ -2749,9 +2849,13 @@ function App() {
           <div className="top-actions">
             <TableSettingsMenu
               enabledSectionIds={draftFilters.enabledSectionIds}
-              selectedSources={draftFilters.selectedSources}
+              sectionOptions={metricSections.map((section) => ({
+                id: section.id,
+                label: section.label,
+              }))}
+              selectedSources={draftTableSelectedSources}
               crmSourceOptions={crmSourceOptions}
-              onSourcesChange={handleSelectedSourcesChange}
+              onSourcesChange={handleTableSelectedSourcesChange}
               onToggleSection={toggleEnabledSection}
               onSelectAll={enableAllTableSettings}
               onReset={resetTableSettings}
@@ -2845,9 +2949,13 @@ function App() {
                 />
                 <TableSettingsMenu
                   enabledSectionIds={draftFilters.enabledSectionIds}
-                  selectedSources={draftFilters.selectedSources}
+                  sectionOptions={metricSections.map((section) => ({
+                    id: section.id,
+                    label: section.label,
+                  }))}
+                  selectedSources={draftTableSelectedSources}
                   crmSourceOptions={crmSourceOptions}
-                  onSourcesChange={handleSelectedSourcesChange}
+                  onSourcesChange={handleTableSelectedSourcesChange}
                   onToggleSection={toggleEnabledSection}
                   onSelectAll={enableAllTableSettings}
                   onReset={resetTableSettings}

@@ -1,4 +1,4 @@
-import { defaultDateRange, metricSections, type DateRange } from '../services/report/reportCatalog';
+import { defaultDateRange, type DateRange } from '../services/report/reportCatalog';
 
 import type {
   AppSettings,
@@ -166,7 +166,9 @@ export const createDefaultFilters = (): ReportFilters => ({
   chartDisplayMode: 'sum',
   metricMode: 'money',
   schedule: createDefaultSchedule(),
-  enabledSectionIds: new Set(metricSections.map((section) => section.id)),
+  // Empty by default: table shows nothing until the user enables sections
+  // in "Настройка таблицы" and applies the selection.
+  enabledSectionIds: new Set(),
 });
 
 export const serializeFilters = (filters: ReportFilters): SerializableReportFilters => ({

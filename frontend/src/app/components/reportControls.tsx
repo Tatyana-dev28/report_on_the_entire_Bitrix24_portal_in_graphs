@@ -700,6 +700,7 @@ export function SectionMetricsMenu({
 
 export function TableSettingsMenu({
   enabledSectionIds,
+  sectionOptions,
   selectedSources,
   crmSourceOptions,
   onSourcesChange,
@@ -710,6 +711,7 @@ export function TableSettingsMenu({
   trigger = 'icon',
 }: {
   enabledSectionIds: Set<string>;
+  sectionOptions: Array<{ id: string; label: string }>;
   selectedSources: string[];
   crmSourceOptions: SelectOption<string>[];
   onSourcesChange: (values: string[]) => void;
@@ -769,6 +771,22 @@ export function TableSettingsMenu({
               <X size={14} />
             </button>
           </div>
+          {sectionOptions.length > 0 && (
+            <div className="settings-list table-settings-sections">
+              <p className="table-settings-group-title">Разделы показателей</p>
+              {sectionOptions.map((section) => (
+                <label className="settings-option" key={section.id}>
+                  <input
+                    type="checkbox"
+                    checked={enabledSectionIds.has(section.id)}
+                    onChange={() => onToggleSection(section.id)}
+                  />
+                  <span>{section.label}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <p className="table-settings-group-title">Источники</p>
           <MultiSelect
             variant="inline"
             values={selectedSources}

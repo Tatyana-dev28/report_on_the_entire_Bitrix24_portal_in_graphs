@@ -124,7 +124,8 @@ def serialize_access(access: PortalAccess | None) -> dict:
 
     return {
         "accessLevel": access.access_level,
-        "hasPro": access.has_pro,
+        # Must match settings save/load gate (_check_pro_access → is_pro_valid).
+        "hasPro": access.is_pro_valid,
         "isLifetime": access.is_lifetime,
         "validUntil": access.valid_until.isoformat() if access.valid_until else None,
         "features": access.features,

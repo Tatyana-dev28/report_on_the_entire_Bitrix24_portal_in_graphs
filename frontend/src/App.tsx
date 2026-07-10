@@ -301,6 +301,22 @@ const buildBackendDetailRows = (
         return false;
       }
 
+      // When deal-default + funnel are both loaded, section details must use only
+      // deal-default rows so the popup matches deals_* aggregates (no double-count).
+      // Funnel drill-down still works via detailSourceIds above.
+      if (
+        detail.sourceId
+        && detail.sourceId.startsWith('deal-')
+        && detail.sourceId !== 'deal-default'
+        && details.some((item) => (
+          item.sourceId === 'deal-default'
+          && item.metricId === context.metric.id
+          && (!item.periodKey || item.periodKey === context.point.key)
+        ))
+      ) {
+        return false;
+      }
+
       return true;
     })
     .map((detail, index) => {
@@ -373,15 +389,125 @@ const CRM_SOURCE_TYPE_ORDER: Partial<Record<CrmSourceType, number>> = {
   smartProcess: 1010,
 };
 
+const CRM_SOURCE_TYPE_TO_SECTION_ID: Partial<Record<CrmSourceType, string>> = {
+  lead: 'leads',
+  invoice: 'invoices',
+  quote: 'quotes',
+  company: 'companies',
+  contact: 'companies',
+  task: 'tasks',
+  telephony: 'calls',
+  call: 'calls',
+  email: 'email',
+  message: 'messages',
+  crm_form: 'crm_forms',
+  activity: 'activities',
+};
+
+const SECTION_ID_TO_ENTITY_SOURCE_IDS: Record<string, string[]> = {
+  deals: ['deal-default'],
+  leads: ['lead-default'],
+  invoices: ['invoice-default'],
+  quotes: ['quote-default'],
+  companies: ['company-default', 'contact-default'],
+  calls: ['telephony-default'],
+  crm_forms: ['crm-form-default'],
+  tasks: ['task-default'],
+  activities: ['activity-default'],
+};
+
+const isDealEntitySource = (source: CrmSource) => (
+  source.id === 'deal-default'
+  || (source.type === 'deal' && (source.categoryId === null || source.categoryId === undefined))
+);
+
+const isDealPipelineSource = (source: CrmSource) => (
+  source.type === 'deal' && !isDealEntitySource(source)
+);
+
 const getSourceGroup = (source: CrmSource) => (
-  source.type === 'deal' || source.type === 'smartProcess'
-    ? PIPELINE_SOURCE_GROUP
-    : CRM_ENTITY_SOURCE_GROUP
+  isDealEntitySource(source)
+    ? CRM_ENTITY_SOURCE_GROUP
+    : source.type === 'deal' || source.type === 'smartProcess'
+      ? PIPELINE_SOURCE_GROUP
+      : CRM_ENTITY_SOURCE_GROUP
 );
 
 const getSourceGroupRank = (source: CrmSource) => (
-  source.type === 'deal' || source.type === 'smartProcess' ? 1 : 0
+  isDealEntitySource(source)
+    ? 0
+    : source.type === 'deal' || source.type === 'smartProcess'
+      ? 1
+      : 0
 );
+
+const entitySourceIdsForSections = (sectionIds: Iterable<string>) => {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+
+  for (const sectionId of sectionIds) {
+    const sourceIds = SECTION_ID_TO_ENTITY_SOURCE_IDS[sectionId] ?? [];
+    sourceIds.forEach((sourceId) => {
+      if (!seen.has(sourceId)) {
+        seen.add(sourceId);
+        ids.push(sourceId);
+      }
+    });
+  }
+
+  return ids;
+};
+
+const resolveTableSelectionFromSources = (
+  selectedSourceIds: string[],
+  crmSources: CrmSource[],
+  availableSectionIds: Set<string>,
+) => {
+  const sourceById = new Map(crmSources.map((source) => [source.id, source]));
+  const sectionIds = new Set<string>();
+  const pipelineSourceIds: string[] = [];
+  const entitySourceIds: string[] = [];
+  const seenPipelines = new Set<string>();
+  const seenEntities = new Set<string>();
+
+  selectedSourceIds.forEach((sourceId) => {
+    const source = sourceById.get(sourceId);
+
+    if (!source) {
+      return;
+    }
+
+    if (isDealEntitySource(source)) {
+      if (availableSectionIds.has('deals')) {
+        sectionIds.add('deals');
+      }
+      if (!seenEntities.has(source.id)) {
+        seenEntities.add(source.id);
+        entitySourceIds.push(source.id);
+      }
+      return;
+    }
+
+    if (isDealPipelineSource(source) || source.type === 'smartProcess') {
+      if (!seenPipelines.has(source.id)) {
+        seenPipelines.add(source.id);
+        pipelineSourceIds.push(source.id);
+      }
+      return;
+    }
+
+    const sectionId = CRM_SOURCE_TYPE_TO_SECTION_ID[source.type];
+    if (sectionId && availableSectionIds.has(sectionId)) {
+      sectionIds.add(sectionId);
+    }
+    if (!seenEntities.has(source.id)) {
+      seenEntities.add(source.id);
+      entitySourceIds.push(source.id);
+    }
+  });
+
+  return { sectionIds, pipelineSourceIds, entitySourceIds };
+};
 function App() {
   // Hydration guards: prevent auto-save until settings are fully loaded/applied
   const settingsHydratedRef = useRef(false);
@@ -401,6 +527,9 @@ function App() {
   // tableRows uses ONLY these to decide which source sections to show.
   const [tableSelectedSources, setTableSelectedSources] = useState<string[]>([]);
   const [draftTableSelectedSources, setDraftTableSelectedSources] = useState<string[]>([]);
+  // CRM-entity source ids selected in table settings (deal-default, lead-default, ...).
+  // Kept separate from pipeline tableSelectedSources so sourceMetrics rows stay funnel-only.
+  const [tableEntitySourceIds, setTableEntitySourceIds] = useState<string[]>([]);
   const [periodOptions, setPeriodOptions] = useState(defaultPeriodOptions);
   const [metricSections, setMetricSections] = useState(defaultMetricSections);
   const [metrics, setMetrics] = useState(defaultMetrics);
@@ -679,6 +808,7 @@ function App() {
     setAppliedFilters(createDefaultFilters());
     setTableSelectedSources([]);
     setDraftTableSelectedSources([]);
+    setTableEntitySourceIds([]);
     setEnabledMetricIdsBySection(
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
         acc[section.id] = new Set();
@@ -760,34 +890,50 @@ function App() {
             setAppliedFilters((current) => ({ ...current, selectedSources: settings.selectedSources as string[] }));
           }
 
-          if (settings.tableSelectedSources && Array.isArray(settings.tableSelectedSources)) {
-            const tableSources = settings.tableSelectedSources as string[];
-            setTableSelectedSources(tableSources);
-            setDraftTableSelectedSources(tableSources);
-          } else if (settings.selectedSources && Array.isArray(settings.selectedSources)) {
-            // Backward compatibility: older saves used chart sources for the table.
-            const tableSources = settings.selectedSources as string[];
-            setTableSelectedSources(tableSources);
-            setDraftTableSelectedSources(tableSources);
-          }
+          let restoredSectionIds = new Set<string>();
 
           if (settings.enabledSectionIds && Array.isArray(settings.enabledSectionIds)) {
-            const sectionIds = new Set(settings.enabledSectionIds as string[]);
-            setDraftFilters((current) => ({ ...current, enabledSectionIds: sectionIds }));
-            setAppliedFilters((current) => ({ ...current, enabledSectionIds: new Set(sectionIds) }));
+            restoredSectionIds = new Set(settings.enabledSectionIds as string[]);
+            setDraftFilters((current) => ({ ...current, enabledSectionIds: restoredSectionIds }));
+            setAppliedFilters((current) => ({ ...current, enabledSectionIds: new Set(restoredSectionIds) }));
           } else if (
             settings.enabledMetricIdsBySection &&
             typeof settings.enabledMetricIdsBySection === 'object'
           ) {
             // Legacy Pro saves: derive visible sections from saved metric visibility.
             const savedMetrics = settings.enabledMetricIdsBySection as Record<string, string[]>;
-            const sectionIds = new Set(
+            restoredSectionIds = new Set(
               Object.entries(savedMetrics)
                 .filter(([, metricIds]) => Array.isArray(metricIds) && metricIds.length > 0)
                 .map(([sectionId]) => sectionId),
             );
-            setDraftFilters((current) => ({ ...current, enabledSectionIds: sectionIds }));
-            setAppliedFilters((current) => ({ ...current, enabledSectionIds: new Set(sectionIds) }));
+            setDraftFilters((current) => ({ ...current, enabledSectionIds: restoredSectionIds }));
+            setAppliedFilters((current) => ({ ...current, enabledSectionIds: new Set(restoredSectionIds) }));
+          }
+
+          if (settings.tableSelectedSources && Array.isArray(settings.tableSelectedSources)) {
+            const savedTableSources = settings.tableSelectedSources as string[];
+            const pipelineIds = savedTableSources.filter((sourceId) => {
+              if (sourceId === 'deal-default') {
+                return false;
+              }
+              return sourceId.startsWith('deal-') || sourceId.startsWith('smart-');
+            });
+            const entityIds = entitySourceIdsForSections(restoredSectionIds);
+            setTableSelectedSources(pipelineIds);
+            setTableEntitySourceIds(entityIds);
+            setDraftTableSelectedSources([...entityIds, ...pipelineIds]);
+          } else if (settings.selectedSources && Array.isArray(settings.selectedSources)) {
+            // Backward compatibility: older saves used chart sources for the table.
+            const tableSources = settings.selectedSources as string[];
+            setTableSelectedSources(tableSources);
+            setDraftTableSelectedSources(tableSources);
+            setTableEntitySourceIds(entitySourceIdsForSections(restoredSectionIds));
+          } else {
+            const entityIds = entitySourceIdsForSections(restoredSectionIds);
+            setTableSelectedSources([]);
+            setTableEntitySourceIds(entityIds);
+            setDraftTableSelectedSources(entityIds);
           }
 
           if (typeof settings.chartDisplayMode === 'string') {
@@ -1038,7 +1184,11 @@ function App() {
       return section.metricIds.filter((metricId) => enabledMetricIds.has(metricId));
     });
     const reportSourceIds = Array.from(
-      new Set([...appliedFilters.selectedSources, ...tableSelectedSources]),
+      new Set([
+        ...appliedFilters.selectedSources,
+        ...tableSelectedSources,
+        ...tableEntitySourceIds,
+      ]),
     );
     const filters: ReportLoadFilters = {
       period: appliedFilters.period,
@@ -1262,6 +1412,11 @@ function App() {
     });
 
     setTableSelectedSources((current) => {
+      const next = sanitizeChartSources(current);
+      return areStringArraysEqual(next, current) ? current : next;
+    });
+
+    setTableEntitySourceIds((current) => {
       const next = sanitizeChartSources(current);
       return areStringArraysEqual(next, current) ? current : next;
     });
@@ -2054,43 +2209,63 @@ function App() {
 
   const applyTableSettings = useCallback(() => {
     markUserSettingsChange();
-    const nextTableSources = [...draftTableSelectedSources];
-    const nextEnabledSectionIds = new Set(draftFilters.enabledSectionIds);
-    const nextEnabledMetricIdsBySection = Object.entries(enabledMetricIdsBySection).reduce<Record<string, Set<string>>>(
-      (acc, [sectionId, metricIds]) => {
-        acc[sectionId] = new Set(metricIds);
+    const availableSectionIds = new Set(metricSections.map((section) => section.id));
+    const { sectionIds, pipelineSourceIds, entitySourceIds } = resolveTableSelectionFromSources(
+      draftTableSelectedSources,
+      crmSources,
+      availableSectionIds,
+    );
+
+    const nextEnabledMetricIdsBySection = metricSections.reduce<Record<string, Set<string>>>(
+      (acc, section) => {
+        acc[section.id] = sectionIds.has(section.id)
+          ? new Set(section.metricIds)
+          : new Set();
         return acc;
       },
       {},
     );
 
-    // Table settings must not overwrite chart sources.
-    setTableSelectedSources(nextTableSources);
+    // Pipelines/smart only — must not overwrite chart sources.
+    setTableSelectedSources(pipelineSourceIds);
+    setTableEntitySourceIds(entitySourceIds);
+    setDraftTableSelectedSources([...entitySourceIds, ...pipelineSourceIds]);
     setDraftFilters((current) => ({
       ...current,
-      enabledSectionIds: nextEnabledSectionIds,
+      enabledSectionIds: new Set(sectionIds),
     }));
     setAppliedFilters((current) => ({
       ...current,
-      enabledSectionIds: new Set(nextEnabledSectionIds),
+      enabledSectionIds: new Set(sectionIds),
     }));
-    setAppliedEnabledMetricIdsBySection(nextEnabledMetricIdsBySection);
-    setExpandedSections((current) => {
-      const next = new Set(current);
-      nextEnabledSectionIds.forEach((sectionId) => next.add(sectionId));
-      return next;
-    });
+    setEnabledMetricIdsBySection(
+      Object.fromEntries(
+        Object.entries(nextEnabledMetricIdsBySection).map(([sectionId, metricIds]) => [
+          sectionId,
+          new Set(metricIds),
+        ]),
+      ),
+    );
+    setAppliedEnabledMetricIdsBySection(
+      Object.fromEntries(
+        Object.entries(nextEnabledMetricIdsBySection).map(([sectionId, metricIds]) => [
+          sectionId,
+          new Set(metricIds),
+        ]),
+      ),
+    );
+    setExpandedSections(new Set(sectionIds));
 
     if (hasBuiltReport) {
       setBuildMoment(Date.now());
       setReportBuildRequest((current) => current + 1);
     }
   }, [
-    draftFilters.enabledSectionIds,
+    crmSources,
     draftTableSelectedSources,
-    enabledMetricIdsBySection,
     hasBuiltReport,
     markUserSettingsChange,
+    metricSections,
   ]);
 
   const applySectionMetrics = useCallback((sectionId: string) => {
@@ -2150,16 +2325,16 @@ function App() {
   }, [applyReportBuild, draftFilters.selectedSources, sanitizeChartSources]);
 
   const buildAutomaticReport = useCallback(() => {
-    const dealSources = crmSources.filter((source) => source.type === 'deal');
+    const dealPipelineSources = crmSources.filter(isDealPipelineSource);
     const salesSource =
-      dealSources.find((source) => source.isAvailable && (source.id === 'deal-0' || source.categoryId === 0)) ??
-      dealSources.find((source) => source.id === 'deal-0' || source.categoryId === 0) ??
-      dealSources.find((source) => {
+      dealPipelineSources.find((source) => source.isAvailable && (source.id === 'deal-0' || source.categoryId === 0)) ??
+      dealPipelineSources.find((source) => source.id === 'deal-0' || source.categoryId === 0) ??
+      dealPipelineSources.find((source) => {
         const label = `${source.sourceLabel} ${source.title}`.toLocaleLowerCase('ru-RU');
         return label.includes('продаж');
       }) ??
-      dealSources.find((source) => source.isAvailable) ??
-      dealSources[0];
+      dealPipelineSources.find((source) => source.isAvailable) ??
+      dealPipelineSources[0];
 
     if (!salesSource) {
       setNotification('В каталоге отчета нет доступной воронки "Продажи".');
@@ -2175,11 +2350,17 @@ function App() {
 
     const dateRange = getPreviousWeekFromYesterdayRange();
     const chartSources = [salesSource.id];
-    // Table: all available sources/entities, with Sales funnel first.
+    // Table: all available sources/entities, with Sales funnel first among pipelines.
     const allTableSources = [
       salesSource.id,
       ...crmSourceIds.filter((id) => id !== salesSource.id),
     ];
+    const availableSectionIds = new Set(metricSections.map((section) => section.id));
+    const { pipelineSourceIds, entitySourceIds } = resolveTableSelectionFromSources(
+      allTableSources,
+      crmSources,
+      availableSectionIds,
+    );
     const nextEnabledSectionIds = new Set(metricSections.map((section) => section.id));
     const nextEnabledMetrics = metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
       acc[section.id] = new Set(section.metricIds);
@@ -2230,8 +2411,9 @@ function App() {
         ]),
       ),
     );
-    setTableSelectedSources(allTableSources);
-    setDraftTableSelectedSources(allTableSources);
+    setTableSelectedSources(pipelineSourceIds);
+    setTableEntitySourceIds(entitySourceIds);
+    setDraftTableSelectedSources([...entitySourceIds, ...pipelineSourceIds]);
     setSectionOrder(nextSectionOrder);
     setExpandedSections(new Set(nextEnabledSectionIds));
 
@@ -2574,8 +2756,16 @@ function App() {
     const restoredTableSources = Array.isArray(state.tableSelectedSources)
       ? [...state.tableSelectedSources]
       : [];
-    setTableSelectedSources(restoredTableSources);
-    setDraftTableSelectedSources(restoredTableSources);
+    const pipelineIds = restoredTableSources.filter((sourceId) => {
+      if (sourceId === 'deal-default') {
+        return false;
+      }
+      return sourceId.startsWith('deal-') || sourceId.startsWith('smart-');
+    });
+    const entityIds = entitySourceIdsForSections(deserializedApplied.enabledSectionIds);
+    setTableSelectedSources(pipelineIds);
+    setTableEntitySourceIds(entityIds);
+    setDraftTableSelectedSources([...entityIds, ...pipelineIds]);
     const restoredMetricIds = Object.fromEntries(
       Object.entries(state.enabledMetricIdsBySection).map(([sectionId, metricIds]) => [
         sectionId,

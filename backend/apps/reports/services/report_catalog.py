@@ -38,6 +38,7 @@ SOURCE_TYPE_TO_API = {
 }
 
 VIRTUAL_REPORT_SOURCE_IDS = {
+    "deal-default",
     "telephony-default",
     "activity-default",
     "quote-default",
@@ -121,6 +122,7 @@ def load_sources_from_bitrix(portal: BitrixPortal) -> list[dict]:
     client = BitrixRestClient(portal)
     sources = [
         _lead_source(),
+        _deal_entity_source(),
         *_deal_sources(client),
         *_smart_process_sources(client),
         _invoice_source(),
@@ -399,6 +401,23 @@ def _lead_source() -> dict:
         "isAvailable": True,
         "rawData": {
             "_entityTypeName": "Лиды",
+        },
+    }
+
+
+def _deal_entity_source() -> dict:
+    """CRM-entity "Сделки" (all deals), not a specific pipeline."""
+    return {
+        "id": "deal-default",
+        "type": "deal",
+        "entityTypeId": 2,
+        "categoryId": None,
+        "title": "Сделки",
+        "sourceLabel": "Сделки",
+        "entityTypeName": "Сделки",
+        "isAvailable": True,
+        "rawData": {
+            "_entityTypeName": "Сделки",
         },
     }
 

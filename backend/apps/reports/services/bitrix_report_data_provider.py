@@ -76,6 +76,7 @@ DEFAULT_SOURCE_LOAD_WORKERS = 4
 DEFAULT_TASK_MONTH_LOAD_WORKERS = 3
 ESSENTIAL_STATIC_SOURCE_IDS = {
     "lead-default",
+    "deal-default",
     "invoice-default",
     "telephony-default",
     "activity-default",
@@ -1144,21 +1145,30 @@ def _ensure_essential_source_types(
         logger.info("_ensure_essential_source_types: added static source %s", source_id)
 
     if "deal" not in seen_types:
-        for source in portal_sources:
-            if source.source_type == CrmSource.SourceType.DEAL:
-                result.append(_crm_source_to_report_source(source))
+        # Prefer CRM-entity "Сделки" (all deals) over a random funnel.
+        for source in REPORT_SOURCES:
+            if str(source.get("id") or "") == "deal-default":
+                result.append(dict(source))
+                seen_ids.add("deal-default")
                 seen_types.add("deal")
-                logger.info(
-                    "_ensure_essential_source_types: added deal source %s (entityTypeId=%s)",
-                    source.external_key,
-                    source.entity_type_id,
-                )
+                logger.info("_ensure_essential_source_types: added static source deal-default")
                 break
         else:
-            logger.warning(
-                "_ensure_essential_source_types: no DEAL source found in %d portal sources",
-                len(portal_sources),
-            )
+            for source in portal_sources:
+                if source.source_type == CrmSource.SourceType.DEAL:
+                    result.append(_crm_source_to_report_source(source))
+                    seen_types.add("deal")
+                    logger.info(
+                        "_ensure_essential_source_types: added deal source %s (entityTypeId=%s)",
+                        source.external_key,
+                        source.entity_type_id,
+                    )
+                    break
+            else:
+                logger.warning(
+                    "_ensure_essential_source_types: no DEAL source found in %d portal sources",
+                    len(portal_sources),
+                )
 
     if "smartProcess" not in seen_types:
         for source in portal_sources:
@@ -1218,8 +1228,6 @@ def resolve_selected_sources_for_portal(portal: Any, selected_sources: list[str]
         result.append(_crm_source_to_report_source(source))
         seen_ids.add(source.external_key)
 
-    portal_source_types = {source["type"] for source in result}
-
     for source in REPORT_SOURCES:
         if str(source.get("id") or "") not in normalized_values:
             continue
@@ -1227,9 +1235,8 @@ def resolve_selected_sources_for_portal(portal: Any, selected_sources: list[str]
         if source["id"] in seen_ids:
             continue
 
-        if source["type"] in portal_source_types:
-            continue
-
+        # Explicitly selected catalog ids must be kept even when a portal source
+        # of the same type is already present (e.g. deal-default + deal-0).
         result.append(dict(source))
         seen_ids.add(source["id"])
 
@@ -1330,6 +1337,14 @@ def _build_bucket_values(
         for row in rows
         if _row_in_bucket(row, bucket)
     ]
+    # If CRM-entity "Сделки" (all deals) is loaded, use only it for section metrics
+    # so selecting deal-default + a funnel does not double-count the same deals.
+    if "deal-default" in rows_by_source:
+        deal_rows = [
+            row
+            for row in rows_by_source.get("deal-default", [])
+            if _row_in_bucket(row, bucket)
+        ]
 
     lead_rows = [
         row

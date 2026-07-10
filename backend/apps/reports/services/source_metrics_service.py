@@ -79,7 +79,13 @@ def build_source_metrics_by_period(
 
     for source in selected_sources:
         source_type = source.get("type") or source.get("entityType") or ""
-        source_id = source.get("id", "")
+        source_id = str(source.get("id", ""))
+
+        # CRM-entity "Сделки" (deal-default): aggregate section metrics only, not a pipeline block.
+        if source_id == "deal-default":
+            continue
+        if source_type in ("deal", "deal_pipeline", "deal_category") and source.get("categoryId") is None:
+            continue
 
         # Skip non-pipeline sources - only deal pipelines and smart processes.
         # Sources from the catalog have type "deal" for deal pipelines and "smartProcess" for smart processes.

@@ -17,6 +17,15 @@ REPORT_SOURCES = [
         "isAvailable": True,
     },
     {
+        "id": "deal-default",
+        "type": "deal",
+        "entityTypeId": 2,
+        "categoryId": None,
+        "title": "Сделки",
+        "sourceLabel": "Сделки",
+        "isAvailable": True,
+    },
+    {
         "id": "deal-sales",
         "type": "deal",
         "entityTypeId": 2,

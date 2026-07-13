@@ -641,6 +641,9 @@ function App() {
   );
   // Display-only order for funnel/smart source_section blocks (not CRM sections).
   const [sourceSectionOrder, setSourceSectionOrder] = useState<string[]>([]);
+  // After "Построить автоматически": pin this catalog source id (e.g. deal-0) as the
+  // first block in the whole table. Cleared on regular build / reset — not used otherwise.
+  const [tableLeadingSourceId, setTableLeadingSourceId] = useState<string | null>(null);
   const [sourceMetricOrderBySource, setSourceMetricOrderBySource] = useState<Record<string, string[]>>({});
   // Visibility of metrics inside source blocks (separate from CRM enabledMetricIdsBySection).
   const [enabledMetricKeysBySource, setEnabledMetricKeysBySource] = useState<Record<string, Set<string>>>({});
@@ -857,6 +860,7 @@ function App() {
       }, {}),
     );
     setSourceSectionOrder([]);
+    setTableLeadingSourceId(null);
     setSourceMetricOrderBySource({});
     setEnabledMetricKeysBySource({});
     setAppliedEnabledMetricKeysBySource({});
@@ -1810,7 +1814,20 @@ function App() {
         );
         const matchedByKey = new Map(matchedSources.map((item) => [item.key, item.data]));
 
-        orderedSourceKeys.forEach((sourceKey) => {
+        // Auto-build may pin Sales funnel first in the whole table (above CRM sections).
+        let leadingSourceKey: string | null = null;
+        if (tableLeadingSourceId) {
+          leadingSourceKey =
+            matchedSources.find(
+              (item) => item.key === tableLeadingSourceId || item.data.sourceId === tableLeadingSourceId,
+            )?.key ?? null;
+        }
+
+        const displaySourceKeys = leadingSourceKey
+          ? [leadingSourceKey, ...orderedSourceKeys.filter((key) => key !== leadingSourceKey)]
+          : orderedSourceKeys;
+
+        displaySourceKeys.forEach((sourceKey) => {
           const sourceData = matchedByKey.get(sourceKey);
           if (!sourceData) {
             return;
@@ -1855,6 +1872,34 @@ function App() {
         });
       }
 
+      if (tableLeadingSourceId) {
+        const leadingKey =
+          sourceSectionRows.find(
+            (row) =>
+              row.kind === 'source_section'
+              && (row.sourceId === tableLeadingSourceId
+                || sourceMetrics[row.sourceId]?.sourceId === tableLeadingSourceId),
+          )?.sourceId ?? null;
+
+        if (leadingKey) {
+          const leadingRows: TableRow[] = [];
+          const otherSourceRows: TableRow[] = [];
+
+          sourceSectionRows.forEach((row) => {
+            if (
+              (row.kind === 'source_section' || row.kind === 'source_metric')
+              && row.sourceId === leadingKey
+            ) {
+              leadingRows.push(row);
+            } else {
+              otherSourceRows.push(row);
+            }
+          });
+
+          return [...leadingRows, ...standardRows, ...otherSourceRows];
+        }
+      }
+
       return [...standardRows, ...sourceSectionRows];
       },
       [
@@ -1876,6 +1921,7 @@ function App() {
         sourceMetrics,
         hasBuiltReport,
         tableSelectedSources,
+        tableLeadingSourceId,
         sourceSectionOrder,
         sourceMetricOrderBySource,
       ],
@@ -2557,6 +2603,7 @@ function App() {
 
   const buildReport = useCallback(() => {
     applyAutomaticThresholdsRef.current = false;
+    setTableLeadingSourceId(null);
     setMainThreshold({ upper: '', lower: '', mode: null });
     setRowThresholds({});
     // Empty chart selection stays empty — never expand to all/default sources.
@@ -2657,6 +2704,7 @@ function App() {
     setTableEntitySourceIds(entitySourceIds);
     setDraftTableSelectedSources([...entitySourceIds, ...pipelineSourceIds]);
     setSectionOrder(nextSectionOrder);
+    setTableLeadingSourceId(salesSource.id);
     setExpandedSections(new Set(nextEnabledSectionIds));
 
     setHasBuiltReport(true);

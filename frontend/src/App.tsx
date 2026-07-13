@@ -1873,13 +1873,13 @@ function App() {
       }
 
       if (tableLeadingSourceId) {
-        const leadingKey =
-          sourceSectionRows.find(
-            (row) =>
-              row.kind === 'source_section'
-              && (row.sourceId === tableLeadingSourceId
-                || sourceMetrics[row.sourceId]?.sourceId === tableLeadingSourceId),
-          )?.sourceId ?? null;
+        const leadingSection = sourceSectionRows.find(
+          (row): row is Extract<TableRow, { kind: 'source_section' }> =>
+            row.kind === 'source_section'
+            && (row.sourceId === tableLeadingSourceId
+              || sourceMetrics[row.sourceId]?.sourceId === tableLeadingSourceId),
+        );
+        const leadingKey = leadingSection?.sourceId ?? null;
 
         if (leadingKey) {
           const leadingRows: TableRow[] = [];

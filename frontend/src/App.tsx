@@ -1814,18 +1814,21 @@ function App() {
         );
         const matchedByKey = new Map(matchedSources.map((item) => [item.key, item.data]));
 
-        // Auto-build may pin Sales funnel first in the whole table (above CRM sections).
-        let leadingSourceKey: string | null = null;
+        // Auto-build: keep every selected source visible; only move Sales funnel to the front.
+        let displaySourceKeys = orderedSourceKeys;
         if (tableLeadingSourceId) {
-          leadingSourceKey =
+          const leadingSourceKey =
             matchedSources.find(
               (item) => item.key === tableLeadingSourceId || item.data.sourceId === tableLeadingSourceId,
             )?.key ?? null;
-        }
 
-        const displaySourceKeys = leadingSourceKey
-          ? [leadingSourceKey, ...orderedSourceKeys.filter((key) => key !== leadingSourceKey)]
-          : orderedSourceKeys;
+          if (leadingSourceKey) {
+            displaySourceKeys = [
+              leadingSourceKey,
+              ...orderedSourceKeys.filter((key) => key !== leadingSourceKey),
+            ];
+          }
+        }
 
         displaySourceKeys.forEach((sourceKey) => {
           const sourceData = matchedByKey.get(sourceKey);
@@ -1872,32 +1875,10 @@ function App() {
         });
       }
 
-      if (tableLeadingSourceId) {
-        const leadingSection = sourceSectionRows.find(
-          (row): row is Extract<TableRow, { kind: 'source_section' }> =>
-            row.kind === 'source_section'
-            && (row.sourceId === tableLeadingSourceId
-              || sourceMetrics[row.sourceId]?.sourceId === tableLeadingSourceId),
-        );
-        const leadingKey = leadingSection?.sourceId ?? null;
-
-        if (leadingKey) {
-          const leadingRows: TableRow[] = [];
-          const otherSourceRows: TableRow[] = [];
-
-          sourceSectionRows.forEach((row) => {
-            if (
-              (row.kind === 'source_section' || row.kind === 'source_metric')
-              && row.sourceId === leadingKey
-            ) {
-              leadingRows.push(row);
-            } else {
-              otherSourceRows.push(row);
-            }
-          });
-
-          return [...leadingRows, ...standardRows, ...otherSourceRows];
-        }
+      // Auto-build only: Sales (+ all other source blocks) first, then CRM sections.
+      // Do not split source blocks apart — every selected source stays in the table.
+      if (tableLeadingSourceId && sourceSectionRows.length > 0) {
+        return [...sourceSectionRows, ...standardRows];
       }
 
       return [...standardRows, ...sourceSectionRows];
@@ -2702,8 +2683,10 @@ function App() {
     );
     setTableSelectedSources(pipelineSourceIds);
     setTableEntitySourceIds(entitySourceIds);
-    setDraftTableSelectedSources([...entitySourceIds, ...pipelineSourceIds]);
+    // Table settings: all catalog sources checked (same set as before auto-build pin change).
+    setDraftTableSelectedSources(allTableSources.filter((id) => crmSourceIds.includes(id)));
     setSectionOrder(nextSectionOrder);
+    setSourceSectionOrder([]);
     setTableLeadingSourceId(salesSource.id);
     setExpandedSections(new Set(nextEnabledSectionIds));
 

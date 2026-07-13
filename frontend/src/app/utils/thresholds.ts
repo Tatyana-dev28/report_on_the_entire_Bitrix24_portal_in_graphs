@@ -133,6 +133,11 @@ export const getThresholdClass = (value: number, threshold?: ThresholdValues) =>
   const upper = parseThreshold(threshold.upper);
   const lower = parseThreshold(threshold.lower);
 
+  // No meaningful band (e.g. all zeros → upper=lower=0): don't paint every cell.
+  if (upper !== null && lower !== null && upper === lower) {
+    return '';
+  }
+
   if (upper !== null && value >= upper) {
     return 'is-above-threshold';
   }

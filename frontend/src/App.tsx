@@ -369,6 +369,94 @@ const getEmployeePeriodMetricValue = (
   return valuesByPeriod[matchedPeriodKey]?.[metricId] ?? 0;
 };
 
+/** Build per-employee period values for a funnel/smart source_metric from details. */
+const buildSourceMetricEmployees = (
+  details: MetricDetailItem[],
+  detailSourceIds: string[],
+  detailMetricIds: string[],
+  knownEmployees: ReportEmployee[],
+): ReportEmployee[] => {
+  if (!detailSourceIds.length && !detailMetricIds.length) {
+    return [];
+  }
+
+  const sourceSet = new Set(detailSourceIds);
+  const metricSet = new Set(detailMetricIds);
+  const knownById = new Map(knownEmployees.map((employee) => [employee.id, employee]));
+  const byEmployee = new Map<string, { name: string; valuesByPeriod: Record<string, Record<string, number>> }>();
+
+  details.forEach((detail) => {
+    const employeeId = detail.employeeId?.trim();
+    if (!employeeId) {
+      return;
+    }
+
+    if (sourceSet.size > 0 && detail.sourceId && !sourceSet.has(detail.sourceId)) {
+      return;
+    }
+
+    if (metricSet.size > 0 && detail.metricId && !metricSet.has(detail.metricId)) {
+      return;
+    }
+
+    const periodKey = detail.periodKey?.trim();
+    if (!periodKey) {
+      return;
+    }
+
+    const metricId = detail.metricId || 'value';
+    const rawValue = typeof detail.value === 'number' ? detail.value : Number(detail.value);
+    const value = Number.isFinite(rawValue) ? rawValue : 0;
+    const known = knownById.get(employeeId);
+    const name = detail.employeeName || detail.responsibleName || known?.name || employeeId;
+
+    const entry = byEmployee.get(employeeId) ?? {
+      name,
+      valuesByPeriod: {},
+    };
+
+    if (!entry.valuesByPeriod[periodKey]) {
+      entry.valuesByPeriod[periodKey] = {};
+    }
+
+    entry.valuesByPeriod[periodKey][metricId] =
+      (entry.valuesByPeriod[periodKey][metricId] ?? 0) + value;
+
+    if (detail.employeeName || detail.responsibleName) {
+      entry.name = name;
+    }
+
+    byEmployee.set(employeeId, entry);
+  });
+
+  return Array.from(byEmployee.entries()).map(([id, entry]) => {
+    const known = knownById.get(id);
+    const { firstName, lastName } = splitEmployeeName(entry.name);
+
+    return {
+      id,
+      userId: known?.userId ?? (Number(id) || 0),
+      name: entry.name,
+      firstName: known?.firstName || firstName,
+      lastName: known?.lastName || lastName,
+      avatarUrl: known?.avatarUrl,
+      valuesByPeriod: entry.valuesByPeriod,
+    } satisfies ReportEmployee;
+  });
+};
+
+const getSourceMetricEmployeePeriodValue = (
+  employee: ReportEmployee,
+  point: ReportPoint,
+  detailMetricIds: string[],
+): number => {
+  const metricIds = detailMetricIds.length > 0 ? detailMetricIds : ['value'];
+  return metricIds.reduce(
+    (sum, metricId) => sum + getEmployeePeriodMetricValue(employee, point, metricId),
+    0,
+  );
+};
+
 const CRM_ENTITY_SOURCE_GROUP = 'crm-сущности';
 const PIPELINE_SOURCE_GROUP = 'воронки и смарт процессы';
 const CRM_SOURCE_TYPE_ORDER: Partial<Record<CrmSourceType, number>> = {
@@ -4227,7 +4315,18 @@ function App() {
                   row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number',
                 );
                 const chartOpen = expandedChartMetricIds.has(actionId);
+                const employeesOpen = expandedEmployeeMetricIds.has(actionId);
                 const valueType = row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number';
+                const detailSourceIds = sourceData?.detailSourceIds ?? [];
+                const detailMetricIds = metricData?.detailMetricIds ?? [];
+                const sourceMetricEmployees = employeesOpen
+                  ? buildSourceMetricEmployees(
+                    reportDetails,
+                    detailSourceIds,
+                    detailMetricIds,
+                    reportEmployees,
+                  )
+                  : [];
                 const syntheticMetric: MetricRow = {
                   id: row.metricKey,
                   label: row.metricLabel,
@@ -4260,12 +4359,12 @@ function App() {
                         </button>
                         <span className="metric-name">{row.metricLabel}</span>
                         <RowActionsMenu
-                          employeesOpen={false}
+                          employeesOpen={employeesOpen}
                           chartOpen={chartOpen}
                           threshold={rowThreshold}
                           recommendedThreshold={rowRecommendedThreshold}
-                          showEmployees={false}
-                          onToggleEmployees={() => undefined}
+                          showEmployees
+                          onToggleEmployees={() => toggleEmployeeRows(actionId)}
                           onToggleChart={() => toggleMetricChart(actionId)}
                           onThresholdChange={(value) => updateRowThreshold(actionId, value)}
                         />
@@ -4277,8 +4376,6 @@ function App() {
                             const value = metricData?.valuesByPeriod[point.key] ?? 0;
                             const valueLabel = formatMetricValue(value, valueType);
                             const thresholdClass = getThresholdClass(value, rowThreshold);
-                            const detailSourceIds = sourceData?.detailSourceIds ?? [];
-                            const detailMetricIds = metricData?.detailMetricIds ?? [];
 
                             return (
                               <ValueCellButton
@@ -4301,6 +4398,59 @@ function App() {
                         </div>
                       </div>
                     </div>
+                    {employeesOpen && sourceMetricEmployees.map((employee) => (
+                      <div
+                        className="report-table-row is-employee-row"
+                        key={`${row.rowId}-employee-${employee.id}`}
+                        role="row"
+                        data-row-id={`${row.rowId}-employee-${employee.id}`}
+                      >
+                        <div className="table-left-cell employee-left-cell" role="rowheader">
+                          <button
+                            className="employee-person-button"
+                            type="button"
+                            onClick={() => openBitrixUser(employee.userId)}
+                          >
+                            <span className="employee-avatar" aria-hidden="true">
+                              {employee.avatarUrl ? (
+                                <img src={employee.avatarUrl} alt="" />
+                              ) : (
+                                <span>{getEmployeeInitials(employee)}</span>
+                              )}
+                            </span>
+                            <span>{employee.firstName} {employee.lastName}</span>
+                          </button>
+                        </div>
+                        <div className="table-right-cell" role="cell">
+                          <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
+                            <div className="value-axis-gutter" aria-hidden="true" />
+                            {reportData.map((point) => {
+                              const value = hasBuiltReport
+                                ? getSourceMetricEmployeePeriodValue(employee, point, detailMetricIds)
+                                : 0;
+                              const valueLabel = formatMetricValue(value, valueType);
+
+                              return (
+                                <ValueCellButton
+                                  valueLabel={valueLabel}
+                                  key={`${row.rowId}-employee-${employee.id}-${point.key}`}
+                                  onClick={() => openDetail(
+                                    syntheticMetric,
+                                    point,
+                                    value,
+                                    '',
+                                    employee,
+                                    row.sourceId,
+                                    detailSourceIds,
+                                    detailMetricIds,
+                                  )}
+                                />
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                     {chartOpen && (
                       <div
                         className="report-table-row is-chart-row"

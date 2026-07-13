@@ -537,6 +537,9 @@ function App() {
   // Chart sources locked for the active auto-build (Sales funnel only).
   // Re-applied after preview so late Pro hydration cannot restore other chart checkboxes.
   const autoBuildChartSourcesRef = useRef<string[] | null>(null);
+  // Table sources locked for the active auto-build (all table settings sources).
+  // Used in preview request so chart-only selectedSources cannot starve sourceMetrics.
+  const autoBuildTableSourcesRef = useRef<string[] | null>(null);
 
   const [savedViews, setSavedViews] = useState<SavedReportViewOption[]>(() => [defaultSavedView]);
   const [selectedView, setSelectedView] = useState('default');
@@ -1255,11 +1258,18 @@ function App() {
       const enabledMetricIds = appliedEnabledMetricIdsBySection[section.id] ?? new Set<string>();
       return section.metricIds.filter((metricId) => enabledMetricIds.has(metricId));
     });
+    // Auto-build: merge locked chart (Sales) + locked table (all sources) via refs so a
+    // stale tableSelectedSources closure cannot load preview for Sales only.
+    const lockedChartSources = autoBuildChartSourcesRef.current;
+    const lockedTableSources = autoBuildTableSourcesRef.current;
     const reportSourceIds = Array.from(
       new Set([
-        ...appliedFilters.selectedSources,
-        ...tableSelectedSources,
-        ...tableEntitySourceIds,
+        ...(lockedChartSources && lockedChartSources.length > 0
+          ? lockedChartSources
+          : appliedFilters.selectedSources),
+        ...(lockedTableSources && lockedTableSources.length > 0
+          ? lockedTableSources
+          : [...tableSelectedSources, ...tableEntitySourceIds]),
       ]),
     );
     const filters: ReportLoadFilters = {
@@ -1372,6 +1382,7 @@ function App() {
             setRowThresholds(nextRowThresholds);
             applyAutomaticThresholdsRef.current = false;
             autoBuildChartSourcesRef.current = null;
+            autoBuildTableSourcesRef.current = null;
           } else {
             // Regular build (not automatic): clear thresholds after data load
             // to prevent applyBackendSettings from restoring stale values
@@ -1388,6 +1399,8 @@ function App() {
             finishedGeneration === autoBuildGenerationRef.current
           ) {
             activeAutoBuildGenerationRef.current = null;
+            autoBuildChartSourcesRef.current = null;
+            autoBuildTableSourcesRef.current = null;
             window.setTimeout(() => {
               if (autoBuildGenerationRef.current === finishedGeneration) {
                 skipAutoSaveRef.current = false;
@@ -1410,6 +1423,7 @@ function App() {
           setReportDetails([]);
           applyAutomaticThresholdsRef.current = false;
           autoBuildChartSourcesRef.current = null;
+          autoBuildTableSourcesRef.current = null;
           const failedGeneration = activeAutoBuildGenerationRef.current;
           if (
             failedGeneration !== null &&
@@ -2584,6 +2598,8 @@ function App() {
 
   const buildReport = useCallback(() => {
     applyAutomaticThresholdsRef.current = false;
+    autoBuildChartSourcesRef.current = null;
+    autoBuildTableSourcesRef.current = null;
     setTableLeadingSourceId(null);
     setMainThreshold({ upper: '', lower: '', mode: null });
     setRowThresholds({});
@@ -2630,6 +2646,10 @@ function App() {
       allTableSources,
       crmSources,
       availableSectionIds,
+    );
+    // Lock full table selection for preview request (pipelines + entities).
+    autoBuildTableSourcesRef.current = Array.from(
+      new Set([...pipelineSourceIds, ...entitySourceIds]),
     );
     const nextEnabledSectionIds = new Set(metricSections.map((section) => section.id));
     const nextEnabledMetrics = metricSections.reduce<Record<string, Set<string>>>((acc, section) => {

@@ -1321,28 +1321,51 @@ function App() {
               mode: 'recommended',
             });
 
-            setRowThresholds(
-              selectedMetricIds.reduce<Record<string, ThresholdValues>>((acc, metricId) => {
-                const metric = metrics.find((item) => item.id === metricId);
+            const nextRowThresholds: Record<string, ThresholdValues> = {};
 
-                if (!metric) {
-                  return acc;
-                }
+            // Regular section metrics (deals, leads, …).
+            selectedMetricIds.forEach((metricId) => {
+              const metric = metrics.find((item) => item.id === metricId);
 
+              if (!metric) {
+                return;
+              }
+
+              const recommended = calculateRecommendedThresholds(
+                scheduledData.map((point) => point.values[metricId]),
+                metric.type,
+              );
+
+              nextRowThresholds[metricId] = {
+                upper: recommended.upper,
+                lower: recommended.lower,
+                mode: 'recommended',
+              };
+            });
+
+            // Funnel / smart-process rows use `${sourceKey}::${metricKey}` (same as table UI).
+            Object.entries(preview.sourceMetrics ?? {}).forEach(([sourceKey, sourceData]) => {
+              Object.entries(sourceData.metrics ?? {}).forEach(([metricKey, metricData]) => {
+                const valueType =
+                  metricData.valueType === 'money'
+                    ? 'money'
+                    : metricData.valueType === 'percent'
+                      ? 'percent'
+                      : 'number';
                 const recommended = calculateRecommendedThresholds(
-                  scheduledData.map((point) => point.values[metricId]),
-                  metric.type,
+                  scheduledData.map((point) => metricData.valuesByPeriod?.[point.key] ?? 0),
+                  valueType,
                 );
 
-                acc[metricId] = {
+                nextRowThresholds[`${sourceKey}::${metricKey}`] = {
                   upper: recommended.upper,
                   lower: recommended.lower,
                   mode: 'recommended',
                 };
+              });
+            });
 
-                return acc;
-              }, {}),
-            );
+            setRowThresholds(nextRowThresholds);
             applyAutomaticThresholdsRef.current = false;
             autoBuildChartSourcesRef.current = null;
           } else {

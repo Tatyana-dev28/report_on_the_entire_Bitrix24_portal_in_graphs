@@ -39,12 +39,20 @@ export type TableRow =
       metric: MetricRow;
       employee: ReportEmployee;
       employeeIndex: number;
+      /** Funnel/smart source block id when this employee row belongs to a source_metric. */
+      sourceId?: string;
+      detailSourceIds?: string[];
+      detailMetricIds?: string[];
     }
   | {
       kind: 'chart';
       rowId: string;
       sectionId: string;
       metric: MetricRow;
+      /** Funnel/smart source block id when this chart row belongs to a source_metric. */
+      sourceId?: string;
+      /** Period values for source_metric charts (CRM charts use point.values[metric.id]). */
+      valuesByPeriod?: Record<string, number>;
     }
   | {
       kind: 'source_section';

@@ -534,6 +534,9 @@ function App() {
   const skipAutoSaveRef = useRef(false);
   const autoBuildGenerationRef = useRef(0);
   const activeAutoBuildGenerationRef = useRef<number | null>(null);
+  // Chart sources locked for the active auto-build (Sales funnel only).
+  // Re-applied after preview so late Pro hydration cannot restore other chart checkboxes.
+  const autoBuildChartSourcesRef = useRef<string[] | null>(null);
 
   const [savedViews, setSavedViews] = useState<SavedReportViewOption[]>(() => [defaultSavedView]);
   const [selectedView, setSelectedView] = useState('default');
@@ -914,7 +917,13 @@ function App() {
             }
           }
 
-          if (settings.selectedSources && Array.isArray(settings.selectedSources)) {
+          // Do not restore chart sources over an in-flight "Построить автоматически" preset.
+          if (
+            settings.selectedSources
+            && Array.isArray(settings.selectedSources)
+            && activeAutoBuildGenerationRef.current === null
+            && !skipAutoSaveRef.current
+          ) {
             setDraftFilters((current) => ({ ...current, selectedSources: settings.selectedSources as string[] }));
             setAppliedFilters((current) => ({ ...current, selectedSources: settings.selectedSources as string[] }));
           }
@@ -1273,12 +1282,33 @@ function App() {
           if (applyAutomaticThresholdsRef.current) {
             const scheduledData = applyScheduleToReportData(preview.data, filters.period, appliedFilters.schedule);
             const metricMode = filters.metricMode ?? appliedFilters.metricMode;
-            // Всегда считаем mainValues так же, как главный график в режиме «Сумма»
-            // (уникальные успешные money-метрики по выбранным источникам).
+            // Auto-build chart must stay on the locked Sales funnel only — never merge table sources.
+            const lockedChartSources = autoBuildChartSourcesRef.current;
+            const chartSourcesForAutoBuild =
+              lockedChartSources && lockedChartSources.length > 0
+                ? lockedChartSources
+                : appliedFilters.selectedSources;
+
+            if (
+              lockedChartSources
+              && lockedChartSources.length > 0
+              && !areStringArraysEqual(lockedChartSources, appliedFilters.selectedSources)
+            ) {
+              setDraftFilters((current) => ({
+                ...current,
+                selectedSources: [...lockedChartSources],
+              }));
+              setAppliedFilters((current) => ({
+                ...current,
+                selectedSources: [...lockedChartSources],
+              }));
+            }
+
+            // Main chart sum = successful money for locked chart sources only (Sales won_sum).
             const mainValues = scheduledData.map((point) =>
               getChartSumValue(
                 point,
-                appliedFilters.selectedSources,
+                chartSourcesForAutoBuild,
                 metricMode,
                 preview.sourceMetrics ?? {},
               ),
@@ -1314,6 +1344,7 @@ function App() {
               }, {}),
             );
             applyAutomaticThresholdsRef.current = false;
+            autoBuildChartSourcesRef.current = null;
           } else {
             // Regular build (not automatic): clear thresholds after data load
             // to prevent applyBackendSettings from restoring stale values
@@ -1351,6 +1382,7 @@ function App() {
           setReportEmployees([]);
           setReportDetails([]);
           applyAutomaticThresholdsRef.current = false;
+          autoBuildChartSourcesRef.current = null;
           const failedGeneration = activeAutoBuildGenerationRef.current;
           if (
             failedGeneration !== null &&
@@ -2533,8 +2565,11 @@ function App() {
     skipAutoSaveRef.current = true;
 
     const dateRange = getPreviousWeekFromYesterdayRange();
+    // Chart settings only: exactly one source — Sales funnel. Never copy table selection here.
     const chartSources = [salesSource.id];
+    autoBuildChartSourcesRef.current = chartSources;
     // Table: all available sources/entities, with Sales funnel first among pipelines.
+    // Independent from chartSources — table checkboxes must not leak into the main chart.
     const allTableSources = [
       salesSource.id,
       ...crmSourceIds.filter((id) => id !== salesSource.id),
@@ -2561,7 +2596,7 @@ function App() {
       ...current,
       period: 'days',
       dateRange,
-      selectedSources: chartSources,
+      selectedSources: [...chartSources],
       metricMode: 'money',
       chartDisplayMode: 'sum',
       enabledSectionIds: nextEnabledSectionIds,
@@ -2570,7 +2605,7 @@ function App() {
       ...current,
       period: 'days',
       dateRange,
-      selectedSources: chartSources,
+      selectedSources: [...chartSources],
       metricMode: 'money',
       chartDisplayMode: 'sum',
       enabledSectionIds: new Set(nextEnabledSectionIds),

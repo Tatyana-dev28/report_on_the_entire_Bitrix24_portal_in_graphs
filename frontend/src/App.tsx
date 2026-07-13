@@ -250,28 +250,66 @@ const detailIdToNumber = (id: string | number, fallback: number) => {
   return 900000 + fallback;
 };
 
+const normalizePeriodKey = (value: string) => value.slice(0, 10);
+
+const matchDetailSourceId = (detailSourceId: string | undefined, sourceIds: string[]) => {
+  if (!sourceIds.length || !detailSourceId) {
+    return true;
+  }
+
+  return sourceIds.some(
+    (sourceId) =>
+      detailSourceId === sourceId
+      || detailSourceId.includes(sourceId)
+      || sourceId.includes(detailSourceId),
+  );
+};
+
+const matchDetailMetricId = (detailMetricId: string | undefined, metricIds: string[]) => {
+  if (!metricIds.length || !detailMetricId) {
+    return true;
+  }
+
+  return metricIds.includes(detailMetricId);
+};
+
+const matchDetailPeriodKey = (detailPeriodKey: string | undefined, pointKey: string) => {
+  if (!detailPeriodKey) {
+    return true;
+  }
+
+  return normalizePeriodKey(detailPeriodKey) === normalizePeriodKey(pointKey);
+};
+
 const buildBackendDetailRows = (
   details: MetricDetailItem[],
   context: DetailContext,
 ): DetailRow[] =>
   details
     .filter((detail) => {
+      const sourceDetailIds = context.detailSourceIds ?? [];
+      const sourceMetricIds = context.detailMetricIds ?? [];
+
       // For source_metric rows: filter by detailSourceIds AND detailMetricIds
-      if (context.detailSourceIds && context.detailSourceIds.length > 0) {
+      if (sourceDetailIds.length > 0 || sourceMetricIds.length > 0) {
+        const sourceIds = sourceDetailIds.length > 0
+          ? sourceDetailIds
+          : context.sourceId
+            ? [context.sourceId]
+            : [];
+
         // Source must match one of the detailSourceIds
-        if (detail.sourceId && !context.detailSourceIds.includes(detail.sourceId)) {
+        if (!matchDetailSourceId(detail.sourceId, sourceIds)) {
           return false;
         }
 
         // Metric must match one of the detailMetricIds (if specified)
-        if (context.detailMetricIds && context.detailMetricIds.length > 0) {
-          if (detail.metricId && !context.detailMetricIds.includes(detail.metricId)) {
-            return false;
-          }
+        if (!matchDetailMetricId(detail.metricId, sourceMetricIds)) {
+          return false;
         }
 
         // Period must match
-        if (detail.periodKey && detail.periodKey !== context.point.key) {
+        if (!matchDetailPeriodKey(detail.periodKey, context.point.key)) {
           return false;
         }
 
@@ -290,7 +328,7 @@ const buildBackendDetailRows = (
         }
       }
 
-      if (detail.periodKey && detail.periodKey !== context.point.key) {
+      if (!matchDetailPeriodKey(detail.periodKey, context.point.key)) {
         return false;
       }
 
@@ -343,8 +381,6 @@ const buildBackendDetailRows = (
 
 const areStringArraysEqual = (first: string[], second: string[]) =>
   first.length === second.length && first.every((value, index) => value === second[index]);
-
-const normalizePeriodKey = (value: string) => value.slice(0, 10);
 
 const readValuesByPeriod = (
   valuesByPeriod: Record<string, number> | undefined,
@@ -408,24 +444,9 @@ const buildSourceMetricEmployees = (
   }
 
   const sourceIds = detailSourceIds.map(String);
-  const metricSet = new Set(detailMetricIds.map(String));
+  const metricIds = detailMetricIds.map(String);
   const knownById = new Map(knownEmployees.map((employee) => [employee.id, employee]));
   const byEmployee = new Map<string, { name: string; valuesByPeriod: Record<string, Record<string, number>> }>();
-
-  const sourceMatches = (detailSourceId: string | undefined) => {
-    if (!sourceIds.length) {
-      return true;
-    }
-    if (!detailSourceId) {
-      return true;
-    }
-    if (sourceIds.includes(detailSourceId)) {
-      return true;
-    }
-    return sourceIds.some(
-      (sourceId) => detailSourceId.includes(sourceId) || sourceId.includes(detailSourceId),
-    );
-  };
 
   details.forEach((detail) => {
     const employeeId = detail.employeeId?.trim();
@@ -433,11 +454,11 @@ const buildSourceMetricEmployees = (
       return;
     }
 
-    if (!sourceMatches(detail.sourceId)) {
+    if (!matchDetailSourceId(detail.sourceId, sourceIds)) {
       return;
     }
 
-    if (metricSet.size > 0 && detail.metricId && !metricSet.has(detail.metricId)) {
+    if (!matchDetailMetricId(detail.metricId, metricIds)) {
       return;
     }
 
@@ -499,6 +520,23 @@ const getSourceMetricEmployeePeriodValue = (
     0,
   );
 };
+
+const buildSourceMetricActionIds = (
+  sourceKey: string,
+  metricKey: string,
+  sourceData: SourceMetricsData | undefined,
+) =>
+  Array.from(
+    new Set([
+      `${sourceKey}::${metricKey}`,
+      sourceData?.id ? `${sourceData.id}::${metricKey}` : '',
+      sourceData?.sourceId ? `${sourceData.sourceId}::${metricKey}` : '',
+      ...(sourceData?.detailSourceIds ?? []).map((sourceId) => `${sourceId}::${metricKey}`),
+    ].filter(Boolean)),
+  );
+
+const hasExpandedSourceMetricAction = (expandedIds: Set<string>, actionIds: string[]) =>
+  actionIds.some((actionId) => expandedIds.has(actionId));
 
 const CRM_ENTITY_SOURCE_GROUP = 'crm-сущности';
 const PIPELINE_SOURCE_GROUP = 'воронки и смарт процессы';
@@ -1496,8 +1534,8 @@ function App() {
               };
             });
 
-            // Funnel / smart-process rows use `${sourceKey}::${metricKey}` (same as table UI).
-            // Also alias by catalog sourceId so lookups stay stable across key formats.
+            // Funnel / smart-process rows use the same action ids as the table UI.
+            // Store every known alias so thresholds stay attached across source key formats.
             Object.entries(preview.sourceMetrics ?? {}).forEach(([sourceKey, sourceData]) => {
               Object.entries(sourceData.metrics ?? {}).forEach(([metricKey, metricData]) => {
                 const valueType =
@@ -1517,10 +1555,9 @@ function App() {
                   mode: 'recommended',
                 };
 
-                nextRowThresholds[`${sourceKey}::${metricKey}`] = thresholdValue;
-                if (sourceData.sourceId && sourceData.sourceId !== sourceKey) {
-                  nextRowThresholds[`${sourceData.sourceId}::${metricKey}`] = thresholdValue;
-                }
+                buildSourceMetricActionIds(sourceKey, metricKey, sourceData).forEach((actionId) => {
+                  nextRowThresholds[actionId] = thresholdValue;
+                });
               });
             });
 
@@ -2900,6 +2937,23 @@ function App() {
     });
   }, []);
 
+  const toggleEmployeeRowsByIds = useCallback((metricIds: string[]) => {
+    setExpandedEmployeeMetricIds((current) => {
+      const next = new Set(current);
+      const opened = metricIds.some((metricId) => next.has(metricId));
+
+      metricIds.forEach((metricId) => {
+        if (opened) {
+          next.delete(metricId);
+        } else {
+          next.add(metricId);
+        }
+      });
+
+      return next;
+    });
+  }, []);
+
   const toggleMetricChart = useCallback((metricId: string) => {
     setExpandedChartMetricIds((current) => {
       const next = new Set(current);
@@ -2909,6 +2963,23 @@ function App() {
       } else {
         next.add(metricId);
       }
+
+      return next;
+    });
+  }, []);
+
+  const toggleMetricChartByIds = useCallback((metricIds: string[]) => {
+    setExpandedChartMetricIds((current) => {
+      const next = new Set(current);
+      const opened = metricIds.some((metricId) => next.has(metricId));
+
+      metricIds.forEach((metricId) => {
+        if (opened) {
+          next.delete(metricId);
+        } else {
+          next.add(metricId);
+        }
+      });
 
       return next;
     });
@@ -3663,7 +3734,7 @@ function App() {
           const metricRow = worksheet.addRow([
             `  ${row.metricLabel}`,
             ...reportData.map((point) => {
-              const value = metricData?.valuesByPeriod[point.key] ?? 0;
+              const value = readValuesByPeriod(metricData?.valuesByPeriod, point.key);
               return formatMetricValue(value, valueType);
             }),
           ]);
@@ -4362,13 +4433,10 @@ function App() {
 
                 const sourceData = sourceMetrics[row.sourceId];
                 const metricData = sourceData?.metrics[row.metricKey];
-                const actionId = `${row.sourceId}::${row.metricKey}`;
-                const catalogActionId = sourceData?.sourceId
-                  ? `${sourceData.sourceId}::${row.metricKey}`
-                  : actionId;
+                const actionIds = buildSourceMetricActionIds(row.sourceId, row.metricKey, sourceData);
+                const actionId = actionIds[0];
                 const rowThreshold =
-                  rowThresholds[actionId]
-                  ?? (catalogActionId !== actionId ? rowThresholds[catalogActionId] : undefined)
+                  actionIds.map((id) => rowThresholds[id]).find(Boolean)
                   ?? { upper: '', lower: '', mode: null };
                 const periodValues = reportData.map((point) =>
                   readValuesByPeriod(metricData?.valuesByPeriod, point.key),
@@ -4377,19 +4445,8 @@ function App() {
                   periodValues,
                   row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number',
                 );
-                // If auto-build/Pro left this row empty, fall back to live recommended values in the editor.
-                const editorThreshold =
-                  rowThreshold.upper || rowThreshold.lower
-                    ? rowThreshold
-                    : {
-                        upper: rowRecommendedThreshold.upper,
-                        lower: rowRecommendedThreshold.lower,
-                        mode: rowRecommendedThreshold.upper || rowRecommendedThreshold.lower
-                          ? 'recommended' as const
-                          : null,
-                      };
-                const chartOpen = expandedChartMetricIds.has(actionId);
-                const employeesOpen = expandedEmployeeMetricIds.has(actionId);
+                const chartOpen = hasExpandedSourceMetricAction(expandedChartMetricIds, actionIds);
+                const employeesOpen = hasExpandedSourceMetricAction(expandedEmployeeMetricIds, actionIds);
                 const valueType = row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number';
                 const detailSourceIds = sourceData?.detailSourceIds ?? [];
                 const detailMetricIds = metricData?.detailMetricIds ?? [];
@@ -4408,10 +4465,7 @@ function App() {
                   base: 0,
                 };
                 const applySourceRowThreshold = (value: ThresholdValues) => {
-                  updateRowThreshold(actionId, value);
-                  if (catalogActionId !== actionId) {
-                    updateRowThreshold(catalogActionId, value);
-                  }
+                  actionIds.forEach((id) => updateRowThreshold(id, value));
                 };
 
                 return (
@@ -4440,11 +4494,11 @@ function App() {
                         <RowActionsMenu
                           employeesOpen={employeesOpen}
                           chartOpen={chartOpen}
-                          threshold={editorThreshold}
+                          threshold={rowThreshold}
                           recommendedThreshold={rowRecommendedThreshold}
                           showEmployees
-                          onToggleEmployees={() => toggleEmployeeRows(actionId)}
-                          onToggleChart={() => toggleMetricChart(actionId)}
+                          onToggleEmployees={() => toggleEmployeeRowsByIds(actionIds)}
+                          onToggleChart={() => toggleMetricChartByIds(actionIds)}
                           onThresholdChange={applySourceRowThreshold}
                         />
                       </div>
@@ -4454,7 +4508,7 @@ function App() {
                           {reportData.map((point) => {
                             const value = readValuesByPeriod(metricData?.valuesByPeriod, point.key);
                             const valueLabel = formatMetricValue(value, valueType);
-                            const thresholdClass = getThresholdClass(value, rowThreshold.upper || rowThreshold.lower ? rowThreshold : editorThreshold);
+                            const thresholdClass = getThresholdClass(value, rowThreshold);
 
                             return (
                               <ValueCellButton
@@ -4545,7 +4599,7 @@ function App() {
                               <RowMetricChart
                                 metric={syntheticMetric}
                                 reportData={reportData}
-                                threshold={rowThreshold.upper || rowThreshold.lower ? rowThreshold : editorThreshold}
+                                threshold={rowThreshold}
                                 valuesByPeriod={metricData?.valuesByPeriod}
                               />
                             </div>

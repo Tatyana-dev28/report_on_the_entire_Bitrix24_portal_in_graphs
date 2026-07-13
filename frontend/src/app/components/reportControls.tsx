@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -1462,11 +1463,31 @@ export function RowMetricChart({
 }) {
   const chartWrapRef = useRef<HTMLDivElement>(null);
   const [activePoint, setActivePoint] = useState<ActiveChartPoint | null>(null);
+  const readChartPeriodValue = useCallback((periodKey: string) => {
+    if (!valuesByPeriod) {
+      return undefined;
+    }
+
+    const direct = valuesByPeriod[periodKey];
+    if (typeof direct === 'number') {
+      return direct;
+    }
+
+    const normalized = periodKey.slice(0, 10);
+    const normalizedDirect = valuesByPeriod[normalized];
+    if (typeof normalizedDirect === 'number') {
+      return normalizedDirect;
+    }
+
+    const matched = Object.entries(valuesByPeriod).find(([key]) => key.slice(0, 10) === normalized);
+
+    return matched?.[1];
+  }, [valuesByPeriod]);
   const chartData = useMemo(
     () =>
       reportData.map((point, index) => {
         const raw = valuesByPeriod
-          ? valuesByPeriod[point.key]
+          ? readChartPeriodValue(point.key)
           : point.values[metric.id];
         const numeric = typeof raw === 'number' ? raw : Number(raw);
 
@@ -1478,7 +1499,7 @@ export function RowMetricChart({
           xIndex: index + 0.5,
         };
       }),
-    [metric.id, reportData, valuesByPeriod],
+    [metric.id, readChartPeriodValue, reportData, valuesByPeriod],
   );
   const thresholdValues = useMemo(
     () =>

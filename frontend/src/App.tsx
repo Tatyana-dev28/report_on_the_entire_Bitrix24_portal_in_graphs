@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -345,6 +346,32 @@ const areStringArraysEqual = (first: string[], second: string[]) =>
 
 const normalizePeriodKey = (value: string) => value.slice(0, 10);
 
+const readValuesByPeriod = (
+  valuesByPeriod: Record<string, number> | undefined,
+  periodKey: string,
+) => {
+  if (!valuesByPeriod) {
+    return 0;
+  }
+
+  const direct = valuesByPeriod[periodKey];
+  if (typeof direct === 'number' && Number.isFinite(direct)) {
+    return direct;
+  }
+
+  const normalized = normalizePeriodKey(periodKey);
+  const normalizedDirect = valuesByPeriod[normalized];
+  if (typeof normalizedDirect === 'number' && Number.isFinite(normalizedDirect)) {
+    return normalizedDirect;
+  }
+
+  const matched = Object.entries(valuesByPeriod).find(
+    ([key]) => normalizePeriodKey(key) === normalized,
+  );
+
+  return matched && Number.isFinite(matched[1]) ? matched[1] : 0;
+};
+
 const getEmployeePeriodMetricValue = (
   employee: ReportEmployee,
   point: ReportPoint,
@@ -380,10 +407,25 @@ const buildSourceMetricEmployees = (
     return [];
   }
 
-  const sourceSet = new Set(detailSourceIds);
-  const metricSet = new Set(detailMetricIds);
+  const sourceIds = detailSourceIds.map(String);
+  const metricSet = new Set(detailMetricIds.map(String));
   const knownById = new Map(knownEmployees.map((employee) => [employee.id, employee]));
   const byEmployee = new Map<string, { name: string; valuesByPeriod: Record<string, Record<string, number>> }>();
+
+  const sourceMatches = (detailSourceId: string | undefined) => {
+    if (!sourceIds.length) {
+      return true;
+    }
+    if (!detailSourceId) {
+      return true;
+    }
+    if (sourceIds.includes(detailSourceId)) {
+      return true;
+    }
+    return sourceIds.some(
+      (sourceId) => detailSourceId.includes(sourceId) || sourceId.includes(detailSourceId),
+    );
+  };
 
   details.forEach((detail) => {
     const employeeId = detail.employeeId?.trim();
@@ -391,7 +433,7 @@ const buildSourceMetricEmployees = (
       return;
     }
 
-    if (sourceSet.size > 0 && detail.sourceId && !sourceSet.has(detail.sourceId)) {
+    if (!sourceMatches(detail.sourceId)) {
       return;
     }
 
@@ -409,18 +451,19 @@ const buildSourceMetricEmployees = (
     const value = Number.isFinite(rawValue) ? rawValue : 0;
     const known = knownById.get(employeeId);
     const name = detail.employeeName || detail.responsibleName || known?.name || employeeId;
+    const storageKeys = Array.from(new Set([periodKey, normalizePeriodKey(periodKey)]));
 
     const entry = byEmployee.get(employeeId) ?? {
       name,
       valuesByPeriod: {},
     };
 
-    if (!entry.valuesByPeriod[periodKey]) {
-      entry.valuesByPeriod[periodKey] = {};
-    }
-
-    entry.valuesByPeriod[periodKey][metricId] =
-      (entry.valuesByPeriod[periodKey][metricId] ?? 0) + value;
+    storageKeys.forEach((key) => {
+      if (!entry.valuesByPeriod[key]) {
+        entry.valuesByPeriod[key] = {};
+      }
+      entry.valuesByPeriod[key][metricId] = (entry.valuesByPeriod[key][metricId] ?? 0) + value;
+    });
 
     if (detail.employeeName || detail.responsibleName) {
       entry.name = name;
@@ -1044,7 +1087,10 @@ function App() {
             setAppliedFilters((current) => ({ ...current, enabledSectionIds: new Set(restoredSectionIds) }));
           }
 
-          if (settings.tableSelectedSources && Array.isArray(settings.tableSelectedSources)) {
+          const allowTableRestore =
+            activeAutoBuildGenerationRef.current === null && !skipAutoSaveRef.current;
+
+          if (allowTableRestore && settings.tableSelectedSources && Array.isArray(settings.tableSelectedSources)) {
             const savedTableSources = settings.tableSelectedSources as string[];
             const pipelineIds = savedTableSources.filter((sourceId) => {
               if (sourceId === 'deal-default') {
@@ -1056,13 +1102,13 @@ function App() {
             setTableSelectedSources(pipelineIds);
             setTableEntitySourceIds(entityIds);
             setDraftTableSelectedSources([...entityIds, ...pipelineIds]);
-          } else if (settings.selectedSources && Array.isArray(settings.selectedSources)) {
+          } else if (allowTableRestore && settings.selectedSources && Array.isArray(settings.selectedSources)) {
             // Backward compatibility: older saves used chart sources for the table.
             const tableSources = settings.selectedSources as string[];
             setTableSelectedSources(tableSources);
             setDraftTableSelectedSources(tableSources);
             setTableEntitySourceIds(entitySourceIdsForSections(restoredSectionIds));
-          } else {
+          } else if (allowTableRestore) {
             const entityIds = entitySourceIdsForSections(restoredSectionIds);
             setTableSelectedSources([]);
             setTableEntitySourceIds(entityIds);
@@ -1100,18 +1146,23 @@ function App() {
             }));
           }
 
-          // Apply saved thresholds
-          if (settings.mainThreshold && typeof settings.mainThreshold === 'object') {
-            const mt = settings.mainThreshold as Record<string, unknown>;
-            setMainThreshold({
-              upper: String(mt.upper ?? ''),
-              lower: String(mt.lower ?? ''),
-              mode: (mt.mode as 'manual' | 'recommended' | null) ?? null,
-            });
-          }
+          // Apply saved thresholds (never overwrite one-shot auto-build thresholds).
+          if (
+            activeAutoBuildGenerationRef.current === null
+            && !skipAutoSaveRef.current
+          ) {
+            if (settings.mainThreshold && typeof settings.mainThreshold === 'object') {
+              const mt = settings.mainThreshold as Record<string, unknown>;
+              setMainThreshold({
+                upper: String(mt.upper ?? ''),
+                lower: String(mt.lower ?? ''),
+                mode: (mt.mode as 'manual' | 'recommended' | null) ?? null,
+              });
+            }
 
-          if (settings.rowThresholds && typeof settings.rowThresholds === 'object') {
-            setRowThresholds(settings.rowThresholds as Record<string, { upper: string; lower: string; mode: 'manual' | 'recommended' | null }>);
+            if (settings.rowThresholds && typeof settings.rowThresholds === 'object') {
+              setRowThresholds(settings.rowThresholds as Record<string, { upper: string; lower: string; mode: 'manual' | 'recommended' | null }>);
+            }
           }
 
           // Apply saved metric visibility
@@ -1446,6 +1497,7 @@ function App() {
             });
 
             // Funnel / smart-process rows use `${sourceKey}::${metricKey}` (same as table UI).
+            // Also alias by catalog sourceId so lookups stay stable across key formats.
             Object.entries(preview.sourceMetrics ?? {}).forEach(([sourceKey, sourceData]) => {
               Object.entries(sourceData.metrics ?? {}).forEach(([metricKey, metricData]) => {
                 const valueType =
@@ -1455,15 +1507,20 @@ function App() {
                       ? 'percent'
                       : 'number';
                 const recommended = calculateRecommendedThresholds(
-                  scheduledData.map((point) => metricData.valuesByPeriod?.[point.key] ?? 0),
+                  scheduledData.map((point) => readValuesByPeriod(metricData.valuesByPeriod, point.key)),
                   valueType,
                 );
 
-                nextRowThresholds[`${sourceKey}::${metricKey}`] = {
+                const thresholdValue: ThresholdValues = {
                   upper: recommended.upper,
                   lower: recommended.lower,
                   mode: 'recommended',
                 };
+
+                nextRowThresholds[`${sourceKey}::${metricKey}`] = thresholdValue;
+                if (sourceData.sourceId && sourceData.sourceId !== sourceKey) {
+                  nextRowThresholds[`${sourceData.sourceId}::${metricKey}`] = thresholdValue;
+                }
               });
             });
 
@@ -4306,14 +4363,31 @@ function App() {
                 const sourceData = sourceMetrics[row.sourceId];
                 const metricData = sourceData?.metrics[row.metricKey];
                 const actionId = `${row.sourceId}::${row.metricKey}`;
-                const rowThreshold = rowThresholds[actionId] ?? { upper: '', lower: '' };
-                const periodValues = reportData.map(
-                  (point) => metricData?.valuesByPeriod[point.key] ?? 0,
+                const catalogActionId = sourceData?.sourceId
+                  ? `${sourceData.sourceId}::${row.metricKey}`
+                  : actionId;
+                const rowThreshold =
+                  rowThresholds[actionId]
+                  ?? (catalogActionId !== actionId ? rowThresholds[catalogActionId] : undefined)
+                  ?? { upper: '', lower: '', mode: null };
+                const periodValues = reportData.map((point) =>
+                  readValuesByPeriod(metricData?.valuesByPeriod, point.key),
                 );
                 const rowRecommendedThreshold = calculateRecommendedThresholds(
                   periodValues,
                   row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number',
                 );
+                // If auto-build/Pro left this row empty, fall back to live recommended values in the editor.
+                const editorThreshold =
+                  rowThreshold.upper || rowThreshold.lower
+                    ? rowThreshold
+                    : {
+                        upper: rowRecommendedThreshold.upper,
+                        lower: rowRecommendedThreshold.lower,
+                        mode: rowRecommendedThreshold.upper || rowRecommendedThreshold.lower
+                          ? 'recommended' as const
+                          : null,
+                      };
                 const chartOpen = expandedChartMetricIds.has(actionId);
                 const employeesOpen = expandedEmployeeMetricIds.has(actionId);
                 const valueType = row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number';
@@ -4333,12 +4407,17 @@ function App() {
                   type: valueType,
                   base: 0,
                 };
+                const applySourceRowThreshold = (value: ThresholdValues) => {
+                  updateRowThreshold(actionId, value);
+                  if (catalogActionId !== actionId) {
+                    updateRowThreshold(catalogActionId, value);
+                  }
+                };
 
                 return (
-                  <>
+                  <Fragment key={row.rowId}>
                     <div
                       className={rowClassName}
-                      key={row.rowId}
                       role="row"
                       data-row-id={row.rowId}
                       onDragOver={(event) => handleSourceMetricDragOver(row.sourceId, event)}
@@ -4361,21 +4440,21 @@ function App() {
                         <RowActionsMenu
                           employeesOpen={employeesOpen}
                           chartOpen={chartOpen}
-                          threshold={rowThreshold}
+                          threshold={editorThreshold}
                           recommendedThreshold={rowRecommendedThreshold}
                           showEmployees
                           onToggleEmployees={() => toggleEmployeeRows(actionId)}
                           onToggleChart={() => toggleMetricChart(actionId)}
-                          onThresholdChange={(value) => updateRowThreshold(actionId, value)}
+                          onThresholdChange={applySourceRowThreshold}
                         />
                       </div>
                       <div className="table-right-cell" role="cell">
                         <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
                           <div className="value-axis-gutter" aria-hidden="true" />
                           {reportData.map((point) => {
-                            const value = metricData?.valuesByPeriod[point.key] ?? 0;
+                            const value = readValuesByPeriod(metricData?.valuesByPeriod, point.key);
                             const valueLabel = formatMetricValue(value, valueType);
-                            const thresholdClass = getThresholdClass(value, rowThreshold);
+                            const thresholdClass = getThresholdClass(value, rowThreshold.upper || rowThreshold.lower ? rowThreshold : editorThreshold);
 
                             return (
                               <ValueCellButton
@@ -4454,7 +4533,6 @@ function App() {
                     {chartOpen && (
                       <div
                         className="report-table-row is-chart-row"
-                        key={`${row.rowId}-chart`}
                         role="row"
                         data-row-id={`${row.rowId}-chart`}
                       >
@@ -4467,7 +4545,7 @@ function App() {
                               <RowMetricChart
                                 metric={syntheticMetric}
                                 reportData={reportData}
-                                threshold={rowThreshold}
+                                threshold={rowThreshold.upper || rowThreshold.lower ? rowThreshold : editorThreshold}
                                 valuesByPeriod={metricData?.valuesByPeriod}
                               />
                             </div>
@@ -4475,7 +4553,7 @@ function App() {
                         </div>
                       </div>
                     )}
-                  </>
+                  </Fragment>
                 );
               }
 

@@ -1371,7 +1371,7 @@ export function RowActionsMenu({
           open={open}
           className="settings-popover row-actions-popover"
           expectedWidth={mode === 'actions' ? 280 : 520}
-          expectedHeight={mode === 'actions' ? 158 : 330}
+          expectedHeight={mode === 'actions' ? 200 : 330}
         >
           {mode === 'actions' ? (
             <div className="row-actions-list">

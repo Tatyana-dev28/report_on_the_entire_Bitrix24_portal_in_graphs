@@ -2634,9 +2634,8 @@ function App() {
     }));
   }, [markUserSettingsChange]);
 
-  // Chart Apply — commits draft chart settings to applied. Does not change table settings.
-  // Rebuilds preview only when a report is already built and chart sources changed
-  // (so newly selected chart sources get data without opening settings alone building).
+  // Chart Apply — commits draft chart settings to applied only.
+  // Does not rebuild the report: data load stays on «Построить отчёт» / «Построить автоматически».
   const applyChartSettings = useCallback((settings: ChartDraftSettings) => {
     markUserSettingsChange();
     const nextSources = [...settings.selectedSources];
@@ -2644,7 +2643,6 @@ function App() {
       ...settings.schedule,
       weekendDayIds: [...settings.schedule.weekendDayIds],
     };
-    const sourcesChanged = !areStringArraysEqual(nextSources, appliedFilters.selectedSources);
 
     setDraftFilters((current) => ({
       ...current,
@@ -2663,13 +2661,10 @@ function App() {
         weekendDayIds: [...nextSchedule.weekendDayIds],
       },
     }));
+  }, [markUserSettingsChange]);
 
-    if (hasBuiltReport && sourcesChanged) {
-      setBuildMoment(Date.now());
-      setReportBuildRequest((current) => current + 1);
-    }
-  }, [appliedFilters.selectedSources, hasBuiltReport, markUserSettingsChange]);
-
+  // Table Apply — commits table source/section selection only.
+  // Does not rebuild the report: data load stays on «Построить отчёт» / «Построить автоматически».
   const applyTableSettings = useCallback(() => {
     markUserSettingsChange();
     const availableSectionIds = new Set(metricSections.map((section) => section.id));
@@ -2718,15 +2713,9 @@ function App() {
       ),
     );
     setExpandedSections(new Set(sectionIds));
-
-    if (hasBuiltReport) {
-      setBuildMoment(Date.now());
-      setReportBuildRequest((current) => current + 1);
-    }
   }, [
     crmSources,
     draftTableSelectedSources,
-    hasBuiltReport,
     markUserSettingsChange,
     metricSections,
   ]);

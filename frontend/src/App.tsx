@@ -838,6 +838,7 @@ function App() {
   const skipAutoSaveRef = useRef(false);
   const temporaryAutoReportModeRef = useRef(false);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const immediateAutoSaveRef = useRef(false);
   const autoBuildGenerationRef = useRef(0);
   const activeAutoBuildGenerationRef = useRef<number | null>(null);
   // Chart sources locked for the active auto-build (Sales funnel only).
@@ -3045,6 +3046,8 @@ function App() {
     resetTemporaryReportUiState();
     setMainThreshold({ upper: '', lower: '', mode: null });
     setRowThresholds({});
+    immediateAutoSaveRef.current = true;
+    setAutoSaveRequest((current) => current + 1);
     // Empty chart selection stays empty — never expand to all/default sources.
     applyReportBuild(sanitizeChartSources(draftFilters.selectedSources));
   }, [applyReportBuild, draftFilters.selectedSources, resetTemporaryReportUiState, sanitizeChartSources]);
@@ -3532,6 +3535,8 @@ function App() {
     }
 
     userTouchedReportSettingsRef.current = true;
+    const saveDelayMs = immediateAutoSaveRef.current ? 0 : 2000;
+    immediateAutoSaveRef.current = false;
 
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
@@ -3577,7 +3582,7 @@ function App() {
       saveReportSettings(payload).catch((error) => {
         console.warn('[Settings] Auto-save failed', error);
       });
-    }, 2000);
+    }, saveDelayMs);
   }, [billingHasPro, cancelPendingAutoSave, captureCurrentViewState, savedViews, appSettings, tableSelectedSources]);
 
   // Watch for changes and trigger auto-save

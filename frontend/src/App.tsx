@@ -2184,42 +2184,55 @@ function App() {
       // Selection still comes from tableSelectedSources; this only affects display order.
       const sourceSectionRows: TableRow[] = [];
       const sourceMetricsByLookup = new Map<string, { key: string; data: (typeof sourceMetrics)[string] }>();
+      const sourceCatalogById = new Map(crmSources.map((source) => [source.id, source]));
 
       Object.entries(sourceMetrics).forEach(([sourceKey, sourceData]) => {
         sourceMetricsByLookup.set(sourceKey, { key: sourceKey, data: sourceData });
         sourceMetricsByLookup.set(sourceData.sourceId, { key: sourceKey, data: sourceData });
       });
 
-      if (hasBuiltReport && tableSelectedSources.length > 0) {
+      if (tableSelectedSources.length > 0) {
         const seenSourceKeys = new Set<string>();
-        const matchedSources: Array<{ key: string; data: (typeof sourceMetrics)[string] }> = [];
+        const matchedSources: Array<{
+          key: string;
+          data?: (typeof sourceMetrics)[string];
+          label: string;
+        }> = [];
 
         tableSelectedSources.forEach((selectedId) => {
           const matched = sourceMetricsByLookup.get(selectedId);
-          if (!matched || seenSourceKeys.has(matched.key)) {
+          const sourceKey = matched?.key ?? selectedId;
+
+          if (seenSourceKeys.has(sourceKey)) {
             return;
           }
 
-          seenSourceKeys.add(matched.key);
-          if (Object.keys(matched.data.metrics).length === 0) {
+          const label = matched?.data.label ?? sourceCatalogById.get(selectedId)?.title ?? selectedId;
+          seenSourceKeys.add(sourceKey);
+
+          if (hasBuiltReport && (!matched || Object.keys(matched.data.metrics).length === 0)) {
             return;
           }
 
-          matchedSources.push(matched);
+          matchedSources.push({
+            key: sourceKey,
+            data: matched?.data,
+            label,
+          });
         });
 
         const orderedSourceKeys = mergeIdOrder(
           sourceSectionOrder,
           matchedSources.map((item) => item.key),
         );
-        const matchedByKey = new Map(matchedSources.map((item) => [item.key, item.data]));
+        const matchedByKey = new Map(matchedSources.map((item) => [item.key, item]));
 
         // Auto-build: keep every selected source visible; only move Sales funnel to the front.
         let displaySourceKeys = orderedSourceKeys;
         if (tableLeadingSourceId) {
           const leadingSourceKey =
             matchedSources.find(
-              (item) => item.key === tableLeadingSourceId || item.data.sourceId === tableLeadingSourceId,
+              (item) => item.key === tableLeadingSourceId || item.data?.sourceId === tableLeadingSourceId,
             )?.key ?? null;
 
           if (leadingSourceKey) {
@@ -2231,7 +2244,19 @@ function App() {
         }
 
         displaySourceKeys.forEach((sourceKey) => {
-          const sourceData = matchedByKey.get(sourceKey);
+          const sourceItem = matchedByKey.get(sourceKey);
+          if (!sourceItem) {
+            return;
+          }
+
+          const sourceData = sourceItem.data;
+          sourceSectionRows.push({
+            kind: 'source_section',
+            rowId: `source-section-${sourceKey}`,
+            sourceId: sourceKey,
+            label: sourceItem.label,
+          });
+
           if (!sourceData) {
             return;
           }
@@ -2241,13 +2266,6 @@ function App() {
             sourceMetricOrderBySource[sourceKey] ?? [],
             defaultMetricKeys,
           );
-
-          sourceSectionRows.push({
-            kind: 'source_section',
-            rowId: `source-section-${sourceKey}`,
-            sourceId: sourceKey,
-            label: sourceData.label,
-          });
 
           // Same as CRM sections: collapsed source blocks only keep the header row.
           if (!expandedSourceSections.has(sourceKey)) {
@@ -2354,6 +2372,7 @@ function App() {
         metricOrderBySection,
         expandedEmployeeMetricIds,
         expandedChartMetricIds,
+        crmSources,
         sourceMetrics,
         reportDetails,
         hasBuiltReport,

@@ -929,12 +929,6 @@ function App() {
 
   const suppressNextReportSettingsTouch = useCallback(() => {
     suppressReportSettingsTouchRef.current = true;
-
-    if (typeof window !== 'undefined') {
-      window.setTimeout(() => {
-        suppressReportSettingsTouchRef.current = false;
-      }, 0);
-    }
   }, []);
   const [rowThresholds, setRowThresholds] = useState<Record<string, ThresholdValues>>({});
   const [enabledMetricIdsBySection, setEnabledMetricIdsBySection] = useState<Record<string, Set<string>>>(
@@ -1241,6 +1235,7 @@ function App() {
         const settings = response.settings as Record<string, unknown>;
         const savedViewsData = response.savedViews as Array<Record<string, unknown>>;
         const appSettingsData = response.appSettings as Record<string, unknown>;
+        suppressNextReportSettingsTouch();
 
         if (settings && Object.keys(settings).length > 0) {
           // Apply saved filters
@@ -2424,6 +2419,7 @@ function App() {
     }
 
     userTouchedReportSettingsRef.current = true;
+    suppressReportSettingsTouchRef.current = false;
     skipAutoSaveRef.current = false;
   }, [cancelPendingAutoSave]);
 
@@ -3518,13 +3514,11 @@ function App() {
     }
 
     if (!settingsHydratedRef.current) {
-      userTouchedReportSettingsRef.current = true;
       return;
     }
 
     // Free version: never save anything
     if (!billingHasPro) {
-      userTouchedReportSettingsRef.current = true;
       return;
     }
 

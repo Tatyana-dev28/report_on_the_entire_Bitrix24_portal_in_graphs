@@ -55,6 +55,7 @@ import {
   metrics as defaultMetrics,
   periodOptions as defaultPeriodOptions,
   type DateRange,
+  type MetricSection,
   type MetricRow,
   type Period,
   type ReportPoint,
@@ -716,6 +717,75 @@ const mergeIdOrder = (preferred: string[], available: string[]) => {
   return ordered;
 };
 
+const cloneSetRecord = (record: Record<string, Set<string>>) =>
+  Object.fromEntries(
+    Object.entries(record).map(([key, values]) => [key, new Set(values)]),
+  );
+
+const createAllEnabledMetricIdsBySection = (sections: MetricSection[]) =>
+  sections.reduce<Record<string, Set<string>>>((acc, section) => {
+    acc[section.id] = new Set(section.metricIds);
+    return acc;
+  }, {});
+
+const createAutomaticSectionOrder = (sections: MetricSection[]) => [
+  ...(sections.some((section) => section.id === 'deals') ? ['deals'] : []),
+  ...sections.map((section) => section.id).filter((id) => id !== 'deals'),
+];
+
+const resolveAutomaticSalesSource = (crmSources: CrmSource[]) => {
+  const dealPipelineSources = crmSources.filter(isDealPipelineSource);
+
+  return (
+    dealPipelineSources.find((source) => source.isAvailable && (source.id === 'deal-0' || source.categoryId === 0)) ??
+    dealPipelineSources.find((source) => source.id === 'deal-0' || source.categoryId === 0) ??
+    dealPipelineSources.find((source) => {
+      const label = `${source.sourceLabel} ${source.title}`.toLocaleLowerCase('ru-RU');
+      return label.includes('продаж');
+    }) ??
+    dealPipelineSources.find((source) => source.isAvailable) ??
+    dealPipelineSources[0]
+  );
+};
+
+const buildAutomaticReportPreset = (
+  crmSources: CrmSource[],
+  crmSourceIds: string[],
+  sections: MetricSection[],
+) => {
+  const salesSource = resolveAutomaticSalesSource(crmSources);
+
+  if (!salesSource) {
+    return null;
+  }
+
+  const dateRange = getPreviousWeekFromYesterdayRange();
+  const chartSources = [salesSource.id];
+  const allTableSources = [
+    salesSource.id,
+    ...crmSourceIds.filter((id) => id !== salesSource.id),
+  ];
+  const availableSectionIds = new Set(sections.map((section) => section.id));
+  const { pipelineSourceIds, entitySourceIds } = resolveTableSelectionFromSources(
+    allTableSources,
+    crmSources,
+    availableSectionIds,
+  );
+
+  return {
+    salesSource,
+    dateRange,
+    chartSources,
+    allTableSources,
+    pipelineSourceIds,
+    entitySourceIds,
+    tablePreviewSourceIds: Array.from(new Set([...pipelineSourceIds, ...entitySourceIds])),
+    enabledSectionIds: new Set(sections.map((section) => section.id)),
+    enabledMetricIdsBySection: createAllEnabledMetricIdsBySection(sections),
+    sectionOrder: createAutomaticSectionOrder(sections),
+  };
+};
+
 function App() {
   // Hydration guards: prevent auto-save until settings are fully loaded/applied
   const settingsHydratedRef = useRef(false);
@@ -723,6 +793,8 @@ function App() {
   // Skip Pro auto-save while applying one-shot "Построить автоматически" presets.
   // Cleared when that auto-build generation finishes (not via a fixed timer).
   const skipAutoSaveRef = useRef(false);
+  const temporaryAutoReportModeRef = useRef(false);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoBuildGenerationRef = useRef(0);
   const activeAutoBuildGenerationRef = useRef<number | null>(null);
   // Chart sources locked for the active auto-build (Sales funnel only).
@@ -879,6 +951,20 @@ function App() {
   const draggedSourceSectionRef = useRef<string | null>(null);
   const draggedSourceMetricRef = useRef<{ sourceId: string; metricKey: string } | null>(null);
   const reportStartTimeRef = useRef<number>(0);
+  const cancelPendingAutoSave = useCallback(() => {
+    if (!autoSaveTimerRef.current) {
+      return;
+    }
+
+    clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = null;
+  }, []);
+  const resetTemporaryReportUiState = useCallback(() => {
+    setExpandedEmployeeMetricIds(new Set());
+    setExpandedChartMetricIds(new Set());
+    setDetailContext(null);
+    setTableLeadingSourceId(null);
+  }, []);
 
   const upperThresholdNumber = useMemo(() => parseThreshold(mainThreshold.upper), [mainThreshold.upper]);
   const lowerThresholdNumber = useMemo(() => parseThreshold(mainThreshold.lower), [mainThreshold.lower]);
@@ -2229,10 +2315,15 @@ function App() {
     [periodColumnWidth],
   );
 
-  // Manual user edits must outrank the auto-build autosave skip.
+  // Manual edits inside a temporary auto report are still temporary until "Построить отчет".
   const markUserSettingsChange = useCallback(() => {
+    if (temporaryAutoReportModeRef.current) {
+      cancelPendingAutoSave();
+      return;
+    }
+
     skipAutoSaveRef.current = false;
-  }, []);
+  }, [cancelPendingAutoSave]);
 
   const handlePeriodChange = useCallback((nextPeriod: Period) => {
     markUserSettingsChange();
@@ -2846,69 +2937,48 @@ function App() {
   }, [draftFilters, markUserSettingsChange]);
 
   const buildReport = useCallback(() => {
+    temporaryAutoReportModeRef.current = false;
     applyAutomaticThresholdsRef.current = false;
     autoBuildChartSourcesRef.current = null;
     autoBuildTableSourcesRef.current = null;
-    setTableLeadingSourceId(null);
+    resetTemporaryReportUiState();
     setMainThreshold({ upper: '', lower: '', mode: null });
     setRowThresholds({});
     // Empty chart selection stays empty — never expand to all/default sources.
     applyReportBuild(sanitizeChartSources(draftFilters.selectedSources));
-  }, [applyReportBuild, draftFilters.selectedSources, sanitizeChartSources]);
+  }, [applyReportBuild, draftFilters.selectedSources, resetTemporaryReportUiState, sanitizeChartSources]);
 
   const buildAutomaticReport = useCallback(() => {
-    const dealPipelineSources = crmSources.filter(isDealPipelineSource);
-    const salesSource =
-      dealPipelineSources.find((source) => source.isAvailable && (source.id === 'deal-0' || source.categoryId === 0)) ??
-      dealPipelineSources.find((source) => source.id === 'deal-0' || source.categoryId === 0) ??
-      dealPipelineSources.find((source) => {
-        const label = `${source.sourceLabel} ${source.title}`.toLocaleLowerCase('ru-RU');
-        return label.includes('продаж');
-      }) ??
-      dealPipelineSources.find((source) => source.isAvailable) ??
-      dealPipelineSources[0];
-
-    if (!salesSource) {
-      setNotification('В каталоге отчета нет доступной воронки "Продажи".');
+    const preset = buildAutomaticReportPreset(crmSources, crmSourceIds, metricSections);
+    if (!preset) {
+      setNotification('Нет доступной воронки продаж.');
       return;
     }
 
+    const salesSource = preset.salesSource;
+
     // Do not persist this beginner preset into Pro saved settings.
     // Keep skip active until this generation finishes applying thresholds after preview.
+    temporaryAutoReportModeRef.current = true;
+    cancelPendingAutoSave();
     const generation = autoBuildGenerationRef.current + 1;
     autoBuildGenerationRef.current = generation;
     activeAutoBuildGenerationRef.current = generation;
     skipAutoSaveRef.current = true;
 
-    const dateRange = getPreviousWeekFromYesterdayRange();
+    const dateRange = preset.dateRange;
     // Chart settings only: exactly one source — Sales funnel. Never copy table selection here.
-    const chartSources = [salesSource.id];
+    const chartSources = [...preset.chartSources];
     autoBuildChartSourcesRef.current = chartSources;
     // Table: all available sources/entities, with Sales funnel first among pipelines.
     // Independent from chartSources — table checkboxes must not leak into the main chart.
-    const allTableSources = [
-      salesSource.id,
-      ...crmSourceIds.filter((id) => id !== salesSource.id),
-    ];
-    const availableSectionIds = new Set(metricSections.map((section) => section.id));
-    const { pipelineSourceIds, entitySourceIds } = resolveTableSelectionFromSources(
-      allTableSources,
-      crmSources,
-      availableSectionIds,
-    );
+    const allTableSources = [...preset.allTableSources];
+    const { pipelineSourceIds, entitySourceIds } = preset;
     // Lock full table selection for preview request (pipelines + entities).
-    autoBuildTableSourcesRef.current = Array.from(
-      new Set([...pipelineSourceIds, ...entitySourceIds]),
-    );
-    const nextEnabledSectionIds = new Set(metricSections.map((section) => section.id));
-    const nextEnabledMetrics = metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
-      acc[section.id] = new Set(section.metricIds);
-      return acc;
-    }, {});
-    const nextSectionOrder = [
-      ...(metricSections.some((section) => section.id === 'deals') ? ['deals'] : []),
-      ...metricSections.map((section) => section.id).filter((id) => id !== 'deals'),
-    ];
+    autoBuildTableSourcesRef.current = [...preset.tablePreviewSourceIds];
+    const nextEnabledSectionIds = new Set(preset.enabledSectionIds);
+    const nextEnabledMetrics = preset.enabledMetricIdsBySection;
+    const nextSectionOrder = preset.sectionOrder;
 
     applyAutomaticThresholdsRef.current = true;
 
@@ -2934,22 +3004,8 @@ function App() {
         weekendDayIds: [...current.schedule.weekendDayIds],
       },
     }));
-    setEnabledMetricIdsBySection(
-      Object.fromEntries(
-        Object.entries(nextEnabledMetrics).map(([sectionId, metricIds]) => [
-          sectionId,
-          new Set(metricIds),
-        ]),
-      ),
-    );
-    setAppliedEnabledMetricIdsBySection(
-      Object.fromEntries(
-        Object.entries(nextEnabledMetrics).map(([sectionId, metricIds]) => [
-          sectionId,
-          new Set(metricIds),
-        ]),
-      ),
-    );
+    setEnabledMetricIdsBySection(cloneSetRecord(nextEnabledMetrics));
+    setAppliedEnabledMetricIdsBySection(cloneSetRecord(nextEnabledMetrics));
     setTableSelectedSources(pipelineSourceIds);
     setTableEntitySourceIds(entitySourceIds);
     // Table settings: all catalog sources checked (same set as before auto-build pin change).
@@ -2962,7 +3018,7 @@ function App() {
     setHasBuiltReport(true);
     setBuildMoment(Date.now());
     setReportBuildRequest((current) => current + 1);
-  }, [crmSourceIds, crmSources, metricSections]);
+  }, [cancelPendingAutoSave, crmSourceIds, crmSources, metricSections]);
 
   const openDetail = useCallback((
     metric: MetricRow,
@@ -3340,9 +3396,6 @@ function App() {
     // localStorage не используется — ни для Free, ни для Pro.
   }, []);
 
-  // Debounced auto-save to backend for PRO users
-  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const triggerAutoSave = useCallback(() => {
     // Free version: never save anything
     if (!billingHasPro) {
@@ -3350,7 +3403,8 @@ function App() {
     }
 
     // One-shot automatic build must not overwrite saved user settings.
-    if (skipAutoSaveRef.current) {
+    if (skipAutoSaveRef.current || temporaryAutoReportModeRef.current) {
+      cancelPendingAutoSave();
       return;
     }
 
@@ -3409,7 +3463,7 @@ function App() {
         console.warn('[Settings] Auto-save failed', error);
       });
     }, 2000);
-  }, [billingHasPro, captureCurrentViewState, savedViews, appSettings, tableSelectedSources]);
+  }, [billingHasPro, cancelPendingAutoSave, captureCurrentViewState, savedViews, appSettings, tableSelectedSources]);
 
   // Watch for changes and trigger auto-save
   useEffect(() => {

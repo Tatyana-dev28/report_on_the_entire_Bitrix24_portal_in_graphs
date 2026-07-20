@@ -608,6 +608,12 @@ const SECTION_ID_TO_ENTITY_SOURCE_IDS: Record<string, string[]> = {
   activities: ['activity-default'],
 };
 
+const ENTITY_SOURCE_ID_TO_SECTION_ID = Object.fromEntries(
+  Object.entries(SECTION_ID_TO_ENTITY_SOURCE_IDS).flatMap(([sectionId, sourceIds]) =>
+    sourceIds.map((sourceId) => [sourceId, sectionId]),
+  ),
+);
+
 const isDealEntitySource = (source: CrmSource) => (
   source.id === 'deal-default'
   || (source.type === 'deal' && (source.categoryId === null || source.categoryId === undefined))
@@ -648,6 +654,38 @@ const entitySourceIdsForSections = (sectionIds: Iterable<string>) => {
   }
 
   return ids;
+};
+
+const resolveSavedTableSelectionFromSourceIds = (
+  selectedSourceIds: string[],
+  availableSectionIds: Set<string>,
+) => {
+  const sectionIds = new Set<string>();
+  const pipelineSourceIds: string[] = [];
+  const entitySourceIds: string[] = [];
+  const seenPipelines = new Set<string>();
+  const seenEntities = new Set<string>();
+
+  selectedSourceIds.forEach((sourceId) => {
+    if (sourceId !== 'deal-default' && (sourceId.startsWith('deal-') || sourceId.startsWith('smart-'))) {
+      if (!seenPipelines.has(sourceId)) {
+        seenPipelines.add(sourceId);
+        pipelineSourceIds.push(sourceId);
+      }
+      return;
+    }
+
+    const sectionId = ENTITY_SOURCE_ID_TO_SECTION_ID[sourceId];
+    if (sectionId && availableSectionIds.has(sectionId)) {
+      sectionIds.add(sectionId);
+      if (!seenEntities.has(sourceId)) {
+        seenEntities.add(sourceId);
+        entitySourceIds.push(sourceId);
+      }
+    }
+  });
+
+  return { sectionIds, pipelineSourceIds, entitySourceIds };
 };
 
 const resolveTableSelectionFromSources = (
@@ -1251,9 +1289,17 @@ function App() {
           } else if (allowTableRestore && settings.selectedSources && Array.isArray(settings.selectedSources)) {
             // Backward compatibility: older saves used chart sources for the table.
             const tableSources = settings.selectedSources as string[];
-            setTableSelectedSources(tableSources);
-            setDraftTableSelectedSources(tableSources);
-            setTableEntitySourceIds(entitySourceIdsForSections(restoredSectionIds));
+            const availableSectionIds = new Set(metricSections.map((section) => section.id));
+            const { sectionIds, pipelineSourceIds, entitySourceIds } = resolveSavedTableSelectionFromSourceIds(
+              tableSources,
+              availableSectionIds,
+            );
+            restoredSectionIds = sectionIds;
+            setDraftFilters((current) => ({ ...current, enabledSectionIds: new Set(sectionIds) }));
+            setAppliedFilters((current) => ({ ...current, enabledSectionIds: new Set(sectionIds) }));
+            setTableSelectedSources(pipelineSourceIds);
+            setTableEntitySourceIds(entitySourceIds);
+            setDraftTableSelectedSources([...entitySourceIds, ...pipelineSourceIds]);
           } else if (allowTableRestore) {
             const entityIds = entitySourceIdsForSections(restoredSectionIds);
             setTableSelectedSources([]);

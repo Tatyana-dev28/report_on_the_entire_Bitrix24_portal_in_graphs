@@ -1,4 +1,4 @@
-import { defaultDateRange, type DateRange } from '../services/report/reportCatalog';
+import { type DateRange } from '../services/report/reportCatalog';
 
 import type {
   AppSettings,
@@ -11,6 +11,7 @@ import type {
   SelectOption,
   SerializableReportFilters,
 } from './types';
+import { getDefaultRangeForPeriod } from './utils/dateRanges';
 
 export const PERIOD_COLUMN_WIDTH = 96;
 export const MIN_PERIOD_COLUMN_WIDTH = 36;
@@ -32,7 +33,8 @@ export const MONTH_LABELS = [
   'Декабрь',
 ];
 
-export const LAST_AVAILABLE_MONTH_INDEX = 2026 * 12 + 5;
+const currentDate = new Date();
+export const LAST_AVAILABLE_MONTH_INDEX = currentDate.getFullYear() * 12 + currentDate.getMonth();
 
 export const isProUser = false;
 
@@ -161,7 +163,7 @@ export const DEFAULT_SOURCE_IDS: string[] = [
 
 export const createDefaultFilters = (): ReportFilters => ({
   period: 'days',
-  dateRange: defaultDateRange as DateRange,
+  dateRange: getDefaultRangeForPeriod('days') as DateRange,
   selectedSources: [],
   chartDisplayMode: 'sum',
   metricMode: 'money',

@@ -28,6 +28,32 @@ export const getPreviousWeekFromYesterdayRange = (): DateRange => {
   };
 };
 
+export const getDefaultRangeForPeriod = (period: Period): DateRange => {
+  const end = new Date();
+  const start = new Date(end);
+
+  if (period === 'hours') {
+    return getYesterdayRange();
+  }
+
+  if (period === 'days') {
+    return getPreviousWeekFromYesterdayRange();
+  }
+
+  if (period === 'weeks') {
+    start.setDate(start.getDate() - 27);
+  } else if (period === 'months') {
+    start.setMonth(start.getMonth() - 2);
+  } else {
+    start.setDate(start.getDate() - 6);
+  }
+
+  return {
+    start: toDateInputValue(start),
+    end: toDateInputValue(end),
+  };
+};
+
 export const toMonthInputValue = (dateValue: string) => dateValue.slice(0, 7);
 
 export const monthIndex = (monthValue: string) => {
@@ -74,4 +100,3 @@ export const constrainRangeForPeriod = (period: Period, range: DateRange): DateR
     end,
   };
 };
-

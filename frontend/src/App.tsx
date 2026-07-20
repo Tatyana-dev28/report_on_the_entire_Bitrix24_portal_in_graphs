@@ -118,9 +118,9 @@ import {
 } from './app/utils/bitrixNavigation';
 import {
   constrainRangeForPeriod,
+  getDefaultRangeForPeriod,
   getRangeFromMonthIndexes,
   getPreviousWeekFromYesterdayRange,
-  getYesterdayRange,
   monthIndex,
   toMonthInputValue,
 } from './app/utils/dateRanges';
@@ -933,6 +933,7 @@ function App() {
   const immediateAutoSaveRef = useRef(false);
   const autoBuildGenerationRef = useRef(0);
   const activeAutoBuildGenerationRef = useRef<number | null>(null);
+  const dateRangeSelectedManuallyRef = useRef(false);
   // Chart sources locked for the active auto-build (Sales funnel only).
   // Re-applied after preview so late Pro hydration cannot restore other chart checkboxes.
   const autoBuildChartSourcesRef = useRef<string[] | null>(null);
@@ -1258,6 +1259,7 @@ function App() {
   //
 
   const resetToDefaultSettings = useCallback(() => {
+    dateRangeSelectedManuallyRef.current = false;
     setDraftFilters(createDefaultFilters());
     setAppliedFilters(createDefaultFilters());
     setTableSelectedSources([]);
@@ -1328,6 +1330,7 @@ function App() {
         const savedViewsData = response.savedViews as Array<Record<string, unknown>>;
         const appSettingsData = response.appSettings as Record<string, unknown>;
         suppressNextReportSettingsTouch();
+        dateRangeSelectedManuallyRef.current = false;
 
         if (settings && Object.keys(settings).length > 0) {
           // Apply saved filters
@@ -1340,6 +1343,7 @@ function App() {
             const dateRange = settings.dateRange as { start?: string; end?: string };
             if (dateRange.start && dateRange.end) {
               const nextRange = { start: dateRange.start, end: dateRange.end };
+              dateRangeSelectedManuallyRef.current = true;
               setDraftFilters((current) => ({ ...current, dateRange: nextRange }));
               setAppliedFilters((current) => ({ ...current, dateRange: nextRange }));
             }
@@ -2545,13 +2549,14 @@ function App() {
       ...current,
       period: nextPeriod,
       dateRange:
-        nextPeriod === 'hours'
-          ? getYesterdayRange()
-          : constrainRangeForPeriod(nextPeriod, current.dateRange),
+        dateRangeSelectedManuallyRef.current
+          ? constrainRangeForPeriod(nextPeriod, current.dateRange)
+          : getDefaultRangeForPeriod(nextPeriod),
     }));
   }, [markUserSettingsChange]);
 
   const handleDateRangeChange = useCallback((nextRange: DateRange) => {
+    dateRangeSelectedManuallyRef.current = true;
     markUserSettingsChange();
     setDraftFilters((current) => ({
       ...current,
@@ -3172,6 +3177,7 @@ function App() {
     }
 
     const salesSource = preset.salesSource;
+    dateRangeSelectedManuallyRef.current = false;
 
     // Do not persist this beginner preset into Pro saved settings.
     // Keep skip active until this generation finishes applying thresholds after preview.
@@ -3732,6 +3738,7 @@ function App() {
   }, [isProUser, savedViews]);
 
   const applySavedViewState = useCallback((state: SavedReportViewState) => {
+    dateRangeSelectedManuallyRef.current = true;
     const deserializedDraft = deserializeFilters(state.draftFilters);
     const deserializedApplied = deserializeFilters(state.appliedFilters);
     setDraftFilters(deserializedDraft);

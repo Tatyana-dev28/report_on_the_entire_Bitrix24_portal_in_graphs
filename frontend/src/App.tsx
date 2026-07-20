@@ -907,6 +907,7 @@ function App() {
   const [isPinned, setIsPinned] = useState(false);
   const [hasBuiltReport, setHasBuiltReport] = useState(false);
   const [buildMoment, setBuildMoment] = useState(0);
+  const [autoSaveRequest, setAutoSaveRequest] = useState(0);
   // reportBuildRequest is a counter that increments ONLY when the user explicitly
   // clicks "Построить отчет" or "Построить автоматически". The loadReportPreview
   // useEffect depends ONLY on this counter (plus hasBuiltReport as a guard),
@@ -1499,6 +1500,11 @@ function App() {
       reportSettingsInitializedRef.current = true;
       lastAppliedReportAccessRef.current = billingHasPro;
       settingsHydratedRef.current = true;
+
+      if (billingHasPro) {
+        setAutoSaveRequest((current) => current + 1);
+      }
+
       return;
     }
 
@@ -2416,6 +2422,7 @@ function App() {
       return;
     }
 
+    userTouchedReportSettingsRef.current = true;
     skipAutoSaveRef.current = false;
   }, [cancelPendingAutoSave]);
 
@@ -3592,6 +3599,7 @@ function App() {
     appSettings,
     tableSelectedSources,
     draftTableSelectedSources,
+    autoSaveRequest,
     triggerAutoSave,
   ]);
 

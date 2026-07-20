@@ -541,6 +541,98 @@ const resolveThresholdForIds = (
   return thresholds[actionIds[0] ?? ''] ?? { upper: '', lower: '', mode: null };
 };
 
+const createEmptySourceMetrics = (source: CrmSource): SourceMetricsData => {
+  const isSmartProcess = source.type === 'smartProcess';
+  const metrics: SourceMetricsData['metrics'] = isSmartProcess
+    ? {
+        created: {
+          label: 'Создано',
+          valueType: 'count',
+          valuesByPeriod: {},
+          detailMetricIds: ['smart_process_total'],
+        },
+        working: {
+          label: 'В работе',
+          valueType: 'count',
+          valuesByPeriod: {},
+          detailMetricIds: ['smart_process_working'],
+        },
+        success: {
+          label: 'Завершено',
+          valueType: 'count',
+          valuesByPeriod: {},
+          detailMetricIds: ['smart_process_success'],
+        },
+        failed: {
+          label: 'Проиграно',
+          valueType: 'count',
+          valuesByPeriod: {},
+          detailMetricIds: ['smart_process_failed'],
+        },
+        success_sum: {
+          label: 'Сумма',
+          valueType: 'money',
+          valuesByPeriod: {},
+          detailMetricIds: ['smart_process_success_sum'],
+        },
+        conversion: {
+          label: 'Конверсия',
+          valueType: 'percent',
+          valuesByPeriod: {},
+          detailMetricIds: ['smart_process_success', 'smart_process_total'],
+        },
+      }
+    : {
+        created: {
+          label: 'Создано',
+          valueType: 'count',
+          valuesByPeriod: {},
+          detailMetricIds: ['deals_created'],
+        },
+        won: {
+          label: 'Успешных',
+          valueType: 'count',
+          valuesByPeriod: {},
+          detailMetricIds: ['deals_won'],
+        },
+        lost: {
+          label: 'Проигранных',
+          valueType: 'count',
+          valuesByPeriod: {},
+          detailMetricIds: ['deals_lost'],
+        },
+        won_sum: {
+          label: 'Сумма успешных',
+          valueType: 'money',
+          valuesByPeriod: {},
+          detailMetricIds: ['deals_won_sum'],
+        },
+        lost_sum: {
+          label: 'Сумма проигранных',
+          valueType: 'money',
+          valuesByPeriod: {},
+          detailMetricIds: ['deals_lost_sum'],
+        },
+        conversion: {
+          label: 'Конверсия',
+          valueType: 'percent',
+          valuesByPeriod: {},
+          detailMetricIds: ['deals_won', 'deals_created'],
+        },
+      };
+
+  return {
+    id: source.id,
+    label: source.title,
+    entityTypeId: source.entityTypeId ?? (source.type === 'deal' ? 2 : 0),
+    categoryId: source.categoryId ?? null,
+    type: source.type,
+    sourceId: source.id,
+    detailSourceIds: [source.id],
+    metrics,
+  };
+};
+
 /** Remap detail metric keys onto the canonical action id so CRM employee value helpers work unchanged. */
 const remapEmployeeValuesToMetricId = (
   employee: ReportEmployee,
@@ -2201,22 +2293,24 @@ function App() {
 
         tableSelectedSources.forEach((selectedId) => {
           const matched = sourceMetricsByLookup.get(selectedId);
+          const catalogSource = sourceCatalogById.get(selectedId);
           const sourceKey = matched?.key ?? selectedId;
 
           if (seenSourceKeys.has(sourceKey)) {
             return;
           }
 
-          const label = matched?.data.label ?? sourceCatalogById.get(selectedId)?.title ?? selectedId;
+          const sourceData = matched?.data ?? (catalogSource ? createEmptySourceMetrics(catalogSource) : undefined);
+          const label = sourceData?.label ?? catalogSource?.title ?? selectedId;
           seenSourceKeys.add(sourceKey);
 
-          if (hasBuiltReport && (!matched || Object.keys(matched.data.metrics).length === 0)) {
+          if (hasBuiltReport && (!sourceData || Object.keys(sourceData.metrics).length === 0)) {
             return;
           }
 
           matchedSources.push({
             key: sourceKey,
-            data: matched?.data,
+            data: sourceData,
             label,
           });
         });

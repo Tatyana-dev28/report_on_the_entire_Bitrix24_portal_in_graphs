@@ -2289,6 +2289,7 @@ function App() {
           key: string;
           data?: (typeof sourceMetrics)[string];
           label: string;
+          isPlaceholder: boolean;
         }> = [];
 
         tableSelectedSources.forEach((selectedId) => {
@@ -2312,6 +2313,7 @@ function App() {
             key: sourceKey,
             data: sourceData,
             label,
+            isPlaceholder: !matched?.data,
           });
         });
 
@@ -2344,6 +2346,7 @@ function App() {
           }
 
           const sourceData = sourceItem.data;
+          const isPlaceholder = sourceItem.isPlaceholder;
           sourceSectionRows.push({
             kind: 'source_section',
             rowId: `source-section-${sourceKey}`,
@@ -2376,7 +2379,7 @@ function App() {
               ? appliedEnabledMetricKeysBySource[sourceKey]
               : enabledMetricKeysBySource[sourceKey];
             // Missing entry = default "all enabled"; empty Set = none.
-            if (activeSourceMetricKeys && !activeSourceMetricKeys.has(metricKey)) {
+            if (!isPlaceholder && activeSourceMetricKeys && !activeSourceMetricKeys.has(metricKey)) {
               return;
             }
 
@@ -4814,6 +4817,10 @@ function App() {
                       <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
                         <div className="value-axis-gutter" aria-hidden="true" />
                         {reportData.map((point) => {
+                          if (!hasBuiltReport) {
+                            return <div className="value-cell" key={`${row.rowId}-${point.key}`} />;
+                          }
+
                           const value = readValuesByPeriod(metricData?.valuesByPeriod, point.key);
                           const valueLabel = formatMetricValue(value, valueType);
                           const thresholdClass = getThresholdClass(value, rowThreshold);

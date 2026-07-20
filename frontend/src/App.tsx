@@ -828,6 +828,11 @@ function App() {
   // Hydration guards: prevent auto-save until settings are fully loaded/applied
   const settingsHydratedRef = useRef(false);
   const applyingBackendSettingsRef = useRef(false);
+  const reportSettingsInitializedRef = useRef(false);
+  const lastAppliedReportAccessRef = useRef<boolean | null>(null);
+  const userTouchedReportSettingsRef = useRef(false);
+  const suppressReportSettingsTouchRef = useRef(false);
+  const hasObservedReportSettingsStateRef = useRef(false);
   // Skip Pro auto-save while applying one-shot "Построить автоматически" presets.
   // Cleared when that auto-build generation finishes (not via a fixed timer).
   const skipAutoSaveRef = useRef(false);
@@ -890,6 +895,7 @@ function App() {
   const [billingPlans, setBillingPlans] = useState<BillingPlan[]>([]);
   const [billingError, setBillingError] = useState('');
   const [billingLoading, setBillingLoading] = useState(false);
+  const [billingInitialized, setBillingInitialized] = useState(false);
   const [billingLoadFailed, setBillingLoadFailed] = useState(false);
   const [billingCustomerEmail, setBillingCustomerEmail] = useState('');
   const [paymentLoading, setPaymentLoading] = useState(false);
@@ -918,6 +924,16 @@ function App() {
   const [detailContext, setDetailContext] = useState<DetailContext | null>(null);
   const [expandedEmployeeMetricIds, setExpandedEmployeeMetricIds] = useState<Set<string>>(() => new Set());
   const [expandedChartMetricIds, setExpandedChartMetricIds] = useState<Set<string>>(() => new Set());
+
+  const suppressNextReportSettingsTouch = useCallback(() => {
+    suppressReportSettingsTouchRef.current = true;
+
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => {
+        suppressReportSettingsTouchRef.current = false;
+      }, 0);
+    }
+  }, []);
   const [rowThresholds, setRowThresholds] = useState<Record<string, ThresholdValues>>({});
   const [enabledMetricIdsBySection, setEnabledMetricIdsBySection] = useState<Record<string, Set<string>>>(
     () =>
@@ -1056,6 +1072,7 @@ function App() {
         setBillingIsLifetime(Boolean(state.access?.isLifetime));
         setBillingPlans(state.plans ?? []);
         setBillingError(state.bitrixTariff?.message ?? '');
+        setBillingInitialized(true);
         return state;
       })
       .catch((error) => {
@@ -1465,9 +1482,9 @@ function App() {
       });
   }, []);
 
-  // Effect: on billing state change, either load settings (PRO) or reset (FREE)
+  // Effect: apply report settings only on initial billing load or an actual PRO/FREE access change.
   useEffect(() => {
-    if (billingLoading) {
+    if (billingLoading || !billingInitialized) {
       return;
     }
 
@@ -1475,12 +1492,37 @@ function App() {
       return;
     }
 
+    const isInitialReportSettingsLoad = !reportSettingsInitializedRef.current;
+    const didReportAccessChange = lastAppliedReportAccessRef.current !== billingHasPro;
+
+    if (userTouchedReportSettingsRef.current) {
+      reportSettingsInitializedRef.current = true;
+      lastAppliedReportAccessRef.current = billingHasPro;
+      settingsHydratedRef.current = true;
+      return;
+    }
+
+    if (!isInitialReportSettingsLoad && !didReportAccessChange) {
+      return;
+    }
+
+    reportSettingsInitializedRef.current = true;
+    lastAppliedReportAccessRef.current = billingHasPro;
+
     if (billingHasPro) {
       applyBackendSettings();
     } else {
+      suppressNextReportSettingsTouch();
       resetToDefaultSettings();
     }
-  }, [billingHasPro, billingLoading, applyBackendSettings, resetToDefaultSettings]);
+  }, [
+    billingHasPro,
+    billingInitialized,
+    billingLoading,
+    applyBackendSettings,
+    resetToDefaultSettings,
+    suppressNextReportSettingsTouch,
+  ]);
 
   useEffect(() => {
     let isActive = true;
@@ -1506,6 +1548,7 @@ function App() {
 
         // Do not wipe Pro-restored (or user) visibility/order when catalog arrives late.
         if (settingsHydratedRef.current || applyingBackendSettingsRef.current) {
+          suppressNextReportSettingsTouch();
           setSectionOrder((current) => {
             const known = new Set(current);
             const missing = sections.map((section) => section.id).filter((id) => !known.has(id));
@@ -1541,6 +1584,7 @@ function App() {
           return;
         }
 
+        suppressNextReportSettingsTouch();
         setSectionOrder(sections.map((section) => section.id));
         setMetricOrderBySection(
           sections.reduce<Record<string, string[]>>((acc, section) => {
@@ -1577,7 +1621,7 @@ function App() {
     return () => {
       isActive = false;
     };
-  }, [refreshPortalEmployees]);
+  }, [refreshPortalEmployees, suppressNextReportSettingsTouch]);
 
   useEffect(() => {
     if (!hasBuiltReport) {
@@ -3447,8 +3491,30 @@ function App() {
   }, []);
 
   const triggerAutoSave = useCallback(() => {
+    // The first effect run only observes the initial React state.
+    if (!hasObservedReportSettingsStateRef.current) {
+      hasObservedReportSettingsStateRef.current = true;
+      return;
+    }
+
+    // Do not treat backend application as user work.
+    if (applyingBackendSettingsRef.current) {
+      return;
+    }
+
+    if (suppressReportSettingsTouchRef.current) {
+      suppressReportSettingsTouchRef.current = false;
+      return;
+    }
+
+    if (!settingsHydratedRef.current) {
+      userTouchedReportSettingsRef.current = true;
+      return;
+    }
+
     // Free version: never save anything
     if (!billingHasPro) {
+      userTouchedReportSettingsRef.current = true;
       return;
     }
 
@@ -3458,15 +3524,7 @@ function App() {
       return;
     }
 
-    // Do not save until settings have been hydrated from backend
-    if (!settingsHydratedRef.current) {
-      return;
-    }
-
-    // Do not save while backend settings are being applied
-    if (applyingBackendSettingsRef.current) {
-      return;
-    }
+    userTouchedReportSettingsRef.current = true;
 
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);

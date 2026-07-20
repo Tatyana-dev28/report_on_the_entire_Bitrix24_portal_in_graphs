@@ -1471,6 +1471,10 @@ function App() {
       return;
     }
 
+    if (temporaryAutoReportModeRef.current) {
+      return;
+    }
+
     if (billingHasPro) {
       applyBackendSettings();
     } else {

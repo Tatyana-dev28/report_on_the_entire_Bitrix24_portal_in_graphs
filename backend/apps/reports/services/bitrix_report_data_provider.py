@@ -119,8 +119,11 @@ class BitrixReportDataProvider:
             else []
         )
         all_selected_sources = _merge_sources_by_id(selected_sources, chart_selected_sources)
+        metric_mode = filters.get("metricMode") or "money"
         metric_catalog = resolve_metric_catalog(filters.get("selectedMetricIds"))
-        chart_metric_catalog = resolve_metric_catalog(None)
+        # Lean chart catalog: only CRM-entity metrics the main chart can read from point.values.
+        # Deal/smart pipelines use chart_source_metrics on the frontend instead.
+        chart_metric_catalog = _resolve_chart_metric_catalog(chart_selected_sources, metric_mode)
 
         client = self.rest_client_factory(context.portal)
 
@@ -142,13 +145,13 @@ class BitrixReportDataProvider:
             buckets=buckets,
             rows_by_source=table_rows_by_source,
             metric_catalog=metric_catalog,
-            metric_mode=filters.get("metricMode") or "money",
+            metric_mode=metric_mode,
         )
         chart_data = build_report_points(
             buckets=buckets,
             rows_by_source=chart_rows_by_source,
             metric_catalog=chart_metric_catalog,
-            metric_mode=filters.get("metricMode") or "money",
+            metric_mode=metric_mode,
         )
 
         employees, _employee_summary_details = build_employee_breakdown(
@@ -179,22 +182,22 @@ class BitrixReportDataProvider:
             for source_id, rows in rows_by_source.items()
         }
 
-        # Compute per-source metrics for deal pipelines and smart processes
-        source_metrics = build_source_metrics_by_period(
+        # One heavy source_metrics pass for the loaded union, then split by settings.
+        combined_source_metrics = build_source_metrics_by_period(
             buckets=buckets,
-            rows_by_source=table_rows_by_source,
-            selected_sources=selected_sources,
+            rows_by_source=rows_by_source,
+            selected_sources=all_selected_sources,
             date_from=date_from,
             date_to=date_to,
             client=client,
         )
-        chart_source_metrics = build_source_metrics_by_period(
-            buckets=buckets,
-            rows_by_source=chart_rows_by_source,
-            selected_sources=chart_selected_sources,
-            date_from=date_from,
-            date_to=date_to,
-            client=client,
+        source_metrics = _filter_source_metrics_by_sources(
+            combined_source_metrics,
+            selected_sources,
+        )
+        chart_source_metrics = _filter_source_metrics_by_sources(
+            combined_source_metrics,
+            chart_selected_sources,
         )
 
         return ReportDataResult(
@@ -919,6 +922,60 @@ def _pick_rows_for_sources(
         str(source.get("id")): rows_by_source.get(str(source.get("id")), [])
         for source in selected_sources
         if source.get("id")
+    }
+
+
+def _is_chart_pipeline_source(source: dict) -> bool:
+    """Match frontend isPipelineChartSource: deal/smart pipelines, not deal-default."""
+    source_id = str(source.get("id") or "")
+    if source_id == "deal-default":
+        return False
+    return source_id.startswith("deal-") or source_id.startswith("smart-")
+
+
+def _resolve_chart_metric_catalog(chart_sources: list[dict], metric_mode: str) -> list[dict]:
+    """
+    Metrics needed in chart_data.values for CRM-entity chart sources only.
+    Pipeline sources are rendered from chart_source_metrics on the frontend.
+    """
+    metric_ids: list[str] = []
+    seen: set[str] = set()
+
+    for source in chart_sources:
+        source_id = str(source.get("id") or "")
+        if not source_id or _is_chart_pipeline_source(source):
+            continue
+
+        metric_id = _source_indicator_metric_id(source_id, metric_mode)
+        if metric_id and metric_id not in seen:
+            seen.add(metric_id)
+            metric_ids.append(metric_id)
+
+    if not metric_ids:
+        return []
+
+    return resolve_metric_catalog(metric_ids)
+
+
+def _filter_source_metrics_by_sources(
+    source_metrics: dict[str, dict],
+    selected_sources: list[dict],
+) -> dict[str, dict]:
+    if not source_metrics or not selected_sources:
+        return {}
+
+    selected_ids = {
+        str(source.get("id"))
+        for source in selected_sources
+        if source.get("id")
+    }
+
+    return {
+        key: entry
+        for key, entry in source_metrics.items()
+        if str(entry.get("sourceId") or "") in selected_ids
+        or str(entry.get("id") or "") in selected_ids
+        or key in selected_ids
     }
 
 

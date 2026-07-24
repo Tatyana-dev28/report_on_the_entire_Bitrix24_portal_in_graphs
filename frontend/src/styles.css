@@ -1007,6 +1007,8 @@ button {
 
 .report-card.pdf-capture-mode .sync-content,
 .report-card.pdf-capture-mode .table-row-grid {
+  width: var(--pdf-right-width) !important;
+  min-width: var(--pdf-right-width);
   transform: translate3d(0, 0, 0) !important;
 }
 

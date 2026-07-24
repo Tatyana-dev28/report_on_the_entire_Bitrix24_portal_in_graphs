@@ -4124,7 +4124,22 @@ function App() {
     const leftColumnWidth = reportSurface
       ? parseFloat(getComputedStyle(reportSurface).getPropertyValue('--left-column-width')) || 280
       : 280;
-    const expandedWidth = Math.ceil(leftColumnWidth + rightContentWidth);
+    const getElementWidth = (node: HTMLElement | null) => {
+      if (!node) {
+        return 0;
+      }
+
+      const rect = node.getBoundingClientRect();
+      return Math.ceil(Math.max(node.scrollWidth, node.clientWidth, rect.width));
+    };
+    const firstTableRowGrid = tableContentRef.current?.querySelector('.table-row-grid') as HTMLElement | null;
+    const pdfRightWidth = Math.max(
+      rightContentWidth,
+      getElementWidth(chartContentRef.current),
+      getElementWidth(periodContentRef.current),
+      getElementWidth(firstTableRowGrid),
+    );
+    const expandedWidth = Math.ceil(leftColumnWidth + pdfRightWidth);
     const previousWidth = element.style.width;
     const previousMaxWidth = element.style.maxWidth;
 
@@ -4135,7 +4150,7 @@ function App() {
 
       applySyncedScroll(0);
       element.classList.add('pdf-capture-mode');
-      element.style.setProperty('--pdf-right-width', `${rightContentWidth}px`);
+      element.style.setProperty('--pdf-right-width', `${pdfRightWidth}px`);
       element.style.setProperty('--pdf-total-width', `${expandedWidth}px`);
       element.style.width = `${Math.max(expandedWidth, element.scrollWidth)}px`;
       element.style.maxWidth = 'none';

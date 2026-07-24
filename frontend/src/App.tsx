@@ -5126,6 +5126,7 @@ function App() {
                         threshold={rowThreshold}
                         recommendedThreshold={rowRecommendedThreshold}
                         showEmployees
+                        metricId={actionId}
                         onToggleEmployees={() => toggleEmployeeRows(actionId)}
                         onOpenEmployeeSelector={() => ensureEmployeeSelectorDraft(actionId)}
                         employees={sourceMetricEmployees}
@@ -5213,6 +5214,7 @@ function App() {
                       chartOpen={chartOpen}
                       threshold={rowThreshold}
                       recommendedThreshold={rowRecommendedThreshold}
+                      metricId={metricRow.metric.id}
                       onToggleEmployees={() => toggleEmployeeRows(metricRow.metric.id)}
                       onOpenEmployeeSelector={() => ensureEmployeeSelectorDraft(metricRow.metric.id)}
                       employees={availableEmployees}

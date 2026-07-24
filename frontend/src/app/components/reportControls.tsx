@@ -1481,6 +1481,7 @@ export function RowActionsMenu({
   onToggleChart,
   onThresholdChange,
   showEmployees = true,
+  metricId,
 }: {
   employeesOpen: boolean;
   hasAppliedEmployees?: boolean;
@@ -1499,6 +1500,8 @@ export function RowActionsMenu({
   onThresholdChange: (value: ThresholdValues) => void;
   /** Hide employees action when per-source employee breakdown is unavailable. */
   showEmployees?: boolean;
+  /** Metric/action id used to find the first employee table row for popover alignment. */
+  metricId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<'actions' | 'thresholds' | 'employees'>('actions');
@@ -1506,6 +1509,34 @@ export function RowActionsMenu({
   const [employeeSelectorAnchorRect, setEmployeeSelectorAnchorRect] = useState<DOMRect | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const ref = useOutsideClose<HTMLDivElement>(open && mode !== 'employees', () => setOpen(false), [popoverRef]);
+
+  const resolveEmployeeListAnchorRect = useCallback((): DOMRect | null => {
+    const reportCard = ref.current?.closest('.report-card');
+    if (!reportCard) {
+      return null;
+    }
+
+    if (metricId) {
+      // Attribute selector value: escape quotes/backslashes only (not CSS.escape — that breaks ids).
+      const escapedMetricId = metricId.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const firstEmployeeRow = reportCard.querySelector(
+        `[data-row-id^="employee-${escapedMetricId}-"]`,
+      ) as HTMLElement | null;
+
+      if (firstEmployeeRow) {
+        return firstEmployeeRow.getBoundingClientRect();
+      }
+    }
+
+    // Employees not in DOM yet: align to the bottom of the metric row (where the list starts).
+    const metricRow = ref.current?.closest('.report-table-row') as HTMLElement | null;
+    if (metricRow) {
+      const rect = metricRow.getBoundingClientRect();
+      return new DOMRect(rect.left, rect.bottom, rect.width, 1);
+    }
+
+    return null;
+  }, [metricId, ref]);
   const filteredEmployees = useMemo(() => {
     const query = employeeSearch.trim().toLocaleLowerCase('ru-RU');
 
@@ -1526,6 +1557,29 @@ export function RowActionsMenu({
         .includes(query),
     );
   }, [employeeSearch, employees]);
+
+  useEffect(() => {
+    if (!open || mode !== 'employees') {
+      return undefined;
+    }
+
+    let frame = 0;
+    const syncAnchorToEmployeeList = () => {
+      const listRect = resolveEmployeeListAnchorRect();
+      if (listRect) {
+        setEmployeeSelectorAnchorRect(listRect);
+      }
+    };
+
+    frame = requestAnimationFrame(() => {
+      syncAnchorToEmployeeList();
+      frame = requestAnimationFrame(syncAnchorToEmployeeList);
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [employeesOpen, mode, open, resolveEmployeeListAnchorRect, selectedEmployeeIds]);
 
   useEffect(() => {
     const reportCard = ref.current?.closest('.report-card') as HTMLElement | null;
@@ -1604,7 +1658,8 @@ export function RowActionsMenu({
   const openEmployees = (anchorElement?: HTMLElement) => {
     onOpenEmployeeSelector?.();
     setEmployeeSearch('');
-    setEmployeeSelectorAnchorRect(anchorElement?.getBoundingClientRect() ?? null);
+    const listRect = resolveEmployeeListAnchorRect();
+    setEmployeeSelectorAnchorRect(listRect ?? anchorElement?.getBoundingClientRect() ?? null);
     setMode('employees');
   };
 

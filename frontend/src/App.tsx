@@ -1031,6 +1031,7 @@ function App() {
   const [expandedEmployeeMetricIds, setExpandedEmployeeMetricIds] = useState<Set<string>>(() => new Set());
   const [draftEmployeeIdsByMetricId, setDraftEmployeeIdsByMetricId] = useState<Record<string, Set<string>>>({});
   const [appliedEmployeeIdsByMetricId, setAppliedEmployeeIdsByMetricId] = useState<Record<string, Set<string>>>({});
+  const [employeeOrderByMetricId, setEmployeeOrderByMetricId] = useState<Record<string, string[]>>({});
   const [expandedChartMetricIds, setExpandedChartMetricIds] = useState<Set<string>>(() => new Set());
 
   const suppressNextReportSettingsTouch = useCallback(() => {
@@ -1106,6 +1107,7 @@ function App() {
   const draggedSectionRef = useRef<string | null>(null);
   const draggedSourceSectionRef = useRef<string | null>(null);
   const draggedSourceMetricRef = useRef<{ sourceId: string; metricKey: string } | null>(null);
+  const draggedEmployeeRef = useRef<{ metricId: string; employeeId: string } | null>(null);
   const reportStartTimeRef = useRef<number>(0);
   const cancelPendingAutoSave = useCallback(() => {
     if (!autoSaveTimerRef.current) {
@@ -2282,10 +2284,21 @@ function App() {
 
           if (expandedEmployeeMetricIds.has(metric.id)) {
             const appliedEmployeeIds = appliedEmployeeIdsByMetricId[metric.id] ?? new Set<string>();
+            const orderedEmployeeIds = mergeIdOrder(
+              employeeOrderByMetricId[metric.id] ?? [],
+              availableEmployees.map((employee) => employee.id),
+            );
+            const employeesById = new Map(availableEmployees.map((employee) => [employee.id, employee]));
 
-            availableEmployees
-              .forEach((employee, employeeIndex) => {
-                if (!appliedEmployeeIds.has(employee.id)) {
+            orderedEmployeeIds
+              .forEach((employeeId, employeeIndex) => {
+                if (!appliedEmployeeIds.has(employeeId)) {
+                  return;
+                }
+
+                const employee = employeesById.get(employeeId);
+
+                if (!employee) {
                   return;
                 }
 
@@ -2458,10 +2471,21 @@ function App() {
                 availableEmployees,
               );
               const appliedEmployeeIds = appliedEmployeeIdsByMetricId[actionId] ?? new Set<string>();
+              const orderedEmployeeIds = mergeIdOrder(
+                employeeOrderByMetricId[actionId] ?? [],
+                sourceMetricEmployees.map((employee) => employee.id),
+              );
+              const employeesById = new Map(sourceMetricEmployees.map((employee) => [employee.id, employee]));
 
-              sourceMetricEmployees
-                .forEach((employee, employeeIndex) => {
-                  if (!appliedEmployeeIds.has(employee.id)) {
+              orderedEmployeeIds
+                .forEach((employeeId, employeeIndex) => {
+                  if (!appliedEmployeeIds.has(employeeId)) {
+                    return;
+                  }
+
+                  const employee = employeesById.get(employeeId);
+
+                  if (!employee) {
                     return;
                   }
 
@@ -2515,6 +2539,7 @@ function App() {
         enabledMetricKeysBySource,
         availableEmployees,
         appliedEmployeeIdsByMetricId,
+        employeeOrderByMetricId,
         metricMap,
         metricOrderBySection,
         expandedEmployeeMetricIds,
@@ -3368,13 +3393,32 @@ function App() {
     }));
   }, []);
 
-  const applyMetricEmployees = useCallback((metricId: string) => {
+  const applyMetricEmployees = useCallback((metricId: string, availableEmployeeIds: string[]) => {
     setAppliedEmployeeIdsByMetricId((current) => {
       const nextEmployeeIds = new Set(draftEmployeeIdsByMetricId[metricId] ?? []);
       const next = { ...current };
 
       if (nextEmployeeIds.size > 0) {
         next[metricId] = nextEmployeeIds;
+      } else {
+        delete next[metricId];
+      }
+
+      return next;
+    });
+
+    setEmployeeOrderByMetricId((current) => {
+      const nextEmployeeIds = new Set(draftEmployeeIdsByMetricId[metricId] ?? []);
+      const selectedInAvailableOrder = availableEmployeeIds.filter((employeeId) => nextEmployeeIds.has(employeeId));
+      const selectedEmployeeIds = [
+        ...selectedInAvailableOrder,
+        ...Array.from(nextEmployeeIds).filter((employeeId) => !selectedInAvailableOrder.includes(employeeId)),
+      ];
+      const nextOrder = mergeIdOrder(current[metricId] ?? [], selectedEmployeeIds);
+      const next = { ...current };
+
+      if (nextOrder.length > 0) {
+        next[metricId] = nextOrder;
       } else {
         delete next[metricId];
       }
@@ -3527,6 +3571,37 @@ function App() {
     });
   }, [markUserSettingsChange, sourceMetrics]);
 
+  const moveEmployeeWithinMetric = useCallback((
+    metricId: string,
+    sourceEmployeeId: string,
+    targetEmployeeId: string,
+  ) => {
+    if (sourceEmployeeId === targetEmployeeId) {
+      return;
+    }
+
+    markUserSettingsChange();
+    setEmployeeOrderByMetricId((current) => {
+      const appliedEmployeeIds = appliedEmployeeIdsByMetricId[metricId] ?? new Set<string>();
+      const source = mergeIdOrder(current[metricId] ?? [], [...appliedEmployeeIds]);
+      const fromIndex = source.indexOf(sourceEmployeeId);
+      const toIndex = source.indexOf(targetEmployeeId);
+
+      if (fromIndex === -1 || toIndex === -1) {
+        return current;
+      }
+
+      const nextOrder = [...source];
+      const [moved] = nextOrder.splice(fromIndex, 1);
+      nextOrder.splice(toIndex, 0, moved);
+
+      return {
+        ...current,
+        [metricId]: nextOrder,
+      };
+    });
+  }, [appliedEmployeeIdsByMetricId, markUserSettingsChange]);
+
   const handleMetricDragStart = useCallback((
     sectionId: string,
     metricId: string,
@@ -3674,6 +3749,44 @@ function App() {
 
     moveSourceMetricWithinSource(sourceId, dragged.metricKey, metricKey);
   }, [moveSourceMetricWithinSource]);
+
+  const handleEmployeeDragStart = useCallback((
+    metricId: string,
+    employeeId: string,
+    event: ReactDragEvent<HTMLElement>,
+  ) => {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', employeeId);
+    draggedEmployeeRef.current = { metricId, employeeId };
+  }, []);
+
+  const handleEmployeeDragOver = useCallback((
+    metricId: string,
+    event: ReactDragEvent<HTMLElement>,
+  ) => {
+    if (draggedEmployeeRef.current?.metricId !== metricId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const handleEmployeeDrop = useCallback((
+    metricId: string,
+    employeeId: string,
+    event: ReactDragEvent<HTMLElement>,
+  ) => {
+    event.preventDefault();
+    const dragged = draggedEmployeeRef.current;
+    draggedEmployeeRef.current = null;
+
+    if (!dragged || dragged.metricId !== metricId) {
+      return;
+    }
+
+    moveEmployeeWithinMetric(metricId, dragged.employeeId, employeeId);
+  }, [moveEmployeeWithinMetric]);
 
   const captureCurrentViewState = useCallback(
     (): SavedReportViewState => ({
@@ -4815,8 +4928,27 @@ function App() {
 
               if (row.kind === 'employee') {
                 return (
-                  <div className={rowClassName} key={row.rowId} role="row" data-row-id={row.rowId}>
+                  <div
+                    className={rowClassName}
+                    key={row.rowId}
+                    role="row"
+                    data-row-id={row.rowId}
+                    onDragOver={(event) => handleEmployeeDragOver(row.metric.id, event)}
+                    onDrop={(event) => handleEmployeeDrop(row.metric.id, row.employee.id, event)}
+                  >
                     <div className={leftCellClassName} role="rowheader">
+                      <button
+                        className="drag-handle-button employee-drag-handle-button"
+                        type="button"
+                        draggable
+                        aria-label="РџРµСЂРµС‚Р°С‰РёС‚СЊ СЃРѕС‚СЂСѓРґРЅРёРєР°"
+                        onDragStart={(event) => handleEmployeeDragStart(row.metric.id, row.employee.id, event)}
+                        onDragEnd={() => {
+                          draggedEmployeeRef.current = null;
+                        }}
+                      >
+                        <GripVertical size={15} />
+                      </button>
                       <button
                         className="employee-person-button"
                         type="button"
@@ -4946,6 +5078,7 @@ function App() {
                       <span className="metric-name">{row.metricLabel}</span>
                       <RowActionsMenu
                         employeesOpen={employeesOpen}
+                        hasAppliedEmployees={(appliedEmployeeIdsByMetricId[actionId]?.size ?? 0) > 0}
                         chartOpen={chartOpen}
                         threshold={rowThreshold}
                         recommendedThreshold={rowRecommendedThreshold}
@@ -4957,7 +5090,7 @@ function App() {
                         onToggleEmployee={(employeeId) => toggleDraftMetricEmployee(actionId, employeeId)}
                         onSelectAllEmployees={(employeeIds) => selectAllDraftMetricEmployees(actionId, employeeIds)}
                         onResetEmployees={() => resetDraftMetricEmployees(actionId)}
-                        onApplyEmployees={() => applyMetricEmployees(actionId)}
+                        onApplyEmployees={() => applyMetricEmployees(actionId, sourceMetricEmployees.map((employee) => employee.id))}
                         onToggleChart={() => toggleMetricChart(actionId)}
                         onThresholdChange={applySourceRowThreshold}
                       />
@@ -5033,6 +5166,7 @@ function App() {
                     <span className="metric-name">{metricRow.metric.label}</span>
                     <RowActionsMenu
                       employeesOpen={employeesOpen}
+                      hasAppliedEmployees={(appliedEmployeeIdsByMetricId[metricRow.metric.id]?.size ?? 0) > 0}
                       chartOpen={chartOpen}
                       threshold={rowThreshold}
                       recommendedThreshold={rowRecommendedThreshold}
@@ -5043,7 +5177,7 @@ function App() {
                       onToggleEmployee={(employeeId) => toggleDraftMetricEmployee(metricRow.metric.id, employeeId)}
                       onSelectAllEmployees={(employeeIds) => selectAllDraftMetricEmployees(metricRow.metric.id, employeeIds)}
                       onResetEmployees={() => resetDraftMetricEmployees(metricRow.metric.id)}
-                      onApplyEmployees={() => applyMetricEmployees(metricRow.metric.id)}
+                      onApplyEmployees={() => applyMetricEmployees(metricRow.metric.id, availableEmployees.map((employee) => employee.id))}
                       onToggleChart={() => toggleMetricChart(metricRow.metric.id)}
                       onThresholdChange={(value) => updateRowThreshold(metricRow.metric.id, value)}
                     />

@@ -1327,6 +1327,7 @@ export function RowThresholdMenu({
 
 export function RowActionsMenu({
   employeesOpen,
+  hasAppliedEmployees,
   chartOpen,
   threshold,
   recommendedThreshold,
@@ -1343,6 +1344,7 @@ export function RowActionsMenu({
   showEmployees = true,
 }: {
   employeesOpen: boolean;
+  hasAppliedEmployees?: boolean;
   chartOpen: boolean;
   threshold: ThresholdValues;
   recommendedThreshold: RecommendedThresholdValues;
@@ -1396,6 +1398,16 @@ export function RowActionsMenu({
     setMode('employees');
   };
 
+  const toggleEmployeeVisibility = () => {
+    if (!hasAppliedEmployees) {
+      openEmployees();
+      return;
+    }
+
+    onToggleEmployees();
+    setOpen(false);
+  };
+
   return (
     <div className={`row-actions-shell ${open ? 'is-open' : ''}`} ref={ref}>
       <button
@@ -1430,14 +1442,24 @@ export function RowActionsMenu({
                 </button>
               </div>
               {showEmployees && (
-                <button
-                  className={`row-action-menu-item ${employeesOpen ? 'is-active' : ''}`}
-                  type="button"
-                  onClick={openEmployees}
-                >
-                  <span>{employeesOpen ? 'Настроить сотрудников' : 'Показать сотрудников'}</span>
-                  {employeesOpen && <Check size={14} />}
-                </button>
+                <div className={`row-action-menu-item row-action-menu-split ${employeesOpen ? 'is-active' : ''}`}>
+                  <button
+                    className="row-action-menu-main"
+                    type="button"
+                    onClick={toggleEmployeeVisibility}
+                  >
+                    <span>{employeesOpen ? 'Скрыть сотрудников' : 'Показать сотрудников'}</span>
+                    {employeesOpen && <Check size={14} />}
+                  </button>
+                  <button
+                    className="row-action-menu-configure"
+                    type="button"
+                    aria-label="Настроить сотрудников"
+                    onClick={openEmployees}
+                  >
+                    <Settings2 size={14} />
+                  </button>
+                </div>
               )}
               <button
                 className={`row-action-menu-item ${chartOpen ? 'is-active' : ''}`}

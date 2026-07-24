@@ -1653,7 +1653,7 @@ button {
 
 .employee-left-cell {
   gap: 10px;
-  padding: 0 14px 0 28px;
+  padding: 0 14px 0 20px;
   color: #4d5866;
 }
 
@@ -1686,6 +1686,11 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.employee-drag-handle-button {
+  width: 22px;
+  height: 26px;
 }
 
 .chart-left-cell {
@@ -1864,6 +1869,43 @@ button {
 
 .row-action-menu-item.is-active {
   background: #eef6ff;
+  color: #185ec8;
+}
+
+.row-action-menu-split {
+  padding: 0;
+}
+
+.row-action-menu-main,
+.row-action-menu-configure {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.row-action-menu-main {
+  flex: 1 1 auto;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px 0 10px;
+  text-align: left;
+}
+
+.row-action-menu-configure {
+  width: 34px;
+  flex: 0 0 auto;
+  justify-content: center;
+  border-radius: 9px;
+  color: #7b8491;
+}
+
+.row-action-menu-configure:hover,
+.row-action-menu-configure:focus-visible {
+  background: rgba(255, 255, 255, 0.7);
   color: #185ec8;
 }
 

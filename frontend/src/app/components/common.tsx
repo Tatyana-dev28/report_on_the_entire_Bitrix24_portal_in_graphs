@@ -148,6 +148,7 @@ export function FloatingPopover({
   updateOnScroll = true,
   constrainHeight = true,
   offsetLeft = 0,
+  pinLeft,
 }: {
   anchorRef: RefObject<HTMLElement | null>;
   anchorRect?: Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'> | null;
@@ -163,6 +164,8 @@ export function FloatingPopover({
   constrainHeight?: boolean;
   /** Extra horizontal shift in px (positive = to the right), applied before viewport clamping. */
   offsetLeft?: number;
+  /** Pin left edge to this offset (px) from the report-card left; takes priority over anchor-based left. */
+  pinLeft?: number;
 }) {
   const [layer, setLayer] = useState<HTMLElement | null>(null);
   const [style, setStyle] = useState<CSSProperties>({
@@ -217,7 +220,9 @@ export function FloatingPopover({
       const width = Math.min(desiredWidth, boundaryWidth);
       const minViewportLeft = visibleLeft + padding;
       const maxViewportLeft = visibleRight - padding - width;
-      const preferredViewportLeft = resolvedAnchorRect.right - width + offsetLeft;
+      const preferredViewportLeft = typeof pinLeft === 'number'
+        ? appRect.left + pinLeft
+        : resolvedAnchorRect.right - width + offsetLeft;
       const minViewportTop = visibleTop + padding;
       const maxViewportTop = visibleBottom - padding - expectedHeight;
       const preferredViewportTop = verticalPlacement === 'anchor-start'
@@ -265,7 +270,7 @@ export function FloatingPopover({
         window.removeEventListener('scroll', scheduleUpdate, true);
       }
     };
-  }, [anchorRect, anchorRef, constrainHeight, expectedHeight, expectedWidth, offsetLeft, open, updateOnScroll, verticalPlacement]);
+  }, [anchorRect, anchorRef, constrainHeight, expectedHeight, expectedWidth, offsetLeft, open, pinLeft, updateOnScroll, verticalPlacement]);
 
   if (!open || !layer) {
     return null;

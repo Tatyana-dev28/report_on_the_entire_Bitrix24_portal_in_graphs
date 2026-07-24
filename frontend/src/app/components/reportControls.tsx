@@ -1646,7 +1646,7 @@ export function RowActionsMenu({
           constrainHeight={mode !== 'employees'}
           updateOnScroll={mode !== 'employees'}
           verticalPlacement={mode === 'employees' ? 'anchor-start' : 'auto'}
-          offsetLeft={mode === 'employees' ? 200 : 0}
+          pinLeft={mode === 'employees' ? 290 : undefined}
         >
           {mode === 'actions' ? (
             <div className="row-actions-list">

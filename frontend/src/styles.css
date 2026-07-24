@@ -1872,6 +1872,113 @@ button {
   gap: 10px;
 }
 
+.row-employee-selector {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  gap: 8px;
+  max-height: min(440px, calc(100vh - 64px));
+  min-width: 0;
+}
+
+.employee-selector-search {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  border: 1px solid #dbe1ea;
+  border-radius: 11px;
+  background: #ffffff;
+  color: #30343b;
+  padding: 0 11px;
+  outline: none;
+}
+
+.employee-selector-search:focus {
+  border-color: #9dbdff;
+  box-shadow: 0 0 0 3px rgba(34, 116, 255, 0.12);
+}
+
+.employee-selector-actions {
+  display: flex;
+  min-width: 0;
+  gap: 7px;
+}
+
+.employee-selector-actions button {
+  min-height: 32px;
+  min-width: 0;
+  border: 1px solid #dde3ea;
+  border-radius: 10px;
+  background: #f7f9fc;
+  color: #4b5563;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.employee-selector-actions button:hover,
+.employee-selector-actions button:focus-visible {
+  border-color: #cbd5e1;
+  background: #eef3f8;
+}
+
+.employee-selector-actions .employee-selector-apply {
+  border-color: #1f9d55;
+  background: #1f9d55;
+  color: #ffffff;
+}
+
+.employee-selector-actions .employee-selector-apply:hover,
+.employee-selector-actions .employee-selector-apply:focus-visible {
+  border-color: #188646;
+  background: #188646;
+}
+
+.employee-selector-list {
+  display: grid;
+  min-height: 0;
+  max-height: 300px;
+  overflow: auto;
+  gap: 2px;
+  padding-right: 2px;
+}
+
+.employee-selector-option {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  border-radius: 10px;
+  color: #30343b;
+  padding: 8px;
+}
+
+.employee-selector-option:hover {
+  background: #f4f7fb;
+}
+
+.employee-selector-option input {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--blue);
+}
+
+.employee-selector-option span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.employee-selector-empty {
+  border-radius: 10px;
+  color: #6b7280;
+  font-size: 13px;
+  padding: 10px 8px;
+}
+
 .row-popover-head {
   display: flex;
   align-items: center;

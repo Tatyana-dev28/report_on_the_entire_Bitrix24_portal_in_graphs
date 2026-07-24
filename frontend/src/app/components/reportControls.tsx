@@ -51,6 +51,7 @@ import type {
   ChartDotPayloadProps,
   ChartDraftSettings,
   RecommendedThresholdValues,
+  ReportEmployee,
   ReportFilters,
   SavedReportViewOption,
   ScheduleFilters,
@@ -1330,6 +1331,13 @@ export function RowActionsMenu({
   threshold,
   recommendedThreshold,
   onToggleEmployees,
+  onOpenEmployeeSelector,
+  employees = [],
+  selectedEmployeeIds,
+  onToggleEmployee,
+  onSelectAllEmployees,
+  onResetEmployees,
+  onApplyEmployees,
   onToggleChart,
   onThresholdChange,
   showEmployees = true,
@@ -1339,19 +1347,53 @@ export function RowActionsMenu({
   threshold: ThresholdValues;
   recommendedThreshold: RecommendedThresholdValues;
   onToggleEmployees: () => void;
+  onOpenEmployeeSelector?: () => void;
+  employees?: ReportEmployee[];
+  selectedEmployeeIds?: Set<string>;
+  onToggleEmployee?: (employeeId: string) => void;
+  onSelectAllEmployees?: (employeeIds: string[]) => void;
+  onResetEmployees?: () => void;
+  onApplyEmployees?: () => void;
   onToggleChart: () => void;
   onThresholdChange: (value: ThresholdValues) => void;
   /** Hide employees action when per-source employee breakdown is unavailable. */
   showEmployees?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<'actions' | 'thresholds'>('actions');
+  const [mode, setMode] = useState<'actions' | 'thresholds' | 'employees'>('actions');
+  const [employeeSearch, setEmployeeSearch] = useState('');
   const popoverRef = useRef<HTMLDivElement>(null);
   const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
+  const filteredEmployees = useMemo(() => {
+    const query = employeeSearch.trim().toLocaleLowerCase('ru-RU');
+
+    if (!query) {
+      return employees;
+    }
+
+    return employees.filter((employee) =>
+      [
+        employee.firstName,
+        employee.lastName,
+        employee.name,
+        employee.id,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLocaleLowerCase('ru-RU')
+        .includes(query),
+    );
+  }, [employeeSearch, employees]);
 
   const openActions = () => {
     setMode('actions');
     setOpen((current) => !current);
+  };
+
+  const openEmployees = () => {
+    onOpenEmployeeSelector?.();
+    setEmployeeSearch('');
+    setMode('employees');
   };
 
   return (
@@ -1371,8 +1413,8 @@ export function RowActionsMenu({
           popoverRef={popoverRef}
           open={open}
           className="settings-popover row-actions-popover"
-          expectedWidth={mode === 'actions' ? 280 : 520}
-          expectedHeight={mode === 'actions' ? 200 : 330}
+          expectedWidth={mode === 'thresholds' ? 520 : mode === 'employees' ? 380 : 280}
+          expectedHeight={mode === 'thresholds' ? 330 : mode === 'employees' ? 460 : 200}
         >
           {mode === 'actions' ? (
             <div className="row-actions-list">
@@ -1391,12 +1433,9 @@ export function RowActionsMenu({
                 <button
                   className={`row-action-menu-item ${employeesOpen ? 'is-active' : ''}`}
                   type="button"
-                  onClick={() => {
-                    onToggleEmployees();
-                    setOpen(false);
-                  }}
+                  onClick={openEmployees}
                 >
-                  <span>{employeesOpen ? 'Скрыть сотрудников' : 'Показать сотрудников'}</span>
+                  <span>{employeesOpen ? 'Настроить сотрудников' : 'Показать сотрудников'}</span>
                   {employeesOpen && <Check size={14} />}
                 </button>
               )}
@@ -1418,6 +1457,71 @@ export function RowActionsMenu({
               >
                 <span>Пороговые значения</span>
               </button>
+            </div>
+          ) : mode === 'employees' ? (
+            <div className="row-employee-selector">
+              <div className="row-popover-head">
+                <button type="button" onClick={() => setMode('actions')}>
+                  Назад
+                </button>
+                <button
+                  className="row-menu-close"
+                  type="button"
+                  aria-label="Закрыть меню"
+                  onClick={() => setOpen(false)}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <input
+                className="employee-selector-search"
+                type="search"
+                placeholder="Поиск по сотрудникам"
+                value={employeeSearch}
+                onChange={(event) => setEmployeeSearch(event.currentTarget.value)}
+              />
+              <div className="employee-selector-actions">
+                <button
+                  type="button"
+                  onClick={() => onSelectAllEmployees?.(employees.map((employee) => employee.id))}
+                >
+                  Выбрать все
+                </button>
+                <button type="button" onClick={onResetEmployees}>
+                  Сбросить
+                </button>
+                <button
+                  className="employee-selector-apply"
+                  type="button"
+                  onClick={() => {
+                    onApplyEmployees?.();
+                    setOpen(false);
+                  }}
+                >
+                  Применить
+                </button>
+              </div>
+              <div className="employee-selector-list">
+                {filteredEmployees.map((employee) => {
+                  const fullName = `${employee.firstName} ${employee.lastName}`.trim() || employee.name || employee.id;
+
+                  return (
+                    <label className="employee-selector-option" key={employee.id}>
+                      <input
+                        type="checkbox"
+                        checked={selectedEmployeeIds?.has(employee.id) ?? false}
+                        onChange={() => onToggleEmployee?.(employee.id)}
+                      />
+                      <span>{fullName}</span>
+                    </label>
+                  );
+                })}
+                {filteredEmployees.length === 0 && (
+                  <div className="employee-selector-empty">
+                    Сотрудники не найдены
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             <div className="row-threshold-fields">

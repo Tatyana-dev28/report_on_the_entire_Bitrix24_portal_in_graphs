@@ -1029,6 +1029,8 @@ function App() {
   const [canScrollForward, setCanScrollForward] = useState(false);
   const [detailContext, setDetailContext] = useState<DetailContext | null>(null);
   const [expandedEmployeeMetricIds, setExpandedEmployeeMetricIds] = useState<Set<string>>(() => new Set());
+  const [draftEmployeeIdsByMetricId, setDraftEmployeeIdsByMetricId] = useState<Record<string, Set<string>>>({});
+  const [appliedEmployeeIdsByMetricId, setAppliedEmployeeIdsByMetricId] = useState<Record<string, Set<string>>>({});
   const [expandedChartMetricIds, setExpandedChartMetricIds] = useState<Set<string>>(() => new Set());
 
   const suppressNextReportSettingsTouch = useCallback(() => {
@@ -2279,16 +2281,23 @@ function App() {
           });
 
           if (expandedEmployeeMetricIds.has(metric.id)) {
-            availableEmployees.forEach((employee, employeeIndex) => {
-              rows.push({
-                kind: 'employee',
-                rowId: `employee-${metric.id}-${employee.id}`,
-                sectionId: section.id,
-                metric,
-                employee,
-                employeeIndex,
+            const appliedEmployeeIds = appliedEmployeeIdsByMetricId[metric.id] ?? new Set<string>();
+
+            availableEmployees
+              .forEach((employee, employeeIndex) => {
+                if (!appliedEmployeeIds.has(employee.id)) {
+                  return;
+                }
+
+                rows.push({
+                  kind: 'employee',
+                  rowId: `employee-${metric.id}-${employee.id}`,
+                  sectionId: section.id,
+                  metric,
+                  employee,
+                  employeeIndex,
+                });
               });
-            });
           }
 
           if (expandedChartMetricIds.has(metric.id)) {
@@ -2442,24 +2451,32 @@ function App() {
 
             // Same chain as CRM metrics: expand flags → employee/chart rows in tableRows.
             if (expandedEmployeeMetricIds.has(actionId)) {
-              buildSourceMetricEmployees(
+              const sourceMetricEmployees = buildSourceMetricEmployees(
                 reportDetails,
                 detailSourceIds,
                 detailMetricIds,
                 availableEmployees,
-              ).forEach((employee, employeeIndex) => {
-                sourceSectionRows.push({
-                  kind: 'employee',
-                  rowId: `employee-${actionId}-${employee.id}`,
-                  sectionId: sourceKey,
-                  metric: syntheticMetric,
-                  employee: remapEmployeeValuesToMetricId(employee, detailMetricIds, actionId),
-                  employeeIndex,
-                  sourceId: sourceKey,
-                  detailSourceIds,
-                  detailMetricIds,
+              );
+              const appliedEmployeeIds = appliedEmployeeIdsByMetricId[actionId] ?? new Set<string>();
+
+              sourceMetricEmployees
+                .forEach((employee, employeeIndex) => {
+                  if (!appliedEmployeeIds.has(employee.id)) {
+                    return;
+                  }
+
+                  sourceSectionRows.push({
+                    kind: 'employee',
+                    rowId: `employee-${actionId}-${employee.id}`,
+                    sectionId: sourceKey,
+                    metric: syntheticMetric,
+                    employee: remapEmployeeValuesToMetricId(employee, detailMetricIds, actionId),
+                    employeeIndex,
+                    sourceId: sourceKey,
+                    detailSourceIds,
+                    detailMetricIds,
+                  });
                 });
-              });
             }
 
             if (expandedChartMetricIds.has(actionId)) {
@@ -2497,6 +2514,7 @@ function App() {
         appliedEnabledMetricKeysBySource,
         enabledMetricKeysBySource,
         availableEmployees,
+        appliedEmployeeIdsByMetricId,
         metricMap,
         metricOrderBySection,
         expandedEmployeeMetricIds,
@@ -3309,6 +3327,74 @@ function App() {
       return next;
     });
   }, []);
+
+  const ensureEmployeeSelectorDraft = useCallback((metricId: string) => {
+    setDraftEmployeeIdsByMetricId((current) => {
+      return {
+        ...current,
+        [metricId]: new Set(appliedEmployeeIdsByMetricId[metricId] ?? []),
+      };
+    });
+  }, [appliedEmployeeIdsByMetricId]);
+
+  const toggleDraftMetricEmployee = useCallback((metricId: string, employeeId: string) => {
+    setDraftEmployeeIdsByMetricId((current) => {
+      const nextEmployeeIds = new Set(current[metricId] ?? appliedEmployeeIdsByMetricId[metricId] ?? []);
+
+      if (nextEmployeeIds.has(employeeId)) {
+        nextEmployeeIds.delete(employeeId);
+      } else {
+        nextEmployeeIds.add(employeeId);
+      }
+
+      return {
+        ...current,
+        [metricId]: nextEmployeeIds,
+      };
+    });
+  }, [appliedEmployeeIdsByMetricId]);
+
+  const selectAllDraftMetricEmployees = useCallback((metricId: string, employeeIds: string[]) => {
+    setDraftEmployeeIdsByMetricId((current) => ({
+      ...current,
+      [metricId]: new Set(employeeIds),
+    }));
+  }, []);
+
+  const resetDraftMetricEmployees = useCallback((metricId: string) => {
+    setDraftEmployeeIdsByMetricId((current) => ({
+      ...current,
+      [metricId]: new Set(),
+    }));
+  }, []);
+
+  const applyMetricEmployees = useCallback((metricId: string) => {
+    setAppliedEmployeeIdsByMetricId((current) => {
+      const nextEmployeeIds = new Set(draftEmployeeIdsByMetricId[metricId] ?? []);
+      const next = { ...current };
+
+      if (nextEmployeeIds.size > 0) {
+        next[metricId] = nextEmployeeIds;
+      } else {
+        delete next[metricId];
+      }
+
+      return next;
+    });
+
+    setExpandedEmployeeMetricIds((current) => {
+      const next = new Set(current);
+      const nextEmployeeIds = draftEmployeeIdsByMetricId[metricId] ?? new Set<string>();
+
+      if (nextEmployeeIds.size > 0) {
+        next.add(metricId);
+      } else {
+        next.delete(metricId);
+      }
+
+      return next;
+    });
+  }, [draftEmployeeIdsByMetricId]);
 
   const toggleMetricChart = useCallback((metricId: string) => {
     setExpandedChartMetricIds((current) => {
@@ -4819,6 +4905,12 @@ function App() {
                 const valueType = row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number';
                 const detailSourceIds = sourceData?.detailSourceIds ?? [];
                 const detailMetricIds = metricData?.detailMetricIds ?? [];
+                const sourceMetricEmployees = buildSourceMetricEmployees(
+                  reportDetails,
+                  detailSourceIds,
+                  detailMetricIds,
+                  availableEmployees,
+                );
                 const syntheticMetric: MetricRow = {
                   id: actionId,
                   label: row.metricLabel,
@@ -4859,6 +4951,13 @@ function App() {
                         recommendedThreshold={rowRecommendedThreshold}
                         showEmployees
                         onToggleEmployees={() => toggleEmployeeRows(actionId)}
+                        onOpenEmployeeSelector={() => ensureEmployeeSelectorDraft(actionId)}
+                        employees={sourceMetricEmployees}
+                        selectedEmployeeIds={draftEmployeeIdsByMetricId[actionId] ?? new Set<string>()}
+                        onToggleEmployee={(employeeId) => toggleDraftMetricEmployee(actionId, employeeId)}
+                        onSelectAllEmployees={(employeeIds) => selectAllDraftMetricEmployees(actionId, employeeIds)}
+                        onResetEmployees={() => resetDraftMetricEmployees(actionId)}
+                        onApplyEmployees={() => applyMetricEmployees(actionId)}
                         onToggleChart={() => toggleMetricChart(actionId)}
                         onThresholdChange={applySourceRowThreshold}
                       />
@@ -4938,6 +5037,13 @@ function App() {
                       threshold={rowThreshold}
                       recommendedThreshold={rowRecommendedThreshold}
                       onToggleEmployees={() => toggleEmployeeRows(metricRow.metric.id)}
+                      onOpenEmployeeSelector={() => ensureEmployeeSelectorDraft(metricRow.metric.id)}
+                      employees={availableEmployees}
+                      selectedEmployeeIds={draftEmployeeIdsByMetricId[metricRow.metric.id] ?? new Set<string>()}
+                      onToggleEmployee={(employeeId) => toggleDraftMetricEmployee(metricRow.metric.id, employeeId)}
+                      onSelectAllEmployees={(employeeIds) => selectAllDraftMetricEmployees(metricRow.metric.id, employeeIds)}
+                      onResetEmployees={() => resetDraftMetricEmployees(metricRow.metric.id)}
+                      onApplyEmployees={() => applyMetricEmployees(metricRow.metric.id)}
                       onToggleChart={() => toggleMetricChart(metricRow.metric.id)}
                       onThresholdChange={(value) => updateRowThreshold(metricRow.metric.id, value)}
                     />

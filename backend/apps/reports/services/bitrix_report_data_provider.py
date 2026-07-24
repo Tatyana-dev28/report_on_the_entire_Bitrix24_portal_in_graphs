@@ -112,13 +112,21 @@ class BitrixReportDataProvider:
             context.portal,
             filters.get("selectedSources") or [],
         )
+        chart_selected_source_ids = filters.get("chartSelectedSources") or []
+        chart_selected_sources = (
+            resolve_selected_sources_for_portal(context.portal, chart_selected_source_ids)
+            if chart_selected_source_ids
+            else []
+        )
+        all_selected_sources = _merge_sources_by_id(selected_sources, chart_selected_sources)
         metric_catalog = resolve_metric_catalog(filters.get("selectedMetricIds"))
+        chart_metric_catalog = resolve_metric_catalog(None)
 
         client = self.rest_client_factory(context.portal)
 
         rows_by_source = self._load_source_rows(
             client=client,
-            selected_sources=selected_sources,
+            selected_sources=all_selected_sources,
             date_from=date_from,
             date_to=date_to,
         )
@@ -127,16 +135,24 @@ class BitrixReportDataProvider:
             portal=context.portal,
             rows_by_source=rows_by_source,
         )
+        table_rows_by_source = _pick_rows_for_sources(rows_by_source, selected_sources)
+        chart_rows_by_source = _pick_rows_for_sources(rows_by_source, chart_selected_sources)
 
         data = build_report_points(
             buckets=buckets,
-            rows_by_source=rows_by_source,
+            rows_by_source=table_rows_by_source,
             metric_catalog=metric_catalog,
+            metric_mode=filters.get("metricMode") or "money",
+        )
+        chart_data = build_report_points(
+            buckets=buckets,
+            rows_by_source=chart_rows_by_source,
+            metric_catalog=chart_metric_catalog,
             metric_mode=filters.get("metricMode") or "money",
         )
 
         employees, _employee_summary_details = build_employee_breakdown(
-            rows_by_source=rows_by_source,
+            rows_by_source=table_rows_by_source,
             metric_catalog=metric_catalog,
             date_from=date_from,
             date_to=date_to,
@@ -145,7 +161,7 @@ class BitrixReportDataProvider:
         )
         details = build_entity_details(
             buckets=buckets,
-            rows_by_source=rows_by_source,
+            rows_by_source=table_rows_by_source,
             metric_catalog=metric_catalog,
         )
 
@@ -166,8 +182,16 @@ class BitrixReportDataProvider:
         # Compute per-source metrics for deal pipelines and smart processes
         source_metrics = build_source_metrics_by_period(
             buckets=buckets,
-            rows_by_source=rows_by_source,
+            rows_by_source=table_rows_by_source,
             selected_sources=selected_sources,
+            date_from=date_from,
+            date_to=date_to,
+            client=client,
+        )
+        chart_source_metrics = build_source_metrics_by_period(
+            buckets=buckets,
+            rows_by_source=chart_rows_by_source,
+            selected_sources=chart_selected_sources,
             date_from=date_from,
             date_to=date_to,
             client=client,
@@ -175,9 +199,11 @@ class BitrixReportDataProvider:
 
         return ReportDataResult(
             data=data,
+            chart_data=chart_data,
             employees=employees,
             details=details,
             source_metrics=source_metrics,
+            chart_source_metrics=chart_source_metrics,
             status="ready",
             message=DEFAULT_REPORT_MESSAGE,
             metadata={
@@ -866,6 +892,34 @@ def build_report_points(
         )
 
     return points
+
+
+def _merge_sources_by_id(*source_groups: list[dict]) -> list[dict]:
+    result: list[dict] = []
+    seen_ids: set[str] = set()
+
+    for sources in source_groups:
+        for source in sources:
+            source_id = str(source.get("id") or "")
+
+            if not source_id or source_id in seen_ids:
+                continue
+
+            result.append(source)
+            seen_ids.add(source_id)
+
+    return result
+
+
+def _pick_rows_for_sources(
+    rows_by_source: dict[str, list[dict]],
+    selected_sources: list[dict],
+) -> dict[str, list[dict]]:
+    return {
+        str(source.get("id")): rows_by_source.get(str(source.get("id")), [])
+        for source in selected_sources
+        if source.get("id")
+    }
 
 
 def _build_indicator_value(

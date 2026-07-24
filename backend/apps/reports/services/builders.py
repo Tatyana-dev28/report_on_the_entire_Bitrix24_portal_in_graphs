@@ -272,9 +272,14 @@ class ReportBuilder:
             "expiresAt": session.expires_at.isoformat() if session.expires_at else None,
             "filters": filters,
             "data": result_payload["data"],
+            "chart_data": result_payload.get("chart_data", result_payload["data"]),
             "employees": result_payload["employees"],
             "details": result_payload["details"],
             "source_metrics": result_payload.get("source_metrics", {}),
+            "chart_source_metrics": result_payload.get(
+                "chart_source_metrics",
+                result_payload.get("source_metrics", {}),
+            ),
             "metadata": result_payload.get("metadata", {}),
             "message": result_payload["meta"]["message"],
         }
@@ -296,8 +301,11 @@ class ReportBuilder:
             "expiresAt": session.expires_at.isoformat() if session.expires_at else None,
             "filters": filters,
             "data": [],
+            "chart_data": [],
             "employees": [],
             "details": [],
+            "source_metrics": {},
+            "chart_source_metrics": {},
             "metadata": {
                 "async": True,
                 "buildId": build.id,
@@ -394,7 +402,13 @@ def _should_build_in_background(filters: dict) -> bool:
     if getattr(settings, "REPORT_DATA_PROVIDER", "bitrix").lower() != "bitrix":
         return False
 
-    selected_sources = {str(source) for source in filters.get("selectedSources") or []}
+    selected_sources = {
+        str(source)
+        for source in [
+            *(filters.get("selectedSources") or []),
+            *(filters.get("chartSelectedSources") or []),
+        ]
+    }
 
     if len(selected_sources) > ASYNC_SOURCE_COUNT_THRESHOLD:
         return True

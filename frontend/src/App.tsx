@@ -969,10 +969,21 @@ function App() {
       chartDisplayMode: filters.chartDisplayMode,
     });
   });
+  const [rawChartReportData, setRawChartReportData] = useState<ReportPoint[]>(() => {
+    const filters = createDefaultFilters();
+    return reportDataSource.getInitialReportData({
+      period: filters.period,
+      dateRange: filters.dateRange,
+      selectedSources: filters.selectedSources,
+      metricMode: filters.metricMode,
+      chartDisplayMode: filters.chartDisplayMode,
+    });
+  });
   const [reportEmployees, setReportEmployees] = useState<ReportEmployee[]>([]);
   const [portalEmployees, setPortalEmployees] = useState<PortalEmployeeItem[]>([]);
   const [reportDetails, setReportDetails] = useState<MetricDetailItem[]>([]);
   const [sourceMetrics, setSourceMetrics] = useState<Record<string, SourceMetricsData>>({});
+  const [chartSourceMetrics, setChartSourceMetrics] = useState<Record<string, SourceMetricsData>>({});
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
@@ -1735,24 +1746,23 @@ function App() {
       const enabledMetricIds = appliedEnabledMetricIdsBySection[section.id] ?? new Set<string>();
       return section.metricIds.filter((metricId) => enabledMetricIds.has(metricId));
     });
-    // Auto-build: merge locked chart (Sales) + locked table (all sources) via refs so a
-    // stale tableSelectedSources closure cannot load preview for Sales only.
+    // Auto-build reads locked chart/table sources via refs so a stale closure cannot
+    // mix them while the automatic preset is being applied.
     const lockedChartSources = autoBuildChartSourcesRef.current;
     const lockedTableSources = autoBuildTableSourcesRef.current;
-    const reportSourceIds = Array.from(
-      new Set([
-        ...(lockedChartSources && lockedChartSources.length > 0
-          ? lockedChartSources
-          : appliedFilters.selectedSources),
-        ...(lockedTableSources && lockedTableSources.length > 0
-          ? lockedTableSources
-          : [...tableSelectedSources, ...tableEntitySourceIds]),
-      ]),
-    );
+    const chartSourceIds =
+      lockedChartSources && lockedChartSources.length > 0
+        ? lockedChartSources
+        : appliedFilters.selectedSources;
+    const tableSourceIds =
+      lockedTableSources && lockedTableSources.length > 0
+        ? lockedTableSources
+        : [...tableSelectedSources, ...tableEntitySourceIds];
     const filters: ReportLoadFilters = {
       period: appliedFilters.period,
       dateRange: appliedFilters.dateRange,
-      selectedSources: reportSourceIds,
+      selectedSources: tableSourceIds,
+      chartSelectedSources: chartSourceIds,
       selectedMetricIds,
       metricMode: appliedFilters.metricMode,
       chartDisplayMode: appliedFilters.chartDisplayMode,
@@ -1766,12 +1776,19 @@ function App() {
       .then((preview) => {
         if (isActive) {
           setRawReportData(preview.data);
+          setRawChartReportData(preview.chartData ?? preview.data);
           setReportEmployees((preview.employees ?? []).map(toReportEmployee));
           setReportDetails(preview.details ?? []);
           setSourceMetrics(preview.sourceMetrics ?? {});
+          setChartSourceMetrics(preview.chartSourceMetrics ?? preview.sourceMetrics ?? {});
 
           if (applyAutomaticThresholdsRef.current) {
             const scheduledData = applyScheduleToReportData(preview.data, filters.period, appliedFilters.schedule);
+            const scheduledChartData = applyScheduleToReportData(
+              preview.chartData ?? preview.data,
+              filters.period,
+              appliedFilters.schedule,
+            );
             const metricMode = filters.metricMode ?? appliedFilters.metricMode;
             // Auto-build chart must stay on the locked Sales funnel only — never merge table sources.
             const lockedChartSources = autoBuildChartSourcesRef.current;
@@ -1796,12 +1813,12 @@ function App() {
             }
 
             // Main chart sum = successful money for locked chart sources only (Sales won_sum).
-            const mainValues = scheduledData.map((point) =>
+            const mainValues = scheduledChartData.map((point) =>
               getChartSumValue(
                 point,
                 chartSourcesForAutoBuild,
                 metricMode,
-                preview.sourceMetrics ?? {},
+                preview.chartSourceMetrics ?? preview.sourceMetrics ?? {},
               ),
             );
             const mainRecommended = calculateRecommendedThresholds(mainValues, metricMode);
@@ -1901,8 +1918,11 @@ function App() {
               : message,
           );
           setRawReportData([]);
+          setRawChartReportData([]);
           setReportEmployees([]);
           setReportDetails([]);
+          setSourceMetrics({});
+          setChartSourceMetrics({});
           applyAutomaticThresholdsRef.current = false;
           autoBuildChartSourcesRef.current = null;
           autoBuildTableSourcesRef.current = null;
@@ -1937,9 +1957,17 @@ function App() {
     () => applyScheduleToReportData(rawReportData, appliedFilters.period, appliedFilters.schedule),
     [appliedFilters.period, appliedFilters.schedule, rawReportData],
   );
+  const appliedChartReportData = useMemo(
+    () => applyScheduleToReportData(rawChartReportData, appliedFilters.period, appliedFilters.schedule),
+    [appliedFilters.period, appliedFilters.schedule, rawChartReportData],
+  );
   const reportData = useMemo(
     () => (hasBuiltReport ? appliedReportData : createZeroReportData(appliedReportData)),
     [appliedReportData, hasBuiltReport],
+  );
+  const chartReportData = useMemo(
+    () => (hasBuiltReport ? appliedChartReportData : createZeroReportData(appliedChartReportData)),
+    [appliedChartReportData, hasBuiltReport],
   );
   const crmSourceOptions = useMemo(
     () =>
@@ -2071,21 +2099,21 @@ function App() {
   );
   const chartBaseValues = useMemo(
     () =>
-      reportData.map((point) =>
-        getChartSumValue(point, selectedChartSources, appliedFilters.metricMode, sourceMetrics),
+      chartReportData.map((point) =>
+        getChartSumValue(point, selectedChartSources, appliedFilters.metricMode, chartSourceMetrics),
       ),
-    [appliedFilters.metricMode, reportData, selectedChartSources, sourceMetrics],
+    [appliedFilters.metricMode, chartReportData, selectedChartSources, chartSourceMetrics],
   );
   const mainThresholdRecommendationValues = useMemo(
     () =>
       isSeparateChart
-        ? reportData.flatMap((point) =>
+        ? chartReportData.flatMap((point) =>
             selectedChartSources.map((source) =>
-              getChartSeriesValue(point, source, appliedFilters.metricMode, sourceMetrics),
+              getChartSeriesValue(point, source, appliedFilters.metricMode, chartSourceMetrics),
             ),
           )
         : chartBaseValues,
-    [appliedFilters.metricMode, chartBaseValues, isSeparateChart, reportData, selectedChartSources, sourceMetrics],
+    [appliedFilters.metricMode, chartBaseValues, isSeparateChart, chartReportData, selectedChartSources, chartSourceMetrics],
   );
   const mainRecommendedThreshold = useMemo(
     () =>
@@ -2099,14 +2127,14 @@ function App() {
   );
   const chartData = useMemo(
     () =>
-      reportData.map((point, index) => {
+      chartReportData.map((point, index) => {
         const seriesValues = isSeparateChart
           ? selectedChartSources.reduce<Record<string, number>>((acc, source, sourceIndex) => {
               acc[`series_${sourceIndex}`] = getChartSeriesValue(
                 point,
                 source,
                 appliedFilters.metricMode,
-                sourceMetrics,
+                chartSourceMetrics,
               );
               return acc;
             }, {})
@@ -2124,10 +2152,10 @@ function App() {
     [
       appliedFilters.metricMode,
       chartBaseValues,
+      chartReportData,
+      chartSourceMetrics,
       isSeparateChart,
-      reportData,
       selectedChartSources,
-      sourceMetrics,
       trendValues,
     ],
   );
@@ -2141,9 +2169,9 @@ function App() {
   const chartDomain = useMemo(
     () => {
       const values = isSeparateChart
-        ? reportData.flatMap((point) =>
+        ? chartReportData.flatMap((point) =>
             selectedChartSources.map((source) =>
-              getChartSeriesValue(point, source, appliedFilters.metricMode, sourceMetrics),
+              getChartSeriesValue(point, source, appliedFilters.metricMode, chartSourceMetrics),
             ),
           )
         : [...chartBaseValues, ...trendValues];
@@ -2153,10 +2181,10 @@ function App() {
     [
       appliedFilters.metricMode,
       chartBaseValues,
+      chartReportData,
+      chartSourceMetrics,
       isSeparateChart,
-      reportData,
       selectedChartSources,
-      sourceMetrics,
       thresholdNumbers,
       trendValues,
     ],
@@ -4382,7 +4410,7 @@ function App() {
                       <XAxis
                         dataKey="xIndex"
                         type="number"
-                        domain={[0, Math.max(reportData.length, 1)]}
+                        domain={[0, Math.max(chartData.length, 1)]}
                         hide
                       />
                       <YAxis

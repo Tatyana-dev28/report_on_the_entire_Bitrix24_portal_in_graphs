@@ -32,6 +32,7 @@ export type ReportLoadFilters = {
   period: Period;
   dateRange: DateRange;
   selectedSources: string[];
+  chartSelectedSources?: string[];
   selectedMetricIds?: string[];
   metricMode?: 'money' | 'count';
   chartDisplayMode?: 'sum' | 'separate';
@@ -84,9 +85,11 @@ export type EmployeeMetricItem = {
 
 export type ReportPreviewPayload = {
   data: ReportPoint[];
+  chartData?: ReportPoint[];
   employees: EmployeeMetricItem[];
   details: MetricDetailItem[];
   sourceMetrics?: Record<string, SourceMetricsData>;
+  chartSourceMetrics?: Record<string, SourceMetricsData>;
 };
 
 /** A single metric inside a source (deal pipeline or smart process) */

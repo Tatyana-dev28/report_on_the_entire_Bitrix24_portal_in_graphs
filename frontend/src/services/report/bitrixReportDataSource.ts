@@ -57,9 +57,11 @@ export const bitrixReportDataSource: ReportDataSource = {
 
     latestPreview = {
       data: preview.data,
+      chartData: preview.chart_data ?? preview.data,
       employees: preview.employees ?? [],
       details: preview.details ?? [],
       sourceMetrics: preview.source_metrics ?? {},
+      chartSourceMetrics: preview.chart_source_metrics ?? preview.source_metrics ?? {},
     };
 
     return latestPreview;

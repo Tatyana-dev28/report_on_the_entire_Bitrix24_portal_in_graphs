@@ -62,9 +62,14 @@ def get_report_preview_session_status(request, session_key: str) -> dict:
                 "expiresAt": session.expires_at.isoformat() if session.expires_at else None,
                 "filters": session.state_snapshot,
                 "data": cached_payload.get("data", []),
+                "chart_data": cached_payload.get("chart_data", cached_payload.get("data", [])),
                 "employees": cached_payload.get("employees", []),
                 "details": cached_payload.get("details", []),
                 "source_metrics": cached_payload.get("source_metrics", {}),
+                "chart_source_metrics": cached_payload.get(
+                    "chart_source_metrics",
+                    cached_payload.get("source_metrics", {}),
+                ),
                 "metadata": cached_payload.get("metadata", {}),
                 "message": (cached_payload.get("meta") or {}).get("message", ""),
             }
@@ -80,8 +85,11 @@ def get_report_preview_session_status(request, session_key: str) -> dict:
             "expiresAt": session.expires_at.isoformat() if session.expires_at else None,
             "filters": session.state_snapshot,
             "data": [],
+            "chart_data": [],
             "employees": [],
             "details": [],
+            "source_metrics": {},
+            "chart_source_metrics": {},
             "metadata": session.metadata or {},
             "message": session.error_message or (build.error_message if build else "") or "Не удалось построить отчет.",
         }
@@ -103,8 +111,11 @@ def get_report_preview_session_status(request, session_key: str) -> dict:
         "expiresAt": session.expires_at.isoformat() if session.expires_at else None,
         "filters": session.state_snapshot,
         "data": [],
+        "chart_data": [],
         "employees": [],
         "details": [],
+        "source_metrics": {},
+        "chart_source_metrics": {},
         "metadata": session.metadata or {},
         "message": "Отчет строится. Данные появятся автоматически после завершения.",
     }

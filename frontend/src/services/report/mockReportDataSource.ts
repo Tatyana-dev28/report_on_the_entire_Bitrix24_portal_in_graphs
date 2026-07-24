@@ -39,8 +39,11 @@ export const mockReportDataSource: ReportDataSource = {
   },
 
   async loadReportPreview(filters: ReportLoadFilters) {
+    const data = buildReportData(filters.period, filters.dateRange);
+
     return {
-      data: buildReportData(filters.period, filters.dateRange),
+      data,
+      chartData: data,
       employees: [],
       details: [],
     };

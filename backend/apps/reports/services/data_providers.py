@@ -18,9 +18,11 @@ class ReportDataProviderContext:
 @dataclass(frozen=True)
 class ReportDataResult:
     data: list[dict] = field(default_factory=list)
+    chart_data: list[dict] = field(default_factory=list)
     employees: list[dict] = field(default_factory=list)
     details: list[dict] = field(default_factory=list)
     source_metrics: dict[str, dict] = field(default_factory=dict)
+    chart_source_metrics: dict[str, dict] = field(default_factory=dict)
     status: str = "empty"
     message: str = "Сессия отчета создана. Расчет через Bitrix REST будет подключен следующим этапом."
     metadata: dict = field(default_factory=dict)
@@ -28,9 +30,11 @@ class ReportDataResult:
     def to_cache_payload(self, *, session_key: str, filters_hash: str) -> dict:
         return {
             "data": self.data,
+            "chart_data": self.chart_data or self.data,
             "employees": self.employees,
             "details": self.details,
             "source_metrics": self.source_metrics,
+            "chart_source_metrics": self.chart_source_metrics or self.source_metrics,
             "metadata": self.metadata,
             "meta": {
                 "status": self.status,

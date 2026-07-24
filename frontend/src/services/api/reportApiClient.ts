@@ -23,9 +23,11 @@ export type ReportPreviewResponse = {
     message?: string;
     filters?: ReportLoadFilters;
     data: ReportPoint[];
+    chart_data?: ReportPoint[];
     employees: EmployeeMetricItem[];
     details: MetricDetailItem[];
     source_metrics?: Record<string, SourceMetricsData>;
+    chart_source_metrics?: Record<string, SourceMetricsData>;
 };
 
 export type PortalEmployeeItem = {

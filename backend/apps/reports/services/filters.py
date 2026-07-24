@@ -34,6 +34,10 @@ def normalize_report_filters(payload: dict) -> dict:
         payload.get("selectedSources"),
         "selectedSources",
     )
+    chart_selected_sources = _normalize_string_list(
+        payload.get("chartSelectedSources") if "chartSelectedSources" in payload else payload.get("selectedSources"),
+        "chartSelectedSources",
+    )
 
     raw_selected_metric_ids = (
         payload["selectedMetricIds"]
@@ -50,6 +54,7 @@ def normalize_report_filters(payload: dict) -> dict:
         "period": _normalize_period(payload.get("period")),
         "dateRange": _normalize_date_range(payload.get("dateRange")),
         "selectedSources": selected_sources,
+        "chartSelectedSources": chart_selected_sources,
         "selectedMetricIds": selected_metric_ids,
         "metricMode": payload.get("metricMode"),
         "chartDisplayMode": payload.get("chartDisplayMode"),

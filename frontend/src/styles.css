@@ -1792,6 +1792,10 @@ button {
   padding: 8px;
 }
 
+.row-actions-popover.is-employee-selector-popover {
+  overflow: auto;
+}
+
 .section-metrics-popover {
   padding: 12px;
 }

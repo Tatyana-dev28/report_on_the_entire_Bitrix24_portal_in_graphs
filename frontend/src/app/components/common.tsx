@@ -136,6 +136,7 @@ export function useBoundedPopoverPosition<T extends HTMLElement>(
 
 export function FloatingPopover({
   anchorRef,
+  anchorRect,
   popoverRef,
   open,
   className,
@@ -143,8 +144,10 @@ export function FloatingPopover({
   expectedHeight,
   children,
   role,
+  verticalPlacement = 'auto',
 }: {
   anchorRef: RefObject<HTMLElement | null>;
+  anchorRect?: Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'> | null;
   popoverRef: RefObject<HTMLDivElement | null>;
   open: boolean;
   className: string;
@@ -152,6 +155,7 @@ export function FloatingPopover({
   expectedHeight: number;
   children: ReactNode;
   role?: string;
+  verticalPlacement?: 'auto' | 'anchor-start';
 }) {
   const [layer, setLayer] = useState<HTMLElement | null>(null);
   const [style, setStyle] = useState<CSSProperties>({
@@ -194,7 +198,7 @@ export function FloatingPopover({
         width: window.innerWidth,
         height: window.innerHeight,
       };
-      const anchorRect = currentAnchor.getBoundingClientRect();
+      const resolvedAnchorRect = anchorRect ?? currentAnchor.getBoundingClientRect();
       const padding = 12;
       const gap = 8;
       const visibleLeft = Math.max(appRect.left, 0);
@@ -202,23 +206,26 @@ export function FloatingPopover({
       const visibleTop = Math.max(appRect.top, 0);
       const visibleBottom = Math.min(appRect.bottom, window.innerHeight);
       const boundaryWidth = Math.max(180, visibleRight - visibleLeft - padding * 2);
-      const desiredWidth = Math.max(expectedWidth, anchorRect.width);
+      const desiredWidth = Math.max(expectedWidth, resolvedAnchorRect.width);
       const width = Math.min(desiredWidth, boundaryWidth);
       const minViewportLeft = visibleLeft + padding;
       const maxViewportLeft = visibleRight - padding - width;
-      const preferredViewportLeft = anchorRect.right - width;
+      const preferredViewportLeft = resolvedAnchorRect.right - width;
       const minViewportTop = visibleTop + padding;
       const maxViewportTop = visibleBottom - padding - expectedHeight;
-      const preferredViewportTop =
-        anchorRect.bottom + gap + expectedHeight <= visibleBottom - padding
-          ? anchorRect.bottom + gap
-          : anchorRect.top - expectedHeight - gap;
+      const preferredViewportTop = verticalPlacement === 'anchor-start'
+        ? resolvedAnchorRect.top
+        : resolvedAnchorRect.bottom + gap + expectedHeight <= visibleBottom - padding
+          ? resolvedAnchorRect.bottom + gap
+          : resolvedAnchorRect.top - expectedHeight - gap;
       const viewportLeft =
         maxViewportLeft < minViewportLeft
           ? minViewportLeft
           : clamp(preferredViewportLeft, minViewportLeft, maxViewportLeft);
       const viewportTop =
-        maxViewportTop < minViewportTop
+        verticalPlacement === 'anchor-start'
+          ? Math.max(minViewportTop, Math.min(preferredViewportTop, visibleBottom - padding - 180))
+          : maxViewportTop < minViewportTop
           ? minViewportTop
           : clamp(preferredViewportTop, minViewportTop, maxViewportTop);
 
@@ -226,6 +233,9 @@ export function FloatingPopover({
         width,
         left: viewportLeft - appRect.left,
         top: viewportTop - appRect.top,
+        maxHeight: verticalPlacement === 'anchor-start'
+          ? Math.max(180, visibleBottom - padding - viewportTop)
+          : undefined,
         visibility: 'visible',
       });
     };
@@ -244,7 +254,7 @@ export function FloatingPopover({
       window.removeEventListener('resize', scheduleUpdate);
       window.removeEventListener('scroll', scheduleUpdate, true);
     };
-  }, [anchorRef, expectedHeight, expectedWidth, open]);
+  }, [anchorRect, anchorRef, expectedHeight, expectedWidth, open, verticalPlacement]);
 
   if (!open || !layer) {
     return null;

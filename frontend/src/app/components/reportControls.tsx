@@ -1364,6 +1364,7 @@ export function RowActionsMenu({
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<'actions' | 'thresholds' | 'employees'>('actions');
   const [employeeSearch, setEmployeeSearch] = useState('');
+  const [employeeSelectorAnchorRect, setEmployeeSelectorAnchorRect] = useState<DOMRect | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
   const filteredEmployees = useMemo(() => {
@@ -1389,18 +1390,20 @@ export function RowActionsMenu({
 
   const openActions = () => {
     setMode('actions');
+    setEmployeeSelectorAnchorRect(null);
     setOpen((current) => !current);
   };
 
-  const openEmployees = () => {
+  const openEmployees = (anchorElement?: HTMLElement) => {
     onOpenEmployeeSelector?.();
     setEmployeeSearch('');
+    setEmployeeSelectorAnchorRect(anchorElement?.getBoundingClientRect() ?? null);
     setMode('employees');
   };
 
-  const toggleEmployeeVisibility = () => {
+  const toggleEmployeeVisibility = (anchorElement?: HTMLElement) => {
     if (!hasAppliedEmployees) {
-      openEmployees();
+      openEmployees(anchorElement);
       return;
     }
 
@@ -1422,11 +1425,13 @@ export function RowActionsMenu({
       {open && (
         <FloatingPopover
           anchorRef={ref}
+          anchorRect={mode === 'employees' ? employeeSelectorAnchorRect : null}
           popoverRef={popoverRef}
           open={open}
-          className="settings-popover row-actions-popover"
+          className={`settings-popover row-actions-popover ${mode === 'employees' ? 'is-employee-selector-popover' : ''}`}
           expectedWidth={mode === 'thresholds' ? 520 : mode === 'employees' ? 380 : 280}
           expectedHeight={mode === 'thresholds' ? 330 : mode === 'employees' ? 460 : 200}
+          verticalPlacement={mode === 'employees' ? 'anchor-start' : 'auto'}
         >
           {mode === 'actions' ? (
             <div className="row-actions-list">
@@ -1446,7 +1451,7 @@ export function RowActionsMenu({
                   <button
                     className="row-action-menu-main"
                     type="button"
-                    onClick={toggleEmployeeVisibility}
+                    onClick={(event) => toggleEmployeeVisibility(event.currentTarget)}
                   >
                     <span>{employeesOpen ? 'Скрыть сотрудников' : 'Показать сотрудников'}</span>
                     {employeesOpen && <Check size={14} />}
@@ -1455,7 +1460,7 @@ export function RowActionsMenu({
                     className="row-action-menu-configure"
                     type="button"
                     aria-label="Настроить сотрудников"
-                    onClick={openEmployees}
+                    onClick={(event) => openEmployees(event.currentTarget)}
                   >
                     <Settings2 size={14} />
                   </button>

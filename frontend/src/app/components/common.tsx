@@ -560,17 +560,55 @@ export function CustomSelect<T extends string>({
   onChange,
   ariaLabel,
   className = '',
+  menuGroup,
+  menuKey,
 }: {
   options: SelectOption<T>[];
   value: T;
   onChange: (value: T) => void;
   ariaLabel: string;
   className?: string;
+  menuGroup?: string;
+  menuKey?: string;
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
   const selected = options.find((option) => option.value === value) ?? options[0];
+
+  useEffect(() => {
+    if (!menuGroup || !menuKey) {
+      return undefined;
+    }
+
+    const handleMenuOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ group?: string; key?: string }>).detail;
+
+      if (detail?.group === menuGroup && detail.key !== menuKey) {
+        setOpen(false);
+      }
+    };
+
+    window.addEventListener('nested-menu-open', handleMenuOpen);
+
+    return () => {
+      window.removeEventListener('nested-menu-open', handleMenuOpen);
+    };
+  }, [menuGroup, menuKey]);
+
+  const toggleOpen = () => {
+    setOpen((current) => {
+      const nextOpen = !current;
+
+      if (nextOpen && menuGroup && menuKey) {
+        window.dispatchEvent(new CustomEvent('nested-menu-open', {
+          detail: { group: menuGroup, key: menuKey },
+        }));
+      }
+
+      return nextOpen;
+    });
+  };
 
   return (
     <div className={`select-shell ${className} ${open ? 'is-open' : ''}`} ref={ref}>
@@ -579,7 +617,7 @@ export function CustomSelect<T extends string>({
         type="button"
         aria-label={ariaLabel}
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        onClick={toggleOpen}
       >
         <span>{selected.label}</span>
         <ChevronDown size={16} />

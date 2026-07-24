@@ -420,6 +420,9 @@ export function MultiSelect({
   onSelectAll,
   onReset,
   onApply,
+  closeOnApply = false,
+  menuGroup,
+  menuKey,
   variant = 'dropdown',
 }: {
   values: string[];
@@ -430,6 +433,9 @@ export function MultiSelect({
   onSelectAll?: () => void;
   onReset?: () => void;
   onApply?: () => void;
+  closeOnApply?: boolean;
+  menuGroup?: string;
+  menuKey?: string;
   variant?: 'dropdown' | 'inline';
 }) {
   const [open, setOpen] = useState(false);
@@ -440,6 +446,26 @@ export function MultiSelect({
     setOpen(false);
     setSearchQuery('');
   }, [popoverRef]);
+  useEffect(() => {
+    if (!menuGroup || !menuKey) {
+      return undefined;
+    }
+
+    const handleMenuOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ group?: string; key?: string }>).detail;
+
+      if (detail?.group === menuGroup && detail.key !== menuKey) {
+        setOpen(false);
+        setSearchQuery('');
+      }
+    };
+
+    window.addEventListener('nested-menu-open', handleMenuOpen);
+
+    return () => {
+      window.removeEventListener('nested-menu-open', handleMenuOpen);
+    };
+  }, [menuGroup, menuKey]);
   const optionLabelByValue = useMemo(
     () => new Map(options.map((option) => [option.value, option.label])),
     [options],
@@ -504,6 +530,29 @@ export function MultiSelect({
     onChange([...values, value]);
   };
 
+  const applySelection = () => {
+    onApply?.();
+
+    if (closeOnApply) {
+      setOpen(false);
+      setSearchQuery('');
+    }
+  };
+
+  const toggleOpen = () => {
+    setOpen((current) => {
+      const nextOpen = !current;
+
+      if (nextOpen && menuGroup && menuKey) {
+        window.dispatchEvent(new CustomEvent('nested-menu-open', {
+          detail: { group: menuGroup, key: menuKey },
+        }));
+      }
+
+      return nextOpen;
+    });
+  };
+
   const renderOption = (option: SelectOption<string>) => (
     <label className="multi-option" key={option.value}>
       <input
@@ -550,7 +599,7 @@ export function MultiSelect({
             </button>
           )}
           {onApply && (
-            <button type="button" className="multi-action-button multi-action-button--primary" onClick={onApply}>
+            <button type="button" className="multi-action-button multi-action-button--primary" onClick={applySelection}>
               Применить
             </button>
           )}
@@ -587,7 +636,7 @@ export function MultiSelect({
         type="button"
         aria-label="Выбор источников отчета"
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        onClick={toggleOpen}
       >
         <span>{label}</span>
         <ChevronDown size={16} />
@@ -803,6 +852,7 @@ export function ConfigureChartMenu({
   onThresholdApply: (value: ThresholdValues) => void;
   onThresholdReset: () => void;
 }) {
+  const chartMenuGroup = 'configure-chart';
   const [open, setOpen] = useState(false);
   const [draftSettings, setDraftSettings] = useState<ChartDraftSettings>(() => ({
     selectedSources: [...filters.selectedSources],
@@ -849,7 +899,7 @@ export function ConfigureChartMenu({
     setOpen(true);
   };
 
-  const applySettings = () => {
+  const applySettings = ({ closeMenu = true }: { closeMenu?: boolean } = {}) => {
     onApply({
       selectedSources: [...draftSettings.selectedSources],
       chartDisplayMode: draftSettings.chartDisplayMode,
@@ -859,7 +909,9 @@ export function ConfigureChartMenu({
         weekendDayIds: [...draftSettings.schedule.weekendDayIds],
       },
     });
-    setOpen(false);
+    if (closeMenu) {
+      setOpen(false);
+    }
   };
 
   return (
@@ -915,7 +967,10 @@ export function ConfigureChartMenu({
                   selectedSources: [],
                 }))
               }
-              onApply={applySettings}
+              onApply={() => applySettings({ closeMenu: false })}
+              closeOnApply
+              menuGroup={chartMenuGroup}
+              menuKey="sources"
             />
             {draftSettings.selectedSources.length > 1 && (
               <CustomSelect
@@ -929,6 +984,8 @@ export function ConfigureChartMenu({
                 }
                 ariaLabel="Режим отображения CRM-разделов"
                 className="chart-mode-select"
+                menuGroup={chartMenuGroup}
+                menuKey="display-mode"
               />
             )}
             <CustomSelect
@@ -942,12 +999,16 @@ export function ConfigureChartMenu({
               }
               ariaLabel="Что считаем"
               className="chart-mode-select"
+              menuGroup={chartMenuGroup}
+              menuKey="metric-mode"
             />
             <ThresholdMenu
               value={mainThreshold}
               recommended={mainRecommendedThreshold}
               onApply={onThresholdApply}
               onReset={onThresholdReset}
+              menuGroup={chartMenuGroup}
+              menuKey="thresholds"
             />
             <ScheduleMenu
               schedule={draftSettings.schedule}
@@ -957,9 +1018,11 @@ export function ConfigureChartMenu({
                   schedule,
                 }))
               }
+              menuGroup={chartMenuGroup}
+              menuKey="schedule"
             />
           </div>
-          <button className="configure-chart-apply blue-button" type="button" onClick={applySettings}>
+          <button className="configure-chart-apply blue-button" type="button" onClick={() => applySettings()}>
             Применить
           </button>
         </FloatingPopover>
@@ -1074,15 +1137,53 @@ export function ThresholdMenu({
   recommended,
   onApply,
   onReset,
+  menuGroup,
+  menuKey,
 }: {
   value: ThresholdValues;
   recommended: RecommendedThresholdValues;
   onApply: (value: ThresholdValues) => void;
   onReset: () => void;
+  menuGroup?: string;
+  menuKey?: string;
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
+
+  useEffect(() => {
+    if (!menuGroup || !menuKey) {
+      return undefined;
+    }
+
+    const handleMenuOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ group?: string; key?: string }>).detail;
+
+      if (detail?.group === menuGroup && detail.key !== menuKey) {
+        setOpen(false);
+      }
+    };
+
+    window.addEventListener('nested-menu-open', handleMenuOpen);
+
+    return () => {
+      window.removeEventListener('nested-menu-open', handleMenuOpen);
+    };
+  }, [menuGroup, menuKey]);
+
+  const toggleOpen = () => {
+    setOpen((current) => {
+      const nextOpen = !current;
+
+      if (nextOpen && menuGroup && menuKey) {
+        window.dispatchEvent(new CustomEvent('nested-menu-open', {
+          detail: { group: menuGroup, key: menuKey },
+        }));
+      }
+
+      return nextOpen;
+    });
+  };
 
   return (
     <div className={`threshold-shell ${open ? 'is-open' : ''}`} ref={ref}>
@@ -1090,7 +1191,7 @@ export function ThresholdMenu({
         className="threshold-trigger"
         type="button"
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        onClick={toggleOpen}
       >
         <SlidersHorizontal size={17} />
         <span>Пороговые значения</span>
@@ -1121,13 +1222,51 @@ export function ThresholdMenu({
 export function ScheduleMenu({
   schedule,
   onChange,
+  menuGroup,
+  menuKey,
 }: {
   schedule: ScheduleFilters;
   onChange: (schedule: ScheduleFilters) => void;
+  menuGroup?: string;
+  menuKey?: string;
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
+
+  useEffect(() => {
+    if (!menuGroup || !menuKey) {
+      return undefined;
+    }
+
+    const handleMenuOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ group?: string; key?: string }>).detail;
+
+      if (detail?.group === menuGroup && detail.key !== menuKey) {
+        setOpen(false);
+      }
+    };
+
+    window.addEventListener('nested-menu-open', handleMenuOpen);
+
+    return () => {
+      window.removeEventListener('nested-menu-open', handleMenuOpen);
+    };
+  }, [menuGroup, menuKey]);
+
+  const toggleOpen = () => {
+    setOpen((current) => {
+      const nextOpen = !current;
+
+      if (nextOpen && menuGroup && menuKey) {
+        window.dispatchEvent(new CustomEvent('nested-menu-open', {
+          detail: { group: menuGroup, key: menuKey },
+        }));
+      }
+
+      return nextOpen;
+    });
+  };
 
   const updateSchedule = (nextSchedule: ScheduleFilters) => {
     onChange({
@@ -1153,7 +1292,7 @@ export function ScheduleMenu({
         className="threshold-trigger schedule-trigger"
         type="button"
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        onClick={toggleOpen}
       >
         <CalendarClock size={17} />
         <span>Расписание</span>

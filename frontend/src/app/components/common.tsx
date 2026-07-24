@@ -146,6 +146,7 @@ export function FloatingPopover({
   role,
   verticalPlacement = 'auto',
   updateOnScroll = true,
+  constrainHeight = true,
 }: {
   anchorRef: RefObject<HTMLElement | null>;
   anchorRect?: Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'> | null;
@@ -158,6 +159,7 @@ export function FloatingPopover({
   role?: string;
   verticalPlacement?: 'auto' | 'anchor-start';
   updateOnScroll?: boolean;
+  constrainHeight?: boolean;
 }) {
   const [layer, setLayer] = useState<HTMLElement | null>(null);
   const [style, setStyle] = useState<CSSProperties>({
@@ -235,7 +237,7 @@ export function FloatingPopover({
         width,
         left: viewportLeft - appRect.left,
         top: viewportTop - appRect.top,
-        maxHeight: verticalPlacement === 'anchor-start'
+        maxHeight: verticalPlacement === 'anchor-start' && constrainHeight
           ? Math.max(180, visibleBottom - padding - viewportTop)
           : undefined,
         visibility: 'visible',
@@ -260,7 +262,7 @@ export function FloatingPopover({
         window.removeEventListener('scroll', scheduleUpdate, true);
       }
     };
-  }, [anchorRect, anchorRef, expectedHeight, expectedWidth, open, updateOnScroll, verticalPlacement]);
+  }, [anchorRect, anchorRef, constrainHeight, expectedHeight, expectedWidth, open, updateOnScroll, verticalPlacement]);
 
   if (!open || !layer) {
     return null;

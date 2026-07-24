@@ -59,7 +59,7 @@ button {
 }
 
 .report-card.has-employee-selector-open {
-  padding-bottom: 360px;
+  padding-bottom: var(--employee-selector-extra-space, 0);
 }
 
 .top-panel {

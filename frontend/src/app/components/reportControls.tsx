@@ -1389,18 +1389,32 @@ export function RowActionsMenu({
   }, [employeeSearch, employees]);
 
   useEffect(() => {
-    const reportCard = ref.current?.closest('.report-card');
+    const reportCard = ref.current?.closest('.report-card') as HTMLElement | null;
 
     if (!open || mode !== 'employees' || !reportCard) {
       return undefined;
     }
 
+    const updateExtraSpace = () => {
+      const reportCardRect = reportCard.getBoundingClientRect();
+      const anchorTop = employeeSelectorAnchorRect?.top ?? ref.current?.getBoundingClientRect().top ?? reportCardRect.top;
+      const popoverTop = Math.max(12, anchorTop - reportCardRect.top);
+      const desiredBottom = popoverTop + 620 + 24;
+      const missingSpace = Math.max(0, desiredBottom - reportCard.clientHeight);
+
+      reportCard.style.setProperty('--employee-selector-extra-space', `${Math.ceil(missingSpace)}px`);
+    };
+
     reportCard.classList.add('has-employee-selector-open');
+    updateExtraSpace();
+    window.addEventListener('resize', updateExtraSpace);
 
     return () => {
       reportCard.classList.remove('has-employee-selector-open');
+      reportCard.style.removeProperty('--employee-selector-extra-space');
+      window.removeEventListener('resize', updateExtraSpace);
     };
-  }, [mode, open, ref]);
+  }, [employeeSelectorAnchorRect, mode, open, ref]);
 
   const openActions = () => {
     setMode('actions');
@@ -1445,6 +1459,7 @@ export function RowActionsMenu({
           className={`settings-popover row-actions-popover ${mode === 'employees' ? 'is-employee-selector-popover' : ''}`}
           expectedWidth={mode === 'thresholds' ? 520 : mode === 'employees' ? 390 : 280}
           expectedHeight={mode === 'thresholds' ? 330 : mode === 'employees' ? 620 : 200}
+          constrainHeight={mode !== 'employees'}
           updateOnScroll={mode !== 'employees'}
           verticalPlacement={mode === 'employees' ? 'anchor-start' : 'auto'}
         >

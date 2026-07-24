@@ -1000,6 +1000,7 @@ function App() {
   const [newViewName, setNewViewName] = useState('');
   const [isPinned, setIsPinned] = useState(false);
   const [hasBuiltReport, setHasBuiltReport] = useState(false);
+  const [builtChartSourceIds, setBuiltChartSourceIds] = useState<string[] | null>(null);
   const [buildMoment, setBuildMoment] = useState(0);
   const [autoSaveRequest, setAutoSaveRequest] = useState(0);
   // reportBuildRequest is a counter that increments ONLY when the user explicitly
@@ -1262,6 +1263,7 @@ function App() {
     dateRangeSelectedManuallyRef.current = false;
     setDraftFilters(createDefaultFilters());
     setAppliedFilters(createDefaultFilters());
+    setBuiltChartSourceIds(null);
     setTableSelectedSources([]);
     setDraftTableSelectedSources([]);
     setTableEntitySourceIds([]);
@@ -2041,10 +2043,15 @@ function App() {
     });
   }, [crmSourceIds, sanitizeChartSources]);
 
-  // Chart uses EXACTLY applied chart sources — never silently switch to all sources.
+  // Chart uses the source selection captured when the report was built.
   const selectedChartSources = useMemo(
-    () => appliedFilters.selectedSources,
-    [appliedFilters.selectedSources],
+    () =>
+      sanitizeChartSources(
+        hasBuiltReport && builtChartSourceIds !== null
+          ? builtChartSourceIds
+          : appliedFilters.selectedSources,
+      ),
+    [appliedFilters.selectedSources, builtChartSourceIds, hasBuiltReport, sanitizeChartSources],
   );
   const selectedChartSourceLabels = useMemo(
     () =>
@@ -3130,6 +3137,7 @@ function App() {
     const dateRange = overrides.dateRange ?? draftFilters.dateRange;
 
     setHasBuiltReport(true);
+    setBuiltChartSourceIds([...selectedSources]);
     setDraftFilters((current) => ({
       ...current,
       period,
@@ -3226,6 +3234,7 @@ function App() {
         weekendDayIds: [...current.schedule.weekendDayIds],
       },
     }));
+    setBuiltChartSourceIds([...chartSources]);
     setEnabledMetricIdsBySection(cloneSetRecord(nextEnabledMetrics));
     setAppliedEnabledMetricIdsBySection(cloneSetRecord(nextEnabledMetrics));
     setTableSelectedSources(pipelineSourceIds);

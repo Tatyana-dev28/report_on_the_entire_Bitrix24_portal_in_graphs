@@ -1806,10 +1806,6 @@ function App() {
               && lockedChartSources.length > 0
               && !areStringArraysEqual(lockedChartSources, appliedFilters.selectedSources)
             ) {
-              setDraftFilters((current) => ({
-                ...current,
-                selectedSources: [...lockedChartSources],
-              }));
               setAppliedFilters((current) => ({
                 ...current,
                 selectedSources: [...lockedChartSources],
@@ -3231,6 +3227,27 @@ function App() {
     applyAutomaticThresholdsRef.current = false;
     autoBuildChartSourcesRef.current = null;
     autoBuildTableSourcesRef.current = null;
+    const availableSectionIds = new Set(metricSections.map((section) => section.id));
+    const { pipelineSourceIds, entitySourceIds } = resolveTableSelectionFromSources(
+      draftTableSelectedSources,
+      crmSources,
+      availableSectionIds,
+    );
+
+    setTableSelectedSources(pipelineSourceIds);
+    setTableEntitySourceIds(entitySourceIds);
+    setAppliedEnabledMetricIdsBySection(
+      Object.fromEntries(
+        Object.entries(enabledMetricIdsBySection).map(([sectionId, metricIds]) => [
+          sectionId,
+          new Set(metricIds),
+        ]),
+      ),
+    );
+    setAppliedFilters((current) => ({
+      ...current,
+      enabledSectionIds: new Set(draftFilters.enabledSectionIds),
+    }));
     resetTemporaryReportUiState();
     setMainThreshold({ upper: '', lower: '', mode: null });
     setRowThresholds({});
@@ -3238,7 +3255,17 @@ function App() {
     setAutoSaveRequest((current) => current + 1);
     // Empty chart selection stays empty — never expand to all/default sources.
     applyReportBuild(sanitizeChartSources(draftFilters.selectedSources));
-  }, [applyReportBuild, draftFilters.selectedSources, resetTemporaryReportUiState, sanitizeChartSources]);
+  }, [
+    applyReportBuild,
+    crmSources,
+    draftFilters.enabledSectionIds,
+    draftFilters.selectedSources,
+    draftTableSelectedSources,
+    enabledMetricIdsBySection,
+    metricSections,
+    resetTemporaryReportUiState,
+    sanitizeChartSources,
+  ]);
 
   const buildAutomaticReport = useCallback(() => {
     const preset = buildAutomaticReportPreset(crmSources, crmSourceIds, metricSections);
@@ -3263,9 +3290,6 @@ function App() {
     // Chart settings only: exactly one source — Sales funnel. Never copy table selection here.
     const chartSources = [...preset.chartSources];
     autoBuildChartSourcesRef.current = chartSources;
-    // Table: all available sources/entities, with Sales funnel first among pipelines.
-    // Independent from chartSources — table checkboxes must not leak into the main chart.
-    const allTableSources = [...preset.allTableSources];
     const { pipelineSourceIds, entitySourceIds } = preset;
     // Lock full table selection for preview request (pipelines + entities).
     autoBuildTableSourcesRef.current = [...preset.tablePreviewSourceIds];
@@ -3275,15 +3299,6 @@ function App() {
 
     applyAutomaticThresholdsRef.current = true;
 
-    setDraftFilters((current) => ({
-      ...current,
-      period: 'days',
-      dateRange,
-      selectedSources: [...chartSources],
-      metricMode: 'money',
-      chartDisplayMode: 'sum',
-      enabledSectionIds: nextEnabledSectionIds,
-    }));
     setAppliedFilters((current) => ({
       ...current,
       period: 'days',
@@ -3297,12 +3312,9 @@ function App() {
         weekendDayIds: [...current.schedule.weekendDayIds],
       },
     }));
-    setEnabledMetricIdsBySection(cloneSetRecord(nextEnabledMetrics));
     setAppliedEnabledMetricIdsBySection(cloneSetRecord(nextEnabledMetrics));
     setTableSelectedSources(pipelineSourceIds);
     setTableEntitySourceIds(entitySourceIds);
-    // Table settings: all catalog sources checked (same set as before auto-build pin change).
-    setDraftTableSelectedSources(allTableSources.filter((id) => crmSourceIds.includes(id)));
     setSectionOrder(nextSectionOrder);
     setSourceSectionOrder([]);
     setTableLeadingSourceId(salesSource.id);

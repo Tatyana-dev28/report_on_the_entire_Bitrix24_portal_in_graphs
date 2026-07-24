@@ -1793,7 +1793,7 @@ button {
 }
 
 .row-actions-popover.is-employee-selector-popover {
-  overflow: auto;
+  overflow: hidden;
 }
 
 .section-metrics-popover {

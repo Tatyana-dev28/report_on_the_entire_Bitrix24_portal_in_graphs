@@ -1366,7 +1366,7 @@ export function RowActionsMenu({
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [employeeSelectorAnchorRect, setEmployeeSelectorAnchorRect] = useState<DOMRect | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
+  const ref = useOutsideClose<HTMLDivElement>(open && mode !== 'employees', () => setOpen(false), [popoverRef]);
   const filteredEmployees = useMemo(() => {
     const query = employeeSearch.trim().toLocaleLowerCase('ru-RU');
 
@@ -1520,10 +1520,7 @@ export function RowActionsMenu({
                 <button
                   className="employee-selector-apply"
                   type="button"
-                  onClick={() => {
-                    onApplyEmployees?.();
-                    setOpen(false);
-                  }}
+                  onClick={() => onApplyEmployees?.()}
                 >
                   Применить
                 </button>

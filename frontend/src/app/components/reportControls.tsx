@@ -1416,6 +1416,46 @@ export function RowActionsMenu({
     };
   }, [employeeSelectorAnchorRect, mode, open, ref]);
 
+  useEffect(() => {
+    if (!open || mode !== 'employees') {
+      return undefined;
+    }
+
+    const interactiveSelector = [
+      'button',
+      'a[href]',
+      'input',
+      'select',
+      'textarea',
+      '[role="button"]',
+      '[role="menuitem"]',
+      '[role="option"]',
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(',');
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+
+      if (!(target instanceof Element)) {
+        return;
+      }
+
+      if (popoverRef.current?.contains(target) || ref.current?.contains(target)) {
+        return;
+      }
+
+      if (target.closest(interactiveSelector)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [mode, open, ref]);
+
   const openActions = () => {
     setMode('actions');
     setEmployeeSelectorAnchorRect(null);
@@ -1437,6 +1477,11 @@ export function RowActionsMenu({
 
     onToggleEmployees();
     setOpen(false);
+  };
+
+  const returnToActions = () => {
+    setEmployeeSelectorAnchorRect(null);
+    setMode('actions');
   };
 
   return (
@@ -1518,7 +1563,14 @@ export function RowActionsMenu({
           ) : mode === 'employees' ? (
             <div className="row-employee-selector">
               <div className="row-popover-head">
-                <button type="button" onClick={() => setMode('actions')}>
+                <button
+                  type="button"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    returnToActions();
+                  }}
+                >
                   Назад
                 </button>
                 <button

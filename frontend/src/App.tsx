@@ -1670,9 +1670,9 @@ function App() {
           setMetricOrderBySection((current) => {
             const next = { ...current };
             sections.forEach((section) => {
-              if (!next[section.id]) {
-                next[section.id] = section.metricIds;
-              }
+              // Keep user/drag order, but always append newly arrived catalog metrics
+              // (e.g. calls_total after Free reset seeded the old 3-metric fallback).
+              next[section.id] = mergeIdOrder(next[section.id] ?? [], section.metricIds);
             });
             return next;
           });
@@ -2256,7 +2256,10 @@ function App() {
           return rows;
         }
 
-        const orderedMetricIds = metricOrderBySection[section.id] ?? section.metricIds;
+        const orderedMetricIds = mergeIdOrder(
+          metricOrderBySection[section.id] ?? [],
+          section.metricIds,
+        );
 
         const enabledMetricIds = activeMetricIdsBySection[section.id] ?? new Set<string>();
 
@@ -2891,6 +2894,12 @@ function App() {
       ...current,
       [sectionId]: enabling && section ? new Set(section.metricIds) : new Set(),
     }));
+    if (enabling && section) {
+      setMetricOrderBySection((current) => ({
+        ...current,
+        [sectionId]: mergeIdOrder(current[sectionId] ?? [], section.metricIds),
+      }));
+    }
   };
 
   const enableAllTableSettings = useCallback(() => {
@@ -2906,6 +2915,13 @@ function App() {
         return acc;
       }, {}),
     );
+    setMetricOrderBySection((current) => {
+      const next = { ...current };
+      metricSections.forEach((section) => {
+        next[section.id] = mergeIdOrder(next[section.id] ?? [], section.metricIds);
+      });
+      return next;
+    });
   }, [crmSourceIds, markUserSettingsChange, metricSections]);
 
   const resetTableSettings = useCallback(() => {
@@ -2940,6 +2956,10 @@ function App() {
         [sectionId]: nextMetricIds,
       };
     });
+    setMetricOrderBySection((current) => ({
+      ...current,
+      [sectionId]: mergeIdOrder(current[sectionId] ?? [], [metricId]),
+    }));
   }, [markUserSettingsChange]);
 
   const selectAllSectionMetrics = useCallback((sectionId: string) => {
@@ -2953,6 +2973,10 @@ function App() {
     setEnabledMetricIdsBySection((current) => ({
       ...current,
       [sectionId]: new Set(section.metricIds),
+    }));
+    setMetricOrderBySection((current) => ({
+      ...current,
+      [sectionId]: mergeIdOrder(current[sectionId] ?? [], section.metricIds),
     }));
   }, [markUserSettingsChange, metricSections]);
 
@@ -3089,6 +3113,13 @@ function App() {
         ]),
       ),
     );
+    setMetricOrderBySection((current) => {
+      const next = { ...current };
+      metricSections.forEach((section) => {
+        next[section.id] = mergeIdOrder(next[section.id] ?? [], section.metricIds);
+      });
+      return next;
+    });
     setExpandedSections(new Set(sectionIds));
   }, [
     crmSources,

@@ -1388,6 +1388,20 @@ export function RowActionsMenu({
     );
   }, [employeeSearch, employees]);
 
+  useEffect(() => {
+    const reportCard = ref.current?.closest('.report-card');
+
+    if (!open || mode !== 'employees' || !reportCard) {
+      return undefined;
+    }
+
+    reportCard.classList.add('has-employee-selector-open');
+
+    return () => {
+      reportCard.classList.remove('has-employee-selector-open');
+    };
+  }, [mode, open, ref]);
+
   const openActions = () => {
     setMode('actions');
     setEmployeeSelectorAnchorRect(null);
@@ -1429,8 +1443,9 @@ export function RowActionsMenu({
           popoverRef={popoverRef}
           open={open}
           className={`settings-popover row-actions-popover ${mode === 'employees' ? 'is-employee-selector-popover' : ''}`}
-          expectedWidth={mode === 'thresholds' ? 520 : mode === 'employees' ? 380 : 280}
-          expectedHeight={mode === 'thresholds' ? 330 : mode === 'employees' ? 460 : 200}
+          expectedWidth={mode === 'thresholds' ? 520 : mode === 'employees' ? 390 : 280}
+          expectedHeight={mode === 'thresholds' ? 330 : mode === 'employees' ? 620 : 200}
+          updateOnScroll={mode !== 'employees'}
           verticalPlacement={mode === 'employees' ? 'anchor-start' : 'auto'}
         >
           {mode === 'actions' ? (

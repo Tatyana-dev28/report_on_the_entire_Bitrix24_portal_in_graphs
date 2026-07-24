@@ -58,6 +58,10 @@ button {
   background: #ffffff;
 }
 
+.report-card.has-employee-selector-open {
+  padding-bottom: 360px;
+}
+
 .top-panel {
   display: flex;
   align-items: center;
@@ -1922,7 +1926,7 @@ button {
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 8px;
-  max-height: min(440px, calc(100vh - 64px));
+  max-height: 600px;
   min-width: 0;
 }
 
@@ -1983,7 +1987,7 @@ button {
 .employee-selector-list {
   display: grid;
   min-height: 0;
-  max-height: 300px;
+  max-height: 460px;
   overflow: auto;
   gap: 2px;
   padding-right: 2px;

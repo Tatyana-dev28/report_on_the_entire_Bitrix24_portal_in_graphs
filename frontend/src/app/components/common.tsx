@@ -145,6 +145,7 @@ export function FloatingPopover({
   children,
   role,
   verticalPlacement = 'auto',
+  updateOnScroll = true,
 }: {
   anchorRef: RefObject<HTMLElement | null>;
   anchorRect?: Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'> | null;
@@ -156,6 +157,7 @@ export function FloatingPopover({
   children: ReactNode;
   role?: string;
   verticalPlacement?: 'auto' | 'anchor-start';
+  updateOnScroll?: boolean;
 }) {
   const [layer, setLayer] = useState<HTMLElement | null>(null);
   const [style, setStyle] = useState<CSSProperties>({
@@ -247,14 +249,18 @@ export function FloatingPopover({
     };
 
     window.addEventListener('resize', scheduleUpdate);
-    window.addEventListener('scroll', scheduleUpdate, true);
+    if (updateOnScroll) {
+      window.addEventListener('scroll', scheduleUpdate, true);
+    }
 
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener('resize', scheduleUpdate);
-      window.removeEventListener('scroll', scheduleUpdate, true);
+      if (updateOnScroll) {
+        window.removeEventListener('scroll', scheduleUpdate, true);
+      }
     };
-  }, [anchorRect, anchorRef, expectedHeight, expectedWidth, open, verticalPlacement]);
+  }, [anchorRect, anchorRef, expectedHeight, expectedWidth, open, updateOnScroll, verticalPlacement]);
 
   if (!open || !layer) {
     return null;

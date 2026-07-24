@@ -216,7 +216,10 @@ export function FloatingPopover({
       const visibleTop = Math.max(appRect.top, 0);
       const visibleBottom = Math.min(appRect.bottom, window.innerHeight);
       const boundaryWidth = Math.max(180, visibleRight - visibleLeft - padding * 2);
-      const desiredWidth = Math.max(expectedWidth, resolvedAnchorRect.width);
+      // pinLeft: keep expectedWidth — do not stretch to a full table-row anchor.
+      const desiredWidth = typeof pinLeft === 'number'
+        ? expectedWidth
+        : Math.max(expectedWidth, resolvedAnchorRect.width);
       const width = Math.min(desiredWidth, boundaryWidth);
       const minViewportLeft = visibleLeft + padding;
       const maxViewportLeft = visibleRight - padding - width;

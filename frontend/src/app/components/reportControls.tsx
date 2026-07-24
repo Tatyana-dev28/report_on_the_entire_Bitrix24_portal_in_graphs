@@ -1524,7 +1524,9 @@ export function RowActionsMenu({
       ) as HTMLElement | null;
 
       if (firstEmployeeRow) {
-        return firstEmployeeRow.getBoundingClientRect();
+        const rect = firstEmployeeRow.getBoundingClientRect();
+        // Vertical align only — narrow width so FloatingPopover does not stretch to the row.
+        return new DOMRect(rect.left, rect.top, 1, rect.height);
       }
     }
 
@@ -1532,7 +1534,7 @@ export function RowActionsMenu({
     const metricRow = ref.current?.closest('.report-table-row') as HTMLElement | null;
     if (metricRow) {
       const rect = metricRow.getBoundingClientRect();
-      return new DOMRect(rect.left, rect.bottom, rect.width, 1);
+      return new DOMRect(rect.left, rect.bottom, 1, 1);
     }
 
     return null;

@@ -3273,7 +3273,7 @@ button {
 
 .detail-export-button {
   display: inline-flex;
-  min-height: 34px;
+  height: 34px;
   align-items: center;
   justify-content: center;
   gap: 6px;
@@ -3283,7 +3283,13 @@ button {
   color: #ffffff;
   font-size: 13px;
   font-weight: 650;
+  line-height: 1;
   white-space: nowrap;
+}
+
+.detail-export-button span,
+.detail-close-button span {
+  line-height: 1;
 }
 
 .detail-export-excel {
@@ -3298,17 +3304,18 @@ button {
 
 .detail-close-button {
   display: inline-flex;
-  min-height: 38px;
+  height: 34px;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 7px;
   border: 1px solid #d7e0ea;
-  border-radius: 13px;
+  border-radius: 12px;
   background: #ffffff;
-  padding: 0 14px;
+  padding: 0 12px;
   color: #22262d;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 650;
+  line-height: 1;
   white-space: nowrap;
   box-shadow: 0 6px 18px rgba(27, 38, 54, 0.08);
 }

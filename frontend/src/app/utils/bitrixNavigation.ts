@@ -2,9 +2,10 @@ import type { MetricRow } from '../../services/report/reportCatalog';
 import type { BitrixEntityType, DetailRow } from '../types';
 
 type BX24Api = {
-  openPath?: (path: string) => void;
+  init?: (callback: () => void) => void;
+  openPath?: (path: string, callback?: () => void) => void;
   slider?: {
-    open?: (path: string) => void;
+    open?: (path: string, options?: Record<string, unknown>) => void;
   };
 };
 
@@ -69,6 +70,40 @@ const getSmartEntityTypeIdFromSource = (sourceId: string | undefined) => {
   return match ? Number(match[1]) : null;
 };
 
+const getBitrixPortalOrigin = () => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const domain = params.get('DOMAIN') || params.get('domain');
+
+  if (domain) {
+    const normalizedDomain = domain.replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+
+    return normalizedDomain ? `https://${normalizedDomain}` : null;
+  }
+
+  try {
+    const referrer = document.referrer ? new URL(document.referrer) : null;
+
+    return referrer?.origin || null;
+  } catch {
+    return null;
+  }
+};
+
+const openBitrixPathFallback = (path: string, fallback: Record<string, unknown>) => {
+  const portalOrigin = getBitrixPortalOrigin();
+
+  if (!portalOrigin) {
+    console.info('[mock Bitrix24] open path', { ...fallback, path });
+    return;
+  }
+
+  window.open(`${portalOrigin}${path}`, '_blank', 'noopener,noreferrer');
+};
+
 export const getBitrixDetailRowPath = (row: DetailRow) => {
   const entityId = getNumericId(row.entityRawId ?? row.entityId);
 
@@ -87,18 +122,38 @@ export const getBitrixDetailRowPath = (row: DetailRow) => {
 
 const openBitrixPath = (path: string, fallback: Record<string, unknown>) => {
   const bx24 = (window as Window & { BX24?: BX24Api }).BX24;
+  const openWithSdk = () => {
+    if (bx24?.openPath) {
+      bx24.openPath(path);
+      return true;
+    }
 
-  if (bx24?.openPath) {
-    bx24.openPath(path);
-    return;
+    if (bx24?.slider?.open) {
+      bx24.slider.open(path);
+      return true;
+    }
+
+    return false;
+  };
+
+  try {
+    if (bx24?.init) {
+      bx24.init(() => {
+        if (!openWithSdk()) {
+          openBitrixPathFallback(path, fallback);
+        }
+      });
+      return;
+    }
+
+    if (openWithSdk()) {
+      return;
+    }
+  } catch (error) {
+    console.warn('[Bitrix24] open path failed', { ...fallback, path, error });
   }
 
-  if (bx24?.slider?.open) {
-    bx24.slider.open(path);
-    return;
-  }
-
-  console.info('[mock Bitrix24] open path', { ...fallback, path });
+  openBitrixPathFallback(path, fallback);
 };
 
 export function openBitrixEntity(entityType: BitrixEntityType, id: string | number) {

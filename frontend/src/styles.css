@@ -1062,7 +1062,7 @@ button {
 
 .chart-left,
 .chart-viewport {
-  min-height: 304px;
+  min-height: 342px;
   border-bottom: 1px solid var(--soft-line);
 }
 
@@ -1155,7 +1155,6 @@ button {
   border-color: #bfe4d0;
   background: #f0fbf5;
   color: #208451;
-  font-size: 13px;
 }
 
 .left-threshold-build-button:hover,
@@ -1363,7 +1362,7 @@ button {
 }
 
 .chart-sync-content {
-  height: 304px;
+  height: 342px;
   padding: 12px 0;
 }
 

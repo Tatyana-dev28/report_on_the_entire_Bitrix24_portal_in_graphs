@@ -5125,7 +5125,7 @@ function App() {
                 return (
                   <div className={rowClassName} key={row.rowId} role="row" data-row-id={row.rowId}>
                     <div className={leftCellClassName} role="rowheader">
-                      Р“СЂР°С„РёРє: {row.employee.firstName} {row.employee.lastName}
+                      График: {row.employee.firstName} {row.employee.lastName}
                     </div>
                     <div className="table-right-cell" role="cell">
                       <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>

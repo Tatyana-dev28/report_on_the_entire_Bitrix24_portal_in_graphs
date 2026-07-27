@@ -1,5 +1,5 @@
 import type { MetricRow } from '../../services/report/reportCatalog';
-import type { BitrixEntityType } from '../types';
+import type { BitrixEntityType, DetailRow } from '../types';
 
 type BX24Api = {
   openPath?: (path: string) => void;
@@ -57,8 +57,35 @@ const getBitrixEntityPath = (entityType: BitrixEntityType, id: string | number) 
   return paths[entityType];
 };
 
-export function openBitrixEntity(entityType: BitrixEntityType, id: string | number) {
-  const path = getBitrixEntityPath(entityType, id);
+const getNumericId = (id: string | number | undefined | null) => {
+  const numericId = Number(id);
+
+  return Number.isFinite(numericId) && numericId > 0 ? numericId : null;
+};
+
+const getSmartEntityTypeIdFromSource = (sourceId: string | undefined) => {
+  const match = sourceId?.match(/^smart-(\d+)(?:-|$)/);
+
+  return match ? Number(match[1]) : null;
+};
+
+export const getBitrixDetailRowPath = (row: DetailRow) => {
+  const entityId = getNumericId(row.entityRawId ?? row.entityId);
+
+  if (entityId === null) {
+    return null;
+  }
+
+  const smartEntityTypeId = getSmartEntityTypeIdFromSource(row.sourceId);
+
+  if (smartEntityTypeId) {
+    return `/crm/type/${smartEntityTypeId}/details/${entityId}/`;
+  }
+
+  return getBitrixEntityPath(row.entityType, entityId);
+};
+
+const openBitrixPath = (path: string, fallback: Record<string, unknown>) => {
   const bx24 = (window as Window & { BX24?: BX24Api }).BX24;
 
   if (bx24?.openPath) {
@@ -71,24 +98,41 @@ export function openBitrixEntity(entityType: BitrixEntityType, id: string | numb
     return;
   }
 
-  console.info('[mock Bitrix24] open entity', { entityType, id, path });
+  console.info('[mock Bitrix24] open path', { ...fallback, path });
+};
+
+export function openBitrixEntity(entityType: BitrixEntityType, id: string | number) {
+  const numericId = getNumericId(id);
+
+  if (numericId === null) {
+    return;
+  }
+
+  openBitrixPath(getBitrixEntityPath(entityType, numericId), { entityType, id: numericId });
+}
+
+export function openBitrixDetailRow(row: DetailRow) {
+  const path = getBitrixDetailRowPath(row);
+
+  if (!path) {
+    return;
+  }
+
+  openBitrixPath(path, {
+    entityType: row.entityType,
+    entityId: row.entityId,
+    sourceId: row.sourceId,
+  });
 }
 
 export function openBitrixUser(userId: string | number) {
-  const path = `/company/personal/user/${userId}/`;
-  const bx24 = (window as Window & { BX24?: BX24Api }).BX24;
+  const numericUserId = getNumericId(userId);
 
-  if (bx24?.openPath) {
-    bx24.openPath(path);
+  if (numericUserId === null) {
     return;
   }
 
-  if (bx24?.slider?.open) {
-    bx24.slider.open(path);
-    return;
-  }
-
-  console.info('[mock Bitrix24] open user', { userId, path });
+  openBitrixPath(`/company/personal/user/${numericUserId}/`, { userId: numericUserId });
 }
 
 export const getEntityTypeForMetric = (metric: MetricRow, sectionId?: string): BitrixEntityType => {

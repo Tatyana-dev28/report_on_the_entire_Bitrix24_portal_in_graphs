@@ -91,6 +91,7 @@ import {
 import type {
   ActiveChartPoint,
   AppSettings,
+  BitrixEntityType,
   ChartDisplayMode,
   ChartDotPayloadProps,
   ChartDraftSettings,
@@ -282,6 +283,33 @@ const matchDetailPeriodKey = (detailPeriodKey: string | undefined, pointKey: str
   return normalizePeriodKey(detailPeriodKey) === normalizePeriodKey(pointKey);
 };
 
+const normalizeDetailEntityType = (value: string | undefined): BitrixEntityType | null => {
+  const normalized = value?.trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  const supportedTypes: BitrixEntityType[] = [
+    'deal',
+    'lead',
+    'invoice',
+    'quote',
+    'company',
+    'contact',
+    'task',
+    'activity',
+    'call',
+    'email',
+    'message',
+    'crm_form',
+  ];
+
+  return supportedTypes.includes(normalized as BitrixEntityType)
+    ? normalized as BitrixEntityType
+    : null;
+};
+
 const buildBackendDetailRows = (
   details: MetricDetailItem[],
   context: DetailContext,
@@ -365,10 +393,12 @@ const buildBackendDetailRows = (
         ? createdAtDate.getTime()
         : index;
       const responsibleId = Number(detail.employeeId ?? context.employee?.id ?? 0);
+      const detailEntityId = detail.entityId ?? detail.id;
 
       return {
         rowNumber: index + 1,
-        entityId: detailIdToNumber(detail.entityId ?? detail.id, index + 1),
+        entityId: detailIdToNumber(detailEntityId, index + 1),
+        entityRawId: detailEntityId,
         title: detail.title || detail.metricLabel || context.metric.label,
         responsibleId: Number.isFinite(responsibleId) ? responsibleId : 0,
         responsibleName: detail.responsibleName || detail.employeeName || context.employee?.name || '',
@@ -376,7 +406,8 @@ const buildBackendDetailRows = (
           ? backendDetailDateFormatter.format(createdAtDate)
           : context.point.label,
         createdAtSortValue,
-        entityType: context.entityType,
+        entityType: normalizeDetailEntityType(detail.entityType) ?? context.entityType,
+        sourceId: detail.sourceId,
       };
     });
 

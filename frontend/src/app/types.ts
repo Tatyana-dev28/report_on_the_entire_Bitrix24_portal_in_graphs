@@ -141,12 +141,14 @@ export type DetailContext = {
 export type DetailRow = {
   rowNumber: number;
   entityId: number;
+  entityRawId?: string | number;
   title: string;
   responsibleId: number;
   responsibleName: string;
   createdAt: string;
   createdAtSortValue: number;
   entityType: BitrixEntityType;
+  sourceId?: string;
 };
 
 export type DetailColumnKey = 'rowNumber' | 'entityId' | 'title' | 'responsibleName' | 'createdAt';

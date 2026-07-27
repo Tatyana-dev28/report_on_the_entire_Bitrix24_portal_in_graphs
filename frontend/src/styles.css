@@ -3264,6 +3264,60 @@ button {
   padding: 16px;
 }
 
+.detail-head-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-export-button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  padding: 0 12px;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.detail-export-excel {
+  border-color: #28a766;
+  background: var(--green);
+}
+
+.detail-export-pdf {
+  border-color: #7c5cff;
+  background: #7c5cff;
+}
+
+.detail-close-button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid #d7e0ea;
+  border-radius: 13px;
+  background: #ffffff;
+  padding: 0 14px;
+  color: #22262d;
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(27, 38, 54, 0.08);
+}
+
+.detail-close-button:hover {
+  border-color: #b8c4d2;
+  background: #f6f9fc;
+}
+
 .detail-head p {
   margin: 0;
   color: #22262d;
@@ -3290,6 +3344,51 @@ button {
   display: grid;
   min-width: 100%;
   max-width: none;
+}
+
+.detail-pdf-export {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  z-index: -1;
+  width: 1120px;
+  background: #ffffff;
+  color: #242932;
+  padding: 24px;
+  font-family: Arial, sans-serif;
+}
+
+.detail-pdf-export-title {
+  margin-bottom: 6px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.detail-pdf-export-summary {
+  margin-bottom: 16px;
+  color: #69707d;
+  font-size: 13px;
+}
+
+.detail-pdf-export table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.detail-pdf-export th,
+.detail-pdf-export td {
+  border: 1px solid #dfe5ec;
+  padding: 8px;
+  font-size: 12px;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.detail-pdf-export th {
+  background: #eaf4ff;
+  font-weight: 700;
 }
 
 .detail-empty-state {

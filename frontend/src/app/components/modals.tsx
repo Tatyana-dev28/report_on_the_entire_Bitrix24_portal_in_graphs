@@ -6,12 +6,15 @@
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { CheckCircle2, ChevronDown, X } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Download, FileText, X } from 'lucide-react';
+import ExcelJS from 'exceljs';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import { formatMetricValue } from '../../services/report/reportCatalog';
 import { defaultDetailColumnWidths, detailColumnMinWidthSum, detailColumns } from '../constants';
 import type { AppSettings, DetailColumnKey, DetailContext, DetailRow, DetailSort, ReportEmployee } from '../types';
 import { TooltipButton, useOutsideClose } from './common';
-import { bitrixEntityLabels, openBitrixEntity, openBitrixUser } from '../utils/bitrixNavigation';
+import { bitrixEntityLabels, getBitrixDetailRowPath, openBitrixDetailRow, openBitrixUser } from '../utils/bitrixNavigation';
 import { normalizeDetailColumnWidths, resizeDetailColumnWidths, sumDetailColumnWidths } from '../utils/detailColumns';
 import { compareDetailValues } from '../utils/detailRows';
 import type { BillingPlan } from '../../services/api/billingApiClient';
@@ -838,6 +841,160 @@ export function DetailModal({
     }));
   };
 
+  const detailExportTitle = `Детализация: ${context.metric.label}`;
+  const detailExportSummary = [
+    context.point.label,
+    formatMetricValue(context.value, context.metric.type),
+    bitrixEntityLabels[context.entityType],
+    context.employee ? `${context.employee.firstName} ${context.employee.lastName}` : '',
+  ].filter(Boolean).join(' · ');
+  const detailExportFilenameBase = `detail-${context.metric.id}-${context.point.key}`
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, '-')
+    .slice(0, 120);
+  const detailExportRows = sortedRows.map((row) => ({
+    rowNumber: row.rowNumber,
+    entityId: row.entityRawId || row.entityId || '',
+    title: row.title,
+    responsibleName: row.responsibleName || '',
+    createdAt: row.createdAt,
+  }));
+
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportDetailExcel = async () => {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'SAPP';
+    workbook.created = new Date();
+    const worksheet = workbook.addWorksheet('Детализация', {
+      views: [{ state: 'frozen', ySplit: 3 }],
+    });
+    const headers = detailColumns.map((column) => column.label);
+
+    worksheet.addRow([detailExportTitle]);
+    worksheet.mergeCells(1, 1, 1, headers.length);
+    worksheet.addRow([detailExportSummary]);
+    worksheet.mergeCells(2, 1, 2, headers.length);
+    worksheet.addRow(headers);
+
+    detailExportRows.forEach((row) => {
+      worksheet.addRow([
+        row.rowNumber,
+        row.entityId,
+        row.title,
+        row.responsibleName,
+        row.createdAt,
+      ]);
+    });
+
+    worksheet.columns = [
+      { width: 8 },
+      { width: 16 },
+      { width: 42 },
+      { width: 28 },
+      { width: 22 },
+    ];
+
+    worksheet.getRow(1).font = { bold: true, size: 14 };
+    worksheet.getRow(2).font = { color: { argb: 'FF69707D' } };
+    worksheet.getRow(3).font = { bold: true };
+    worksheet.getRow(3).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFEAF4FF' },
+    };
+
+    worksheet.eachRow((row) => {
+      row.alignment = { vertical: 'middle', wrapText: true };
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    downloadBlob(
+      new Blob([buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }),
+      `${detailExportFilenameBase}.xlsx`,
+    );
+  };
+
+  const exportDetailPdf = async () => {
+    const exportRoot = document.createElement('div');
+    exportRoot.className = 'detail-pdf-export';
+    exportRoot.innerHTML = `
+      <div class="detail-pdf-export-title"></div>
+      <div class="detail-pdf-export-summary"></div>
+      <table>
+        <thead>
+          <tr>${detailColumns.map((column) => `<th>${column.label}</th>`).join('')}</tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    `;
+
+    exportRoot.querySelector('.detail-pdf-export-title')!.textContent = detailExportTitle;
+    exportRoot.querySelector('.detail-pdf-export-summary')!.textContent = detailExportSummary;
+    const exportBody = exportRoot.querySelector('tbody')!;
+    detailExportRows.forEach((row) => {
+      const rowElement = document.createElement('tr');
+      [
+        String(row.rowNumber),
+        String(row.entityId),
+        row.title,
+        row.responsibleName,
+        row.createdAt,
+      ].forEach((value) => {
+        const cell = document.createElement('td');
+        cell.textContent = value;
+        rowElement.appendChild(cell);
+      });
+      exportBody.appendChild(rowElement);
+    });
+    document.body.appendChild(exportRoot);
+
+    try {
+      const canvas = await html2canvas(exportRoot, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+      });
+      const pdf = new jsPDF('l', 'mm', 'a4');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 10;
+      const imageWidth = pageWidth - margin * 2;
+      const imageHeight = (canvas.height * imageWidth) / canvas.width;
+      const pageImageHeight = pageHeight - margin * 2;
+      let renderedHeight = 0;
+
+      while (renderedHeight < imageHeight) {
+        if (renderedHeight > 0) {
+          pdf.addPage();
+        }
+
+        pdf.addImage(
+          canvas.toDataURL('image/png'),
+          'PNG',
+          margin,
+          margin - renderedHeight,
+          imageWidth,
+          imageHeight,
+        );
+        renderedHeight += pageImageHeight;
+      }
+
+      pdf.save(`${detailExportFilenameBase}.pdf`);
+    } finally {
+      exportRoot.remove();
+    }
+  };
+
   const startColumnResize = (
     column: { key: DetailColumnKey; minWidth: number },
     event: ReactPointerEvent<HTMLSpanElement>,
@@ -899,9 +1056,24 @@ export function DetailModal({
               {context.employee ? ` · ${context.employee.firstName} ${context.employee.lastName}` : ''}
             </span>
           </div>
-          <button className="icon-button" type="button" aria-label="Закрыть детализацию" onClick={onClose}>
-            <X size={18} />
-          </button>
+          <div className="detail-head-actions">
+            {hasRows && (
+              <>
+                <button className="detail-export-button detail-export-excel" type="button" onClick={exportDetailExcel}>
+                  <Download size={15} />
+                  <span>Скачать Excel</span>
+                </button>
+                <button className="detail-export-button detail-export-pdf" type="button" onClick={exportDetailPdf}>
+                  <FileText size={15} />
+                  <span>Скачать PDF</span>
+                </button>
+              </>
+            )}
+            <button className="detail-close-button" type="button" onClick={onClose}>
+              <span>Закрыть детализацию</span>
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {hasRows ? (
@@ -929,34 +1101,53 @@ export function DetailModal({
             ))}
             <div className="detail-filler-cell detail-header-filler" aria-hidden="true" />
 
-            {sortedRows.map((row) => (
-              <div className="detail-row-contents" role="row" key={row.entityId}>
-                <div className="detail-cell">{row.rowNumber}</div>
-                <button
-                  className="detail-cell detail-action-cell"
-                  type="button"
-                  onClick={() => openBitrixEntity(row.entityType, row.entityId)}
-                >
-                  {row.entityId}
-                </button>
-                <button
-                  className="detail-cell detail-action-cell detail-title-cell"
-                  type="button"
-                  onClick={() => openBitrixEntity(row.entityType, row.entityId)}
-                >
-                  {row.title}
-                </button>
-                <button
-                  className="detail-cell detail-action-cell"
-                  type="button"
-                  onClick={() => openBitrixUser(row.responsibleId)}
-                >
-                  {row.responsibleName}
-                </button>
-                <div className="detail-cell">{row.createdAt}</div>
-                <div className="detail-filler-cell" aria-hidden="true" />
-              </div>
-            ))}
+            {sortedRows.map((row) => {
+              const entityPath = getBitrixDetailRowPath(row);
+              const canOpenEntity = Boolean(entityPath);
+              const canOpenResponsible = Number.isFinite(row.responsibleId) && row.responsibleId > 0;
+              const entityLabel = row.entityRawId || row.entityId || '-';
+
+              return (
+                <div className="detail-row-contents" role="row" key={`${row.entityType}-${row.sourceId ?? 'source'}-${row.entityId}-${row.rowNumber}`}>
+                  <div className="detail-cell">{row.rowNumber}</div>
+                  {canOpenEntity ? (
+                    <button
+                      className="detail-cell detail-action-cell"
+                      type="button"
+                      onClick={() => openBitrixDetailRow(row)}
+                    >
+                      {entityLabel}
+                    </button>
+                  ) : (
+                    <div className="detail-cell">{entityLabel}</div>
+                  )}
+                  {canOpenEntity ? (
+                    <button
+                      className="detail-cell detail-action-cell detail-title-cell"
+                      type="button"
+                      onClick={() => openBitrixDetailRow(row)}
+                    >
+                      {row.title}
+                    </button>
+                  ) : (
+                    <div className="detail-cell detail-title-cell">{row.title}</div>
+                  )}
+                  {canOpenResponsible ? (
+                    <button
+                      className="detail-cell detail-action-cell"
+                      type="button"
+                      onClick={() => openBitrixUser(row.responsibleId)}
+                    >
+                      {row.responsibleName || `ID ${row.responsibleId}`}
+                    </button>
+                  ) : (
+                    <div className="detail-cell">{row.responsibleName || '-'}</div>
+                  )}
+                  <div className="detail-cell">{row.createdAt}</div>
+                  <div className="detail-filler-cell" aria-hidden="true" />
+                </div>
+              );
+            })}
             </div>
           </div>
         ) : (

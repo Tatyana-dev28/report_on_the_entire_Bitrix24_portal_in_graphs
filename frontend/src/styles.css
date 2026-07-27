@@ -1155,6 +1155,7 @@ button {
   border-color: #bfe4d0;
   background: #f0fbf5;
   color: #208451;
+  font-size: 15px;
 }
 
 .left-threshold-build-button:hover,

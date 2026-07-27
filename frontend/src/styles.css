@@ -1151,6 +1151,20 @@ button {
   color: #124fa8;
 }
 
+.left-threshold-build-button {
+  border-color: #bfe4d0;
+  background: #f0fbf5;
+  color: #208451;
+  font-size: 13px;
+}
+
+.left-threshold-build-button:hover,
+.left-threshold-build-button:focus-visible {
+  border-color: #9bd6b6;
+  background: #e4f8ed;
+  color: #17673f;
+}
+
 .configure-chart-popover {
   display: grid;
   gap: 12px;

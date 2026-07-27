@@ -3292,9 +3292,11 @@ function App() {
     setReportBuildRequest((current) => current + 1);
   }, [draftFilters, markUserSettingsChange]);
 
-  const buildReport = useCallback(() => {
+  const buildReportFromDraft = useCallback((options?: { automaticThresholds?: boolean }) => {
+    const automaticThresholds = options?.automaticThresholds ?? false;
+
     temporaryAutoReportModeRef.current = false;
-    applyAutomaticThresholdsRef.current = false;
+    applyAutomaticThresholdsRef.current = automaticThresholds;
     autoBuildChartSourcesRef.current = null;
     autoBuildTableSourcesRef.current = null;
     const availableSectionIds = new Set(metricSections.map((section) => section.id));
@@ -3336,6 +3338,14 @@ function App() {
     resetTemporaryReportUiState,
     sanitizeChartSources,
   ]);
+
+  const buildReport = useCallback(() => {
+    buildReportFromDraft();
+  }, [buildReportFromDraft]);
+
+  const buildReportWithAutomaticThresholds = useCallback(() => {
+    buildReportFromDraft({ automaticThresholds: true });
+  }, [buildReportFromDraft]);
 
   const buildAutomaticReport = useCallback(() => {
     const preset = buildAutomaticReportPreset(crmSources, crmSourceIds, metricSections);
@@ -4680,6 +4690,10 @@ function App() {
                 <button className="left-panel-action-button left-auto-build-button" type="button" onClick={buildAutomaticReport}>
                   <Settings2 size={16} />
                   <span>Построить автоматически</span>
+                </button>
+                <button className="left-panel-action-button left-threshold-build-button" type="button" onClick={buildReportWithAutomaticThresholds}>
+                  <SlidersHorizontal size={16} />
+                  <span>Построить с автопорогами</span>
                 </button>
               </div>
             </div>

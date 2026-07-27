@@ -55,6 +55,15 @@ export type TableRow =
       valuesByPeriod?: Record<string, number>;
     }
   | {
+      kind: 'employee_chart';
+      rowId: string;
+      sectionId: string;
+      metric: MetricRow;
+      employee: ReportEmployee;
+      /** Funnel/smart source block id when this employee chart belongs to a source_metric. */
+      sourceId?: string;
+    }
+  | {
       kind: 'source_section';
       rowId: string;
       sourceId: string;

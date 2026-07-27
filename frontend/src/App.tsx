@@ -32,6 +32,7 @@ import {
   Play,
   Settings2,
   SlidersHorizontal,
+  TrendingUp,
   GripVertical,
   X,
 } from 'lucide-react';
@@ -432,6 +433,18 @@ const getEmployeePeriodMetricValue = (
   return valuesByPeriod[matchedPeriodKey]?.[metricId] ?? 0;
 };
 
+const buildEmployeeChartValuesByPeriod = (
+  employee: ReportEmployee,
+  reportData: ReportPoint[],
+  metricId: string,
+) =>
+  Object.fromEntries(
+    reportData.map((point) => [
+      point.key,
+      getEmployeePeriodMetricValue(employee, point, metricId),
+    ]),
+  );
+
 /** Build per-employee period values for a funnel/smart source_metric from details. */
 const buildSourceMetricEmployees = (
   details: MetricDetailItem[],
@@ -512,6 +525,9 @@ const buildSourceMetricEmployees = (
 /** Canonical action id for a funnel/smart metric — same role as catalog metric.id for CRM rows. */
 const buildSourceMetricActionId = (sourceKey: string, metricKey: string) =>
   `${sourceKey}::${metricKey}`;
+
+const buildEmployeeChartId = (metricId: string, employeeId: string) =>
+  `${metricId}::${employeeId}`;
 
 const buildSourceMetricActionIds = (
   sourceKey: string,
@@ -1033,6 +1049,7 @@ function App() {
   const [appliedEmployeeIdsByMetricId, setAppliedEmployeeIdsByMetricId] = useState<Record<string, Set<string>>>({});
   const [employeeOrderByMetricId, setEmployeeOrderByMetricId] = useState<Record<string, string[]>>({});
   const [expandedChartMetricIds, setExpandedChartMetricIds] = useState<Set<string>>(() => new Set());
+  const [expandedEmployeeChartIds, setExpandedEmployeeChartIds] = useState<Set<string>>(() => new Set());
 
   const suppressNextReportSettingsTouch = useCallback(() => {
     suppressReportSettingsTouchRef.current = true;
@@ -2309,6 +2326,16 @@ function App() {
                   employee,
                   employeeIndex,
                 });
+
+                if (expandedEmployeeChartIds.has(buildEmployeeChartId(metric.id, employee.id))) {
+                  rows.push({
+                    kind: 'employee_chart',
+                    rowId: `employee-chart-${metric.id}-${employee.id}`,
+                    sectionId: section.id,
+                    metric,
+                    employee,
+                  });
+                }
               });
           }
 
@@ -2499,6 +2526,17 @@ function App() {
                     detailSourceIds,
                     detailMetricIds,
                   });
+
+                  if (expandedEmployeeChartIds.has(buildEmployeeChartId(actionId, employee.id))) {
+                    sourceSectionRows.push({
+                      kind: 'employee_chart',
+                      rowId: `employee-chart-${actionId}-${employee.id}`,
+                      sectionId: sourceKey,
+                      metric: syntheticMetric,
+                      employee: remapEmployeeValuesToMetricId(employee, detailMetricIds, actionId),
+                      sourceId: sourceKey,
+                    });
+                  }
                 });
             }
 
@@ -2542,6 +2580,7 @@ function App() {
         metricMap,
         metricOrderBySection,
         expandedEmployeeMetricIds,
+        expandedEmployeeChartIds,
         expandedChartMetricIds,
         crmSources,
         sourceMetrics,
@@ -3497,6 +3536,22 @@ function App() {
     });
   }, []);
 
+  const toggleEmployeeChart = useCallback((metricId: string, employeeId: string) => {
+    const chartId = buildEmployeeChartId(metricId, employeeId);
+
+    setExpandedEmployeeChartIds((current) => {
+      const next = new Set(current);
+
+      if (next.has(chartId)) {
+        next.delete(chartId);
+      } else {
+        next.add(chartId);
+      }
+
+      return next;
+    });
+  }, []);
+
   const updateRowThreshold = useCallback((metricId: string, value: ThresholdValues) => {
     markUserSettingsChange();
     setRowThresholds((current) => ({
@@ -4284,7 +4339,7 @@ function App() {
     headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
 
     tableRows
-      .filter((row) => row.kind !== 'chart')
+      .filter((row) => row.kind !== 'chart' && row.kind !== 'employee_chart')
       .forEach((row) => {
         if (row.kind === 'section') {
           const sectionRow = worksheet.addRow([row.label, ...reportData.map(() => '')]);
@@ -4812,7 +4867,7 @@ function App() {
                 row.kind === 'metric' ? 'is-metric-row' : '',
                 row.kind === 'source_metric' ? 'is-metric-row' : '',
                 row.kind === 'employee' ? 'is-employee-row' : '',
-                row.kind === 'chart' ? 'is-chart-row' : '',
+                row.kind === 'chart' || row.kind === 'employee_chart' ? 'is-chart-row' : '',
               ].filter(Boolean).join(' ');
               const leftCellClassName = [
                 'table-left-cell',
@@ -4821,7 +4876,7 @@ function App() {
                 row.kind === 'metric' ? 'metric-left-cell' : '',
                 row.kind === 'source_metric' ? 'metric-left-cell' : '',
                 row.kind === 'employee' ? 'employee-left-cell' : '',
-                row.kind === 'chart' ? 'chart-left-cell' : '',
+                row.kind === 'chart' || row.kind === 'employee_chart' ? 'chart-left-cell' : '',
               ].filter(Boolean).join(' ');
 
               if (row.kind === 'section') {
@@ -4970,6 +5025,10 @@ function App() {
               }
 
               if (row.kind === 'employee') {
+                const employeeChartOpen = expandedEmployeeChartIds.has(
+                  buildEmployeeChartId(row.metric.id, row.employee.id),
+                );
+
                 return (
                   <div
                     className={rowClassName}
@@ -5006,6 +5065,14 @@ function App() {
                         </span>
                         <span>{row.employee.firstName} {row.employee.lastName}</span>
                       </button>
+                      <button
+                        className={`employee-chart-toggle-button ${employeeChartOpen ? 'is-active' : ''}`}
+                        type="button"
+                        aria-label={employeeChartOpen ? 'РЎРєСЂС‹С‚СЊ РіСЂР°С„РёРє СЃРѕС‚СЂСѓРґРЅРёРєР°' : 'РџРѕРєР°Р·Р°С‚СЊ РіСЂР°С„РёРє СЃРѕС‚СЂСѓРґРЅРёРєР°'}
+                        onClick={() => toggleEmployeeChart(row.metric.id, row.employee.id)}
+                      >
+                        {employeeChartOpen ? <X size={14} /> : <TrendingUp size={14} />}
+                      </button>
                     </div>
                     <div className="table-right-cell" role="cell">
                       <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
@@ -5034,6 +5101,31 @@ function App() {
                             />
                           );
                         })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (row.kind === 'employee_chart') {
+                return (
+                  <div className={rowClassName} key={row.rowId} role="row" data-row-id={row.rowId}>
+                    <div className={leftCellClassName} role="rowheader">
+                      Р“СЂР°С„РёРє: {row.employee.firstName} {row.employee.lastName}
+                    </div>
+                    <div className="table-right-cell" role="cell">
+                      <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
+                        <div className="row-chart-cell employee-row-chart-cell">
+                          <RowMetricChart
+                            metric={row.metric}
+                            reportData={reportData}
+                            valuesByPeriod={buildEmployeeChartValuesByPeriod(
+                              row.employee,
+                              reportData,
+                              row.metric.id,
+                            )}
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>

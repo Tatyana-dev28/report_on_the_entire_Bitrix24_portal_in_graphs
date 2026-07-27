@@ -1669,6 +1669,7 @@ button {
 .employee-person-button {
   display: inline-flex;
   min-width: 0;
+  flex: 1 1 auto;
   align-items: center;
   gap: 10px;
   border: 0;
@@ -1690,6 +1691,26 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.employee-chart-toggle-button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #8a94a3;
+  padding: 0;
+}
+
+.employee-chart-toggle-button:hover,
+.employee-chart-toggle-button:focus-visible,
+.employee-chart-toggle-button.is-active {
+  background: #eef3f8;
+  color: #185ec8;
 }
 
 .employee-drag-handle-button {
@@ -2292,6 +2313,11 @@ button {
   min-width: 0;
   padding: 12px 14px;
   border-right: 1px solid #f3f5f8;
+}
+
+.employee-row-chart-cell {
+  padding-top: 10px;
+  padding-bottom: 10px;
 }
 
 .row-chart-wrap {

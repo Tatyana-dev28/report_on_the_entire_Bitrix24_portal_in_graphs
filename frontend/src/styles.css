@@ -3287,12 +3287,6 @@ button {
   white-space: nowrap;
 }
 
-.detail-export-button span,
-.detail-close-button span {
-  margin-top: 0;
-  line-height: 1;
-}
-
 .detail-export-excel {
   border-color: #28a766;
   background: var(--green);
@@ -3305,16 +3299,16 @@ button {
 
 .detail-close-button {
   display: inline-flex;
-  height: 34px;
+  height: 30px;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 6px;
   border: 1px solid #d7e0ea;
-  border-radius: 12px;
+  border-radius: 10px;
   background: #ffffff;
-  padding: 0 12px;
+  padding: 0 10px;
   color: #22262d;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 650;
   line-height: 1;
   white-space: nowrap;
@@ -3336,6 +3330,23 @@ button {
   margin-top: 5px;
   color: #69707d;
   font-size: 13px;
+}
+
+.detail-head-actions .detail-export-button span,
+.detail-head-actions .detail-close-button span {
+  display: inline-flex;
+  height: 100%;
+  align-items: center;
+  margin-top: 0;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: 1;
+}
+
+.detail-head-actions .detail-export-button svg,
+.detail-head-actions .detail-close-button svg {
+  flex: 0 0 auto;
 }
 
 .details-table-scroll,

@@ -1508,6 +1508,8 @@ export function RowActionsMenu({
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [employeeSelectorAnchorRect, setEmployeeSelectorAnchorRect] = useState<DOMRect | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const employeeSelectorListRef = useRef<HTMLDivElement>(null);
+  const pendingEmployeeScrollTopRef = useRef<number | null>(null);
   const ref = useOutsideClose<HTMLDivElement>(open && mode !== 'employees', () => setOpen(false), [popoverRef]);
 
   const resolveEmployeeListAnchorRect = useCallback((): DOMRect | null => {
@@ -1581,7 +1583,22 @@ export function RowActionsMenu({
     return () => {
       cancelAnimationFrame(frame);
     };
-  }, [employeesOpen, mode, open, resolveEmployeeListAnchorRect, selectedEmployeeIds]);
+  }, [employeesOpen, mode, open, resolveEmployeeListAnchorRect]);
+
+  useEffect(() => {
+    if (pendingEmployeeScrollTopRef.current === null) {
+      return;
+    }
+
+    const scrollTop = pendingEmployeeScrollTopRef.current;
+    pendingEmployeeScrollTopRef.current = null;
+
+    requestAnimationFrame(() => {
+      if (employeeSelectorListRef.current) {
+        employeeSelectorListRef.current.scrollTop = scrollTop;
+      }
+    });
+  }, [selectedEmployeeIds]);
 
   useEffect(() => {
     const reportCard = ref.current?.closest('.report-card') as HTMLElement | null;
@@ -1678,6 +1695,11 @@ export function RowActionsMenu({
   const returnToActions = () => {
     setEmployeeSelectorAnchorRect(null);
     setMode('actions');
+  };
+
+  const toggleEmployeeWithoutScrollJump = (employeeId: string) => {
+    pendingEmployeeScrollTopRef.current = employeeSelectorListRef.current?.scrollTop ?? null;
+    onToggleEmployee?.(employeeId);
   };
 
   return (
@@ -1804,7 +1826,7 @@ export function RowActionsMenu({
                   Применить
                 </button>
               </div>
-              <div className="employee-selector-list">
+              <div className="employee-selector-list" ref={employeeSelectorListRef}>
                 {filteredEmployees.map((employee) => {
                   const fullName = `${employee.firstName} ${employee.lastName}`.trim() || employee.name || employee.id;
 
@@ -1813,7 +1835,7 @@ export function RowActionsMenu({
                       <input
                         type="checkbox"
                         checked={selectedEmployeeIds?.has(employee.id) ?? false}
-                        onChange={() => onToggleEmployee?.(employee.id)}
+                        onChange={() => toggleEmployeeWithoutScrollJump(employee.id)}
                       />
                       <span>{fullName}</span>
                     </label>

@@ -70,6 +70,19 @@ const getSmartEntityTypeIdFromSource = (sourceId: string | undefined) => {
   return match ? Number(match[1]) : null;
 };
 
+const getEntityFromCrmFormFallbackId = (id: string | number | undefined | null) => {
+  const match = String(id ?? '').match(/^(lead|deal)-form-(\d+)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    entityType: match[1] as BitrixEntityType,
+    entityId: Number(match[2]),
+  };
+};
+
 const getBitrixPortalOrigin = () => {
   if (typeof window === 'undefined') {
     return null;
@@ -105,7 +118,13 @@ const openBitrixPathFallback = (path: string, fallback: Record<string, unknown>)
 };
 
 export const getBitrixDetailRowPath = (row: DetailRow) => {
-  const entityId = getNumericId(row.entityRawId ?? row.entityId);
+  const crmFormFallbackEntity = row.entityType === 'crm_form'
+    ? getEntityFromCrmFormFallbackId(row.entityRawId ?? row.entityId)
+    : null;
+  const entityType = row.navigationEntityType ?? crmFormFallbackEntity?.entityType ?? row.entityType;
+  const entityId = getNumericId(
+    row.navigationEntityId ?? crmFormFallbackEntity?.entityId ?? row.entityRawId ?? row.entityId,
+  );
 
   if (entityId === null) {
     return null;
@@ -117,7 +136,7 @@ export const getBitrixDetailRowPath = (row: DetailRow) => {
     return `/crm/type/${smartEntityTypeId}/details/${entityId}/`;
   }
 
-  return getBitrixEntityPath(row.entityType, entityId);
+  return getBitrixEntityPath(entityType, entityId);
 };
 
 const openBitrixPath = (path: string, fallback: Record<string, unknown>) => {
@@ -174,8 +193,9 @@ export function openBitrixDetailRow(row: DetailRow) {
   }
 
   openBitrixPath(path, {
-    entityType: row.entityType,
+    entityType: row.navigationEntityType ?? row.entityType,
     entityId: row.entityId,
+    navigationEntityId: row.navigationEntityId,
     sourceId: row.sourceId,
   });
 }

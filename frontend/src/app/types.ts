@@ -149,6 +149,8 @@ export type DetailRow = {
   createdAtSortValue: number;
   entityType: BitrixEntityType;
   sourceId?: string;
+  navigationEntityId?: string | number;
+  navigationEntityType?: BitrixEntityType;
 };
 
 export type DetailColumnKey = 'rowNumber' | 'entityId' | 'title' | 'responsibleName' | 'createdAt';

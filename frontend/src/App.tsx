@@ -408,6 +408,8 @@ const buildBackendDetailRows = (
         createdAtSortValue,
         entityType: normalizeDetailEntityType(detail.entityType) ?? context.entityType,
         sourceId: detail.sourceId,
+        navigationEntityId: detail.navigationEntityId,
+        navigationEntityType: normalizeDetailEntityType(detail.navigationEntityType) ?? undefined,
       };
     });
 

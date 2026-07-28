@@ -296,8 +296,9 @@ def _build_entity_detail(
     entity_id = str(row.get("CRM_ACTIVITY_ID") or row.get("CALL_ID") or row.get("ID") or "")
     title = _extract_entity_title(row, source_id)
     created_at = _extract_row_datetime(row)
+    navigation_entity = _extract_navigation_entity(row, source_id)
 
-    return {
+    detail = {
         "id": entity_id or f"{source_id}:{metric_id}:{period_key}:{len(title)}",
         "entityId": entity_id,
         "sourceId": source_id,
@@ -312,6 +313,63 @@ def _build_entity_detail(
         "title": title,
         "createdAt": created_at.isoformat() if created_at else None,
     }
+
+    if navigation_entity:
+        detail.update(navigation_entity)
+
+    return detail
+
+
+def _extract_navigation_entity(row: dict, source_id: str) -> dict[str, str] | None:
+    if source_id.startswith("crm-form-"):
+        entity_id = str(row.get("CRM_ENTITY_ID") or "").strip()
+        entity_type = _normalize_crm_entity_type(row.get("CRM_ENTITY_TYPE"))
+
+        if entity_id and entity_type:
+            return {
+                "navigationEntityId": entity_id,
+                "navigationEntityType": entity_type,
+            }
+
+    if source_id.startswith("activity-"):
+        owner_id = str(row.get("OWNER_ID") or "").strip()
+        owner_type = _owner_type_id_to_entity_type(row.get("OWNER_TYPE_ID"))
+
+        if owner_id and owner_type:
+            return {
+                "navigationEntityId": owner_id,
+                "navigationEntityType": owner_type,
+            }
+
+    return None
+
+
+def _normalize_crm_entity_type(value: object) -> str | None:
+    normalized = str(value or "").strip().lower()
+    mapping = {
+        "lead": "lead",
+        "deal": "deal",
+        "company": "company",
+        "contact": "contact",
+        "quote": "quote",
+        "invoice": "invoice",
+    }
+
+    return mapping.get(normalized)
+
+
+def _owner_type_id_to_entity_type(value: object) -> str | None:
+    normalized = str(value or "").strip()
+    mapping = {
+        "1": "lead",
+        "2": "deal",
+        "3": "contact",
+        "4": "company",
+        "7": "quote",
+        "31": "invoice",
+    }
+
+    return mapping.get(normalized)
 
 
 def _extract_entity_title(row: dict, source_id: str) -> str:

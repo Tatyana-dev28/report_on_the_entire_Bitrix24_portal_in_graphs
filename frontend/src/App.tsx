@@ -991,6 +991,7 @@ function App() {
   // Used in preview request so chart-only selectedSources cannot starve sourceMetrics.
   const autoBuildTableSourcesRef = useRef<string[] | null>(null);
   const autoBuildDateFiltersRef = useRef<Pick<ReportFilters, 'period' | 'dateRange'> | null>(null);
+  const manualDateFiltersBeforeAutoRef = useRef<Pick<ReportFilters, 'period' | 'dateRange'> | null>(null);
 
   const [savedViews, setSavedViews] = useState<SavedReportViewOption[]>(() => [defaultSavedView]);
   const [selectedView, setSelectedView] = useState('default');
@@ -2712,6 +2713,7 @@ function App() {
   }, [cancelPendingAutoSave]);
 
   const handlePeriodChange = useCallback((nextPeriod: Period) => {
+    manualDateFiltersBeforeAutoRef.current = null;
     markUserSettingsChange();
     dateRangeSelectedManuallyRef.current = false;
     setDraftFilters((current) => ({
@@ -2722,6 +2724,7 @@ function App() {
   }, [markUserSettingsChange]);
 
   const handleDateRangeChange = useCallback((nextRange: DateRange) => {
+    manualDateFiltersBeforeAutoRef.current = null;
     dateRangeSelectedManuallyRef.current = true;
     markUserSettingsChange();
     setDraftFilters((current) => ({
@@ -3351,12 +3354,16 @@ function App() {
 
   const buildReportFromDraft = useCallback((options?: { automaticThresholds?: boolean }) => {
     const automaticThresholds = options?.automaticThresholds ?? false;
+    const restoredManualDateFilters = temporaryAutoReportModeRef.current
+      ? manualDateFiltersBeforeAutoRef.current
+      : null;
 
     temporaryAutoReportModeRef.current = false;
     applyAutomaticThresholdsRef.current = automaticThresholds;
     autoBuildChartSourcesRef.current = null;
     autoBuildTableSourcesRef.current = null;
     autoBuildDateFiltersRef.current = null;
+    manualDateFiltersBeforeAutoRef.current = null;
     const availableSectionIds = new Set(metricSections.map((section) => section.id));
     const { pipelineSourceIds, entitySourceIds } = resolveTableSelectionFromSources(
       draftTableSelectedSources,
@@ -3384,7 +3391,7 @@ function App() {
     immediateAutoSaveRef.current = true;
     setAutoSaveRequest((current) => current + 1);
     // Empty chart selection stays empty — never expand to all/default sources.
-    applyReportBuild(sanitizeChartSources(draftFilters.selectedSources));
+    applyReportBuild(sanitizeChartSources(draftFilters.selectedSources), restoredManualDateFilters ?? undefined);
   }, [
     applyReportBuild,
     crmSources,
@@ -3414,6 +3421,12 @@ function App() {
 
     const salesSource = preset.salesSource;
     dateRangeSelectedManuallyRef.current = false;
+    if (!manualDateFiltersBeforeAutoRef.current) {
+      manualDateFiltersBeforeAutoRef.current = {
+        period: draftFilters.period,
+        dateRange: draftFilters.dateRange,
+      };
+    }
 
     // Do not persist this beginner preset into Pro saved settings.
     // Keep skip active until this generation finishes applying thresholds after preview.
@@ -3429,6 +3442,11 @@ function App() {
       period: 'days',
       dateRange,
     };
+    setDraftFilters((current) => ({
+      ...current,
+      period: 'days',
+      dateRange,
+    }));
     // Chart settings only: exactly one source — Sales funnel. Never copy table selection here.
     const chartSources = [...preset.chartSources];
     autoBuildChartSourcesRef.current = chartSources;
@@ -3465,7 +3483,7 @@ function App() {
     setHasBuiltReport(true);
     setBuildMoment(Date.now());
     setReportBuildRequest((current) => current + 1);
-  }, [cancelPendingAutoSave, crmSourceIds, crmSources, metricSections]);
+  }, [cancelPendingAutoSave, crmSourceIds, crmSources, draftFilters.dateRange, draftFilters.period, metricSections]);
 
   const openDetail = useCallback((
     metric: MetricRow,

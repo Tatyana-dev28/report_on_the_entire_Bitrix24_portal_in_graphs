@@ -1606,6 +1606,26 @@ button {
   color: #a33131;
 }
 
+.report-status-action {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid #f0b8b8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #a33131;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.report-status-action:hover {
+  border-color: #de8f8f;
+  background: #fffafa;
+}
+
 .report-table-row {
   display: grid;
   grid-template-columns: var(--left-column-width) minmax(0, 1fr);

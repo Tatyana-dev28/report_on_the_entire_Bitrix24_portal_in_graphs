@@ -30,6 +30,7 @@ import {
   PinOff,
   Plus,
   Play,
+  RefreshCw,
   Settings2,
   SlidersHorizontal,
   TrendingUp,
@@ -201,6 +202,9 @@ const splitEmployeeName = (name: string) => {
 
 const BILLING_LOAD_ERROR_MESSAGE = 'Не удалось загрузить платные тарифы. Попробуйте открыть приложение заново или напишите нам.';
 
+const BITRIX_AUTH_RELOAD_ATTEMPT_KEY = 'sapp-bitrix-auth-reload-attempted';
+const BITRIX_AUTH_EXPIRED_MESSAGE = 'Доступ к Bitrix24 устарел. Обновите приложение, чтобы продолжить работу.';
+
 const getFriendlyBillingError = (error: unknown) => {
   const message = error instanceof Error ? error.message : '';
   const normalizedMessage = message.toLowerCase();
@@ -216,6 +220,66 @@ const getFriendlyBillingError = (error: unknown) => {
   }
 
   return message;
+};
+
+const isBitrixAuthErrorMessage = (message: string) => {
+  const normalized = message.toLowerCase();
+
+  return (
+    normalized.includes('oauth') ||
+    normalized.includes('access_token') ||
+    normalized.includes('refresh_token') ||
+    normalized.includes('authorization') ||
+    normalized.includes('token') ||
+    normalized.includes('токен')
+  );
+};
+
+const reloadApplication = ({ rememberAttempt }: { rememberAttempt: boolean }) => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  try {
+    if (rememberAttempt) {
+      window.sessionStorage.setItem(BITRIX_AUTH_RELOAD_ATTEMPT_KEY, '1');
+    } else {
+      window.sessionStorage.removeItem(BITRIX_AUTH_RELOAD_ATTEMPT_KEY);
+    }
+  } catch {
+    // sessionStorage can be blocked in embedded contexts; reloading is still safe.
+  }
+
+  window.location.reload();
+  return true;
+};
+
+const clearBitrixAuthReloadAttempt = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.sessionStorage.removeItem(BITRIX_AUTH_RELOAD_ATTEMPT_KEY);
+  } catch {
+    // Ignore storage restrictions in embedded contexts.
+  }
+};
+
+const tryAutoReloadForBitrixAuth = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  try {
+    if (window.sessionStorage.getItem(BITRIX_AUTH_RELOAD_ATTEMPT_KEY) === '1') {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  return reloadApplication({ rememberAttempt: true });
 };
 
 const toReportEmployee = (employee: { id: string; userId?: number; name: string; avatarUrl?: string; values?: Record<string, number> }): ReportEmployee => {
@@ -1041,6 +1105,7 @@ function App() {
   const [reportLoading, setReportLoading] = useState(false);
   const [reportElapsed, setReportElapsed] = useState('');
   const [reportError, setReportError] = useState('');
+  const [reportAuthExpired, setReportAuthExpired] = useState(false);
   const [isSaveOpen, setIsSaveOpen] = useState(false);
   const [isProOpen, setIsProOpen] = useState(false);
   const [isInstructionOpen, setIsInstructionOpen] = useState(false);
@@ -1251,6 +1316,10 @@ function App() {
       .catch((error) => {
         console.warn('[Portal] Employees were not loaded', error);
       });
+  }, []);
+
+  const refreshBitrixAccess = useCallback(() => {
+    reloadApplication({ rememberAttempt: false });
   }, []);
 
   useEffect(() => {
@@ -1829,10 +1898,13 @@ function App() {
     setReportLoading(true);
     reportStartTimeRef.current = Date.now();
     setReportError('');
+    setReportAuthExpired(false);
     reportDataSource
       .loadReportPreview(filters)
       .then((preview) => {
         if (isActive) {
+          clearBitrixAuthReloadAttempt();
+          setReportAuthExpired(false);
           setRawReportData(preview.data);
           setRawChartReportData(preview.chartData ?? preview.data);
           setReportEmployees((preview.employees ?? []).map(toReportEmployee));
@@ -1968,11 +2040,36 @@ function App() {
         console.warn('[Report data source] report data were not loaded', error);
         if (isActive) {
           const message = error instanceof Error ? error.message : 'Не удалось построить отчет.';
-          setReportError(
-            message.includes('OAuth') || message.includes('токен')
-              ? 'Нет OAuth-токенов Bitrix24. Откройте приложение из портала или переустановите его, чтобы backend получил доступ к REST API.'
-              : message,
-          );
+          if (isBitrixAuthErrorMessage(message)) {
+            if (tryAutoReloadForBitrixAuth()) {
+              return;
+            }
+
+            setReportAuthExpired(true);
+            setReportError(BITRIX_AUTH_EXPIRED_MESSAGE);
+            setRawReportData([]);
+            setRawChartReportData([]);
+            setReportEmployees([]);
+            setReportDetails([]);
+            setSourceMetrics({});
+            setChartSourceMetrics({});
+            applyAutomaticThresholdsRef.current = false;
+            autoBuildChartSourcesRef.current = null;
+            autoBuildTableSourcesRef.current = null;
+            autoBuildDateFiltersRef.current = null;
+            const failedGeneration = activeAutoBuildGenerationRef.current;
+            if (
+              failedGeneration !== null &&
+              failedGeneration === autoBuildGenerationRef.current
+            ) {
+              activeAutoBuildGenerationRef.current = null;
+              skipAutoSaveRef.current = false;
+            }
+            return;
+          }
+
+          setReportAuthExpired(false);
+          setReportError(message);
           setRawReportData([]);
           setRawChartReportData([]);
           setReportEmployees([]);
@@ -4767,6 +4864,12 @@ function App() {
             {catalogError && <span>{catalogError}</span>}
             {reportLoading && <span>Отчет формируется {reportElapsed}</span>}
             {reportError && <span>{reportError}</span>}
+            {reportAuthExpired && (
+              <button className="report-status-action" type="button" onClick={refreshBitrixAccess}>
+                <RefreshCw size={14} />
+                <span>Обновить доступ</span>
+              </button>
+            )}
             {hasBuiltReport && !reportLoading && !reportError && reportData.length === 0 && (
               <span>По выбранным фильтрам данных нет. Измените период, источники или метрики и постройте отчет заново.</span>
             )}

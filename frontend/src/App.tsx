@@ -3581,6 +3581,56 @@ function App() {
     });
   }, [draftEmployeeIdsByMetricId]);
 
+  const hideAppliedMetricEmployee = useCallback((metricId: string, employeeId: string) => {
+    setAppliedEmployeeIdsByMetricId((current) => {
+      const currentEmployeeIds = current[metricId];
+
+      if (!currentEmployeeIds?.has(employeeId)) {
+        return current;
+      }
+
+      const nextEmployeeIds = new Set(currentEmployeeIds);
+      nextEmployeeIds.delete(employeeId);
+      const next = { ...current };
+
+      if (nextEmployeeIds.size > 0) {
+        next[metricId] = nextEmployeeIds;
+      } else {
+        delete next[metricId];
+      }
+
+      return next;
+    });
+
+    setDraftEmployeeIdsByMetricId((current) => {
+      const currentEmployeeIds = current[metricId] ?? appliedEmployeeIdsByMetricId[metricId];
+
+      if (!currentEmployeeIds?.has(employeeId)) {
+        return current;
+      }
+
+      const nextEmployeeIds = new Set(currentEmployeeIds);
+      nextEmployeeIds.delete(employeeId);
+
+      return {
+        ...current,
+        [metricId]: nextEmployeeIds,
+      };
+    });
+
+    setExpandedEmployeeChartIds((current) => {
+      const chartId = buildEmployeeChartId(metricId, employeeId);
+
+      if (!current.has(chartId)) {
+        return current;
+      }
+
+      const next = new Set(current);
+      next.delete(chartId);
+      return next;
+    });
+  }, [appliedEmployeeIdsByMetricId]);
+
   const toggleMetricChart = useCallback((metricId: string) => {
     setExpandedChartMetricIds((current) => {
       const next = new Set(current);
@@ -5115,6 +5165,13 @@ function App() {
                       >
                         <GripVertical size={15} />
                       </button>
+                      <input
+                        className="employee-visibility-checkbox"
+                        type="checkbox"
+                        checked
+                        aria-label="Скрыть сотрудника из списка"
+                        onChange={() => hideAppliedMetricEmployee(row.metric.id, row.employee.id)}
+                      />
                       <button
                         className="employee-person-button"
                         type="button"

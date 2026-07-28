@@ -1695,6 +1695,16 @@ button {
   text-decoration: none;
 }
 
+.employee-visibility-checkbox {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 0;
+  border-radius: 4px;
+  accent-color: #2b74ff;
+  cursor: pointer;
+}
+
 .employee-person-button:hover,
 .employee-person-button:focus-visible {
   background: #eef3f8;

@@ -49,7 +49,7 @@ const getBitrixEntityPath = (entityType: BitrixEntityType, id: string | number) 
     contact: `/crm/contact/details/${id}/`,
     task: `/company/personal/user/0/tasks/task/view/${id}/`,
     activity: `/crm/activity/?ID=${id}`,
-    call: `/crm/activity/?ID=${id}`,
+    call: `/telephony/detail.php?ID=${id}`,
     email: `/crm/activity/?ID=${id}`,
     message: `/crm/activity/?ID=${id}`,
     crm_form: `/crm/webform/result/${id}/`,
@@ -59,6 +59,12 @@ const getBitrixEntityPath = (entityType: BitrixEntityType, id: string | number) 
 };
 
 const getNumericId = (id: string | number | undefined | null) => {
+  const numericId = Number(id);
+
+  return Number.isFinite(numericId) && numericId > 0 ? numericId : null;
+};
+
+const getNumericEntityTypeId = (id: string | number | undefined | null) => {
   const numericId = Number(id);
 
   return Number.isFinite(numericId) && numericId > 0 ? numericId : null;
@@ -130,7 +136,8 @@ export const getBitrixDetailRowPath = (row: DetailRow) => {
     return null;
   }
 
-  const smartEntityTypeId = getSmartEntityTypeIdFromSource(row.sourceId);
+  const smartEntityTypeId = getNumericEntityTypeId(row.navigationEntityTypeId)
+    ?? getSmartEntityTypeIdFromSource(row.sourceId);
 
   if (smartEntityTypeId) {
     return `/crm/type/${smartEntityTypeId}/details/${entityId}/`;

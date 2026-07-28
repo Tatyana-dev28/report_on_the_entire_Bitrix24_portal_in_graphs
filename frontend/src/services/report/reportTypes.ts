@@ -65,6 +65,7 @@ export type MetricDetailItem = {
   sourceId?: string;
   navigationEntityId?: string | number;
   navigationEntityType?: string;
+  navigationEntityTypeId?: string | number;
 };
 
 export type EmployeeMetricPeriodValue = {

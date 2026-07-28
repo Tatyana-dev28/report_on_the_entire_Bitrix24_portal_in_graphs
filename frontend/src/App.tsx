@@ -410,6 +410,7 @@ const buildBackendDetailRows = (
         sourceId: detail.sourceId,
         navigationEntityId: detail.navigationEntityId,
         navigationEntityType: normalizeDetailEntityType(detail.navigationEntityType) ?? undefined,
+        navigationEntityTypeId: detail.navigationEntityTypeId,
       };
     });
 

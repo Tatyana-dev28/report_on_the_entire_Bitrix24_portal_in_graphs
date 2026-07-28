@@ -90,7 +90,11 @@ def _load_smart_quote_rows(
     for entity_type_id in quote_type_ids:
         try:
             rows.extend(
-                client.call_list(
+                {
+                    **row,
+                    "ENTITY_TYPE_ID": entity_type_id,
+                }
+                for row in client.call_list(
                     "crm.item.list",
                     {
                         "entityTypeId": entity_type_id,
@@ -247,6 +251,7 @@ def _normalize_quote_row(row: dict) -> dict:
 def _normalize_smart_quote_row(row: dict) -> dict:
     return {
         "ID": row.get("id") or row.get("ID"),
+        "ENTITY_TYPE_ID": row.get("entityTypeId") or row.get("ENTITY_TYPE_ID"),
         "TITLE": row.get("title") or row.get("TITLE") or "",
         "DATE_CREATE": row.get("createdTime") or row.get("CREATED_TIME"),
         "STATUS_ID": row.get("stageId") or row.get("STAGE_ID"),

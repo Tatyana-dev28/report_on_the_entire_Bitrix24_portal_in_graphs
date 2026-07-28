@@ -341,6 +341,25 @@ def _extract_navigation_entity(row: dict, source_id: str) -> dict[str, str] | No
                 "navigationEntityType": owner_type,
             }
 
+    if source_id.startswith("telephony-"):
+        call_id = str(row.get("ID") or "").strip()
+
+        if call_id:
+            return {
+                "navigationEntityId": call_id,
+                "navigationEntityType": "call",
+            }
+
+    if source_id.startswith("quote-") and row.get("SOURCE_KIND") == "smart_quote":
+        entity_id = str(row.get("ID") or "").strip()
+        entity_type_id = str(row.get("ENTITY_TYPE_ID") or "").strip()
+
+        if entity_id and entity_type_id:
+            return {
+                "navigationEntityId": entity_id,
+                "navigationEntityTypeId": entity_type_id,
+            }
+
     return None
 
 
@@ -373,7 +392,7 @@ def _owner_type_id_to_entity_type(value: object) -> str | None:
 
 
 def _extract_entity_title(row: dict, source_id: str) -> str:
-    title = str(row.get("TITLE") or row.get("SUBJECT") or "").strip()
+    title = str(row.get("TITLE") or row.get("SUBJECT") or row.get("FORM_NAME") or "").strip()
 
     if title:
         return title

@@ -818,6 +818,7 @@ class BitrixReportDataProvider:
             for row in lead_rows:
                 form_rows.append({
                     "ID": f"lead-form-{row.get('ID')}",
+                    "TITLE": row.get("TITLE"),
                     "DATE_CREATE": row.get("DATE_CREATE"),
                     "FORM_NAME": f"WEBFORM (lead #{row.get('ID')})",
                     "CRM_ENTITY_ID": row.get("ID"),
@@ -847,6 +848,7 @@ class BitrixReportDataProvider:
             for row in deal_rows:
                 form_rows.append({
                     "ID": f"deal-form-{row.get('ID')}",
+                    "TITLE": row.get("TITLE"),
                     "DATE_CREATE": row.get("DATE_CREATE"),
                     "FORM_NAME": f"WEBFORM (deal #{row.get('ID')})",
                     "CRM_ENTITY_ID": row.get("ID"),

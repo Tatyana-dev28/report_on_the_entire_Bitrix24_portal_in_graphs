@@ -151,6 +151,7 @@ export type DetailRow = {
   sourceId?: string;
   navigationEntityId?: string | number;
   navigationEntityType?: BitrixEntityType;
+  navigationEntityTypeId?: string | number;
 };
 
 export type DetailColumnKey = 'rowNumber' | 'entityId' | 'title' | 'responsibleName' | 'createdAt';

@@ -990,6 +990,7 @@ function App() {
   // Table sources locked for the active auto-build (all table settings sources).
   // Used in preview request so chart-only selectedSources cannot starve sourceMetrics.
   const autoBuildTableSourcesRef = useRef<string[] | null>(null);
+  const autoBuildDateFiltersRef = useRef<Pick<ReportFilters, 'period' | 'dateRange'> | null>(null);
 
   const [savedViews, setSavedViews] = useState<SavedReportViewOption[]>(() => [defaultSavedView]);
   const [selectedView, setSelectedView] = useState('default');
@@ -1805,6 +1806,7 @@ function App() {
     // mix them while the automatic preset is being applied.
     const lockedChartSources = autoBuildChartSourcesRef.current;
     const lockedTableSources = autoBuildTableSourcesRef.current;
+    const lockedDateFilters = autoBuildDateFiltersRef.current;
     const chartSourceIds =
       lockedChartSources && lockedChartSources.length > 0
         ? lockedChartSources
@@ -1814,8 +1816,8 @@ function App() {
         ? lockedTableSources
         : [...tableSelectedSources, ...tableEntitySourceIds];
     const filters: ReportLoadFilters = {
-      period: appliedFilters.period,
-      dateRange: appliedFilters.dateRange,
+      period: lockedDateFilters?.period ?? appliedFilters.period,
+      dateRange: lockedDateFilters?.dateRange ?? appliedFilters.dateRange,
       selectedSources: tableSourceIds,
       chartSelectedSources: chartSourceIds,
       selectedMetricIds,
@@ -1933,6 +1935,7 @@ function App() {
             applyAutomaticThresholdsRef.current = false;
             autoBuildChartSourcesRef.current = null;
             autoBuildTableSourcesRef.current = null;
+            autoBuildDateFiltersRef.current = null;
           } else {
             // Regular build (not automatic): clear thresholds after data load
             // to prevent applyBackendSettings from restoring stale values
@@ -1951,6 +1954,7 @@ function App() {
             activeAutoBuildGenerationRef.current = null;
             autoBuildChartSourcesRef.current = null;
             autoBuildTableSourcesRef.current = null;
+            autoBuildDateFiltersRef.current = null;
             window.setTimeout(() => {
               if (autoBuildGenerationRef.current === finishedGeneration) {
                 skipAutoSaveRef.current = false;
@@ -1977,6 +1981,7 @@ function App() {
           applyAutomaticThresholdsRef.current = false;
           autoBuildChartSourcesRef.current = null;
           autoBuildTableSourcesRef.current = null;
+          autoBuildDateFiltersRef.current = null;
           const failedGeneration = activeAutoBuildGenerationRef.current;
           if (
             failedGeneration !== null &&
@@ -3351,6 +3356,7 @@ function App() {
     applyAutomaticThresholdsRef.current = automaticThresholds;
     autoBuildChartSourcesRef.current = null;
     autoBuildTableSourcesRef.current = null;
+    autoBuildDateFiltersRef.current = null;
     const availableSectionIds = new Set(metricSections.map((section) => section.id));
     const { pipelineSourceIds, entitySourceIds } = resolveTableSelectionFromSources(
       draftTableSelectedSources,
@@ -3419,6 +3425,10 @@ function App() {
     skipAutoSaveRef.current = true;
 
     const dateRange = preset.dateRange;
+    autoBuildDateFiltersRef.current = {
+      period: 'days',
+      dateRange,
+    };
     // Chart settings only: exactly one source — Sales funnel. Never copy table selection here.
     const chartSources = [...preset.chartSources];
     autoBuildChartSourcesRef.current = chartSources;

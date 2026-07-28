@@ -2237,6 +2237,26 @@ function App() {
       trendValues,
     ],
   );
+  const mainChartYAxisTicks = useMemo(() => {
+    if (appliedFilters.metricMode === 'money') {
+      return undefined;
+    }
+
+    const [min, max] = chartDomain;
+
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      return undefined;
+    }
+
+    const lower = Math.max(0, Math.floor(min));
+    const upper = Math.ceil(max);
+
+    if (upper - lower > 10) {
+      return undefined;
+    }
+
+    return Array.from({ length: upper - lower + 1 }, (_item, index) => lower + index);
+  }, [appliedFilters.metricMode, chartDomain]);
   const activeMainChartDataPoint = activeMainChartPoint
     ? chartData[activeMainChartPoint.index]
     : null;
@@ -2685,13 +2705,11 @@ function App() {
 
   const handlePeriodChange = useCallback((nextPeriod: Period) => {
     markUserSettingsChange();
+    dateRangeSelectedManuallyRef.current = false;
     setDraftFilters((current) => ({
       ...current,
       period: nextPeriod,
-      dateRange:
-        dateRangeSelectedManuallyRef.current
-          ? constrainRangeForPeriod(nextPeriod, current.dateRange)
-          : getDefaultRangeForPeriod(nextPeriod),
+      dateRange: getDefaultRangeForPeriod(nextPeriod),
     }));
   }, [markUserSettingsChange]);
 
@@ -4758,6 +4776,7 @@ function App() {
                       <YAxis
                         width={CHART_AXIS_WIDTH}
                         domain={chartDomain}
+                        ticks={mainChartYAxisTicks}
                         tickLine={false}
                         axisLine={false}
                         tick={{ fill: '#707782', fontSize: 12 }}

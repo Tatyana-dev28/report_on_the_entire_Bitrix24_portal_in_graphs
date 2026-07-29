@@ -1062,7 +1062,7 @@ function App() {
   const [draftFilters, setDraftFilters] = useState<ReportFilters>(() => createDefaultFilters());
   const [appliedFilters, setAppliedFilters] = useState<ReportFilters>(() => createDefaultFilters());
   // Separate state for table settings — these are the sources the user selected
-  // specifically in "Настройка таблицы". They are NOT the same as chart sources.
+  // specifically in "Выбрать показатели". They are NOT the same as chart sources.
   // tableRows uses ONLY these to decide which source sections to show.
   const [tableSelectedSources, setTableSelectedSources] = useState<string[]>([]);
   const [draftTableSelectedSources, setDraftTableSelectedSources] = useState<string[]>([]);
@@ -4880,7 +4880,7 @@ function App() {
           <div className="fixed-column">
             <div className="left-pane chart-left">
               <div className="section-title-row">
-                <p>Главный график</p>
+                <p>Главный показатель</p>
                 <div className="section-title-actions">
                   <TooltipButton
                     label="Закрепить график при прокрутке"
@@ -4922,11 +4922,11 @@ function App() {
                 </button>
                 <button className="left-panel-action-button left-auto-build-button" type="button" onClick={buildAutomaticReport}>
                   <Settings2 size={16} />
-                  <span>Построить автоматически</span>
+                  <span>Собрать отчёт автоматически</span>
                 </button>
                 <button className="left-panel-action-button left-threshold-build-button" type="button" onClick={buildReportWithAutomaticThresholds}>
                   <SlidersHorizontal size={16} />
-                  <span>Построить с автопорогами</span>
+                  <span>Построить с подсветкой отклонений</span>
                 </button>
               </div>
             </div>

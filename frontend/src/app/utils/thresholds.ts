@@ -63,14 +63,14 @@ export const getThresholdLineLabel = (
   const recommended = threshold?.mode === 'recommended';
 
   if (key === 'upper') {
-    return recommended ? 'Рекомендованное верхнее значение' : 'Верхнее значение';
+    return recommended ? 'Рассчитанная верхняя граница' : 'Верхняя граница';
   }
 
   if (key === 'average') {
-    return recommended ? 'Рекомендованное среднее значение' : 'Среднее значение';
+    return recommended ? 'Рассчитанный средний уровень' : 'Средний уровень';
   }
 
-  return recommended ? 'Рекомендованное нижнее значение' : 'Нижнее значение';
+  return recommended ? 'Рассчитанная нижняя граница' : 'Нижняя граница';
 };
 
 export const thresholdLineColors = {

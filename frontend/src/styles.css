@@ -1125,6 +1125,16 @@ button {
   background: #f8fafc;
 }
 
+.configure-chart-button {
+  gap: 6px;
+  padding: 0 10px;
+  font-size: 15px;
+}
+
+.configure-chart-button span {
+  white-space: nowrap;
+}
+
 .left-build-button {
   border-color: #2274ff;
   background: var(--blue);
@@ -1142,6 +1152,21 @@ button {
   border-color: #bdd2ff;
   background: #f0f6ff;
   color: #185ec8;
+  gap: 4px;
+  padding: 0 5px;
+  font-size: 15px;
+}
+
+.left-auto-build-button svg,
+.left-threshold-build-button svg {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+}
+
+.left-auto-build-button span,
+.left-threshold-build-button span {
+  white-space: nowrap;
 }
 
 .left-auto-build-button:hover,
@@ -1155,7 +1180,9 @@ button {
   border-color: #bfe4d0;
   background: #f0fbf5;
   color: #208451;
-  font-size: 15px;
+  gap: 4px;
+  padding: 0 5px;
+  font-size: 13px;
 }
 
 .left-threshold-build-button:hover,

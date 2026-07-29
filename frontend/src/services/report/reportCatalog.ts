@@ -55,10 +55,10 @@ export const defaultDateRange: DateRange = {
 };
 
 export const periodOptions: Array<{ value: Period; label: string }> = [
-    { value: 'hours', label: 'По часам' },
-    { value: 'days', label: 'По дням' },
-    { value: 'weeks', label: 'По неделям' },
-    { value: 'months', label: 'По месяцам' },
+    { value: 'hours', label: 'Группировка: по часам' },
+    { value: 'days', label: 'Группировка: по дням' },
+    { value: 'weeks', label: 'Группировка: по неделям' },
+    { value: 'months', label: 'Группировка: по месяцам' },
 ];
 
 export const reportSources = [

@@ -363,9 +363,9 @@ export function InstructionModal({ onClose }: { onClose: () => void }) {
             <a href="#instruction-build">Как построить отчет</a>
             <a href="#instruction-crm">Почему у всех разные воронки</a>
             <a href="#instruction-chart">Как читать график</a>
-            <a href="#instruction-thresholds">Пороговые значения</a>
+            <a href="#instruction-thresholds">Коридор показателя</a>
             <a href="#instruction-table">Как пользоваться таблицей</a>
-            <a href="#instruction-settings">Настройка таблицы</a>
+            <a href="#instruction-settings">Выбрать показатели</a>
             <a href="#instruction-views">Сохраненные отображения</a>
             <a href="#instruction-export">Excel Рё PDF</a>
             <a href="#instruction-pro">ПРО версия</a>
@@ -383,7 +383,7 @@ export function InstructionModal({ onClose }: { onClose: () => void }) {
               чтобы быстро возвращаться к ним позже.
             </p>
             <div className="instruction-demo demo-toolbar">
-              <span className="demo-select">Общий отчет</span>
+              <span className="demo-select">Обзор бизнеса</span>
               <span className="demo-button demo-blue">Построить отчет</span>
               <span className="demo-button demo-green">Скачать Excel</span>
               <span className="demo-button demo-purple">Скачать PDF</span>
@@ -394,14 +394,14 @@ export function InstructionModal({ onClose }: { onClose: () => void }) {
             <h2>Как построить отчет</h2>
             <ol>
               <li>Выберите период в верхней панели.</li>
-              <li>Нажмите кнопку <b>Настроить график</b>.</li>
+              <li>Нажмите кнопку <b>Выбрать главный показатель</b>.</li>
               <li>Выберите нужные воронки, лиды, счета или смарт-процессы.</li>
               <li>Выберите, что считать: деньги или количество.</li>
               <li>Нажмите <b>Применить</b>.</li>
               <li>Нажмите <b>Построить отчет</b>.</li>
             </ol>
             <div className="instruction-demo demo-card">
-              <span className="demo-button demo-soft">Настроить график</span>
+              <span className="demo-button demo-soft">Выбрать главный показатель</span>
               <span className="demo-select">Воронка продажи</span>
               <span className="demo-select">Кол-во денег</span>
               <span className="demo-button demo-blue">Применить</span>
@@ -436,27 +436,27 @@ export function InstructionModal({ onClose }: { onClose: () => void }) {
           </section>
 
           <section className="instruction-section" id="instruction-thresholds">
-            <h2>Пороговые значения</h2>
+            <h2>Коридор показателя</h2>
             <p>
-              Верхнее значение показывает хороший результат. Нижнее значение помогает быстро увидеть слабые места.
-              Среднее значение находится между ними. Значения можно ввести вручную или применить рекомендованные.
+              Верхняя граница показывает хороший результат. Нижняя граница помогает быстро увидеть слабые места.
+              Средний уровень находится между ними. Коридор можно настроить вручную или применить расчет системы.
             </p>
             <p>
-              Рекомендованные значения считаются автоматически по данным текущего графика или строки таблицы.
+              Расчет системы формируется автоматически по данным текущего графика или строки таблицы.
             </p>
             <div className="instruction-demo demo-thresholds">
               <div>
-                <span>Ручные значения</span>
-                <i>Верхнее значение</i>
-                <i>Нижнее значение</i>
-                <i>Среднее значение</i>
+                <span>Настроить вручную</span>
+                <i>Верхняя граница</i>
+                <i>Нижняя граница</i>
+                <i>Средний уровень</i>
                 <b>Применить</b>
               </div>
               <div>
-                <span>Рекомендованные</span>
-                <i>Рекомендованное верхнее</i>
-                <i>Рекомендованное нижнее</i>
-                <i>Рекомендованное среднее</i>
+                <span>Рассчитано системой</span>
+                <i>Верхняя граница</i>
+                <i>Нижняя граница</i>
+                <i>Средний уровень</i>
                 <b className="demo-green-text">Применить</b>
               </div>
             </div>
@@ -466,7 +466,7 @@ export function InstructionModal({ onClose }: { onClose: () => void }) {
             <h2>Как пользоваться таблицей</h2>
             <p>
               Слева находится список показателей, справа — значения по датам. Через меню с тремя точками можно
-              показать сотрудников, раскрыть график строки или настроить пороги.
+              показать сотрудников, раскрыть график строки или настроить коридор показателя.
             </p>
             <p>
               Нажмите на цифру, чтобы открыть детализацию. Если значение обрезано, наведите курсор — появится
@@ -481,7 +481,7 @@ export function InstructionModal({ onClose }: { onClose: () => void }) {
           </section>
 
           <section className="instruction-section" id="instruction-settings">
-            <h2>Настройка таблицы</h2>
+            <h2>Выбрать показатели</h2>
             <p>
               В настройке таблицы можно скрыть лишние разделы. В настройке показателей раздела можно оставить
               только нужные строки. Скрытые показатели не попадут в Excel.
@@ -490,7 +490,7 @@ export function InstructionModal({ onClose }: { onClose: () => void }) {
               Кнопка <b>Выбрать все</b> включает все пункты. Кнопка <b>Сбросить</b> очищает выбор.
             </p>
             <div className="instruction-demo demo-card">
-              <span className="demo-button demo-soft">Настройка таблицы</span>
+              <span className="demo-button demo-soft">Выбрать показатели</span>
               <span className="demo-pill">Выбрать все</span>
               <span className="demo-pill">Сбросить</span>
               <span className="demo-check">✓ Сделки</span>
@@ -505,11 +505,11 @@ export function InstructionModal({ onClose }: { onClose: () => void }) {
               сохранить одно отображение. В ПРО версии можно сохранять много вариантов.
             </p>
             <p>
-              Чтобы переименовать или удалить отображение, откройте поле <b>Общий отчет</b> и нажмите три точки
+              Чтобы переименовать или удалить отображение, откройте поле <b>Обзор бизнеса</b> и нажмите три точки
               рядом с сохраненным названием.
             </p>
             <div className="instruction-demo demo-card">
-              <span className="demo-select">Общий отчет</span>
+              <span className="demo-select">Обзор бизнеса</span>
               <span className="demo-select">Продажи за месяц · ⋮</span>
               <span className="demo-menu-item">Редактировать</span>
               <span className="demo-menu-item">Удалить</span>

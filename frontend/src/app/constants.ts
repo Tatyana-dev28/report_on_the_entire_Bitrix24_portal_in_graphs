@@ -110,7 +110,7 @@ export const APP_SETTINGS_STORAGE_KEY = 'sapp24-app-settings';
 
 export const defaultSavedView: SavedReportViewOption = {
   value: 'default',
-  label: 'Общий отчет',
+  label: 'Обзор бизнеса',
   isSystem: true,
 };
 

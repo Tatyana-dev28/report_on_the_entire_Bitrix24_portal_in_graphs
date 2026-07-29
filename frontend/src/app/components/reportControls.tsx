@@ -258,7 +258,7 @@ export function SavedViewsSelect({
                 onSaveClick();
               }}
             >
-              <span>Сохранить текущее отображение отчета</span>
+              <span>Сохранить текущее отображение обзора</span>
             </button>
           </div>
         </FloatingPopover>
@@ -775,7 +775,7 @@ export function TableSettingsMenu({
     <div className={`menu-button-shell ${open ? 'is-open' : ''}`} ref={ref}>
       {trigger === 'icon' ? (
         <TooltipButton
-          label="Настройка таблицы"
+          label="Выбрать показатели"
           onClick={() => setOpen((current) => !current)}
           className={open ? 'active-pin' : ''}
         >
@@ -789,7 +789,7 @@ export function TableSettingsMenu({
           onClick={() => setOpen((current) => !current)}
         >
           <Settings2 size={16} />
-          <span>Настройка таблицы</span>
+          <span>Выбрать показатели</span>
         </button>
       )}
       {open && (
@@ -802,11 +802,11 @@ export function TableSettingsMenu({
           expectedHeight={660}
         >
           <div className="table-settings-head">
-            <p>Настройка таблицы</p>
+            <p>Выбрать показатели</p>
             <button
               className="row-menu-close"
               type="button"
-              aria-label="Закрыть настройку таблицы"
+              aria-label="Закрыть выбор показателей"
               onClick={() => setOpen(false)}
             >
               <X size={14} />
@@ -917,13 +917,13 @@ export function ConfigureChartMenu({
   return (
     <div className={`menu-button-shell configure-chart-shell ${open ? 'is-open' : ''}`} ref={ref}>
       <button
-        className={`left-panel-action-button ${open ? 'active-pin' : ''}`}
+        className={`left-panel-action-button configure-chart-button ${open ? 'active-pin' : ''}`}
         type="button"
         aria-expanded={open}
         onClick={open ? () => setOpen(false) : openMenu}
       >
         <SlidersHorizontal size={16} />
-        <span>Настроить график</span>
+        <span>Выбрать главный показатель</span>
       </button>
       {open && (
         <FloatingPopover
@@ -935,11 +935,11 @@ export function ConfigureChartMenu({
           expectedHeight={640}
         >
           <div className="configure-chart-head">
-            <p>Настроить график</p>
+            <p>Выбрать главный показатель</p>
             <button
               className="row-menu-close"
               type="button"
-              aria-label="Закрыть настройки графика"
+              aria-label="Закрыть выбор главного показателя"
               onClick={() => setOpen(false)}
             >
               <X size={14} />
@@ -1059,16 +1059,16 @@ export function ThresholdEditor({
   return (
     <div className="threshold-editor">
       <div className="threshold-popover-head">
-        <p>Пороговые значения</p>
+        <p>Коридор показателя</p>
         <button className="popover-reset-button compact-reset-button" type="button" onClick={resetValues}>
           Сбросить
         </button>
       </div>
       <div className="threshold-editor-grid">
         <div className="threshold-column">
-          <p>Ручные значения</p>
+          <p>Настроить вручную</p>
           <label className="threshold-field compact-threshold-field">
-            <span>Верхнее значение</span>
+            <span>Верхняя граница</span>
             <input
               type="number"
               value={manualUpper}
@@ -1077,17 +1077,17 @@ export function ThresholdEditor({
             />
           </label>
           <label className="threshold-field compact-threshold-field">
-            <span>Нижнее значение</span>
+            <span>Средний уровень</span>
+            <input value={manualAverage === null ? '' : manualAverage} readOnly />
+          </label>
+          <label className="threshold-field compact-threshold-field">
+            <span>Нижняя граница</span>
             <input
               type="number"
               value={manualLower}
               onChange={(event) => setManualLower(event.target.value)}
               placeholder="800000"
             />
-          </label>
-          <label className="threshold-field compact-threshold-field">
-            <span>Среднее значение</span>
-            <input value={manualAverage === null ? '' : manualAverage} readOnly />
           </label>
           <button
             className="threshold-apply-button manual-apply-button"
@@ -1102,18 +1102,18 @@ export function ThresholdEditor({
           </button>
         </div>
         <div className="threshold-column">
-          <p>Рекомендованные значения</p>
+          <p>Рассчитано системой</p>
           <label className="threshold-field compact-threshold-field">
-            <span>Рекомендованное верхнее значение</span>
+            <span>Верхняя граница</span>
             <input value={recommended.upper} readOnly />
           </label>
           <label className="threshold-field compact-threshold-field">
-            <span>Рекомендованное нижнее значение</span>
-            <input value={recommended.lower} readOnly />
+            <span>Средний уровень</span>
+            <input value={recommended.average} readOnly />
           </label>
           <label className="threshold-field compact-threshold-field">
-            <span>Рекомендованное среднее значение</span>
-            <input value={recommended.average} readOnly />
+            <span>Нижняя граница</span>
+            <input value={recommended.lower} readOnly />
           </label>
           <button
             className="threshold-apply-button recommended-apply-button"
@@ -1194,7 +1194,7 @@ export function ThresholdMenu({
         onClick={toggleOpen}
       >
         <SlidersHorizontal size={17} />
-        <span>Пороговые значения</span>
+        <span>Коридор показателя</span>
         <ChevronDown size={16} />
       </button>
       {open && (
@@ -1295,7 +1295,7 @@ export function ScheduleMenu({
         onClick={toggleOpen}
       >
         <CalendarClock size={17} />
-        <span>Расписание</span>
+        <span>Рабочий календарь</span>
         <ChevronDown size={16} />
       </button>
       {open && (
@@ -1307,10 +1307,10 @@ export function ScheduleMenu({
           expectedWidth={320}
           expectedHeight={430}
         >
-          <p>Расписание</p>
+          <p>Рабочий календарь</p>
           <div className="schedule-form">
             <label className="schedule-field">
-              <span>Начало рабочего дня</span>
+              <span>Рабочий день с</span>
               <select
                 value={schedule.workdayStart}
                 onChange={(event) =>
@@ -1329,7 +1329,7 @@ export function ScheduleMenu({
               </select>
             </label>
             <label className="schedule-field">
-              <span>Конец рабочего дня</span>
+              <span>Рабочий день до</span>
               <select
                 value={schedule.workdayEnd}
                 onChange={(event) =>
@@ -1368,7 +1368,7 @@ export function ScheduleMenu({
               </div>
             </div>
             <div className="schedule-field">
-              <span>Первый день недели</span>
+              <span>Неделя начинается с</span>
               <div className="schedule-day-grid">
                 {weekDayOptions.map((day) => {
                   const selected = schedule.calendarWeekStart === day.id;
@@ -1420,7 +1420,7 @@ export function RowThresholdMenu({
   return (
     <div className={`row-threshold-shell ${open ? 'is-open' : ''}`} ref={ref}>
       <TooltipButton
-        label="Пороговые значения"
+        label="Коридор показателя"
         className={`row-action-button ${open ? 'active-pin' : ''}`}
         onClick={() => setOpen((current) => !current)}
       >
@@ -1428,9 +1428,9 @@ export function RowThresholdMenu({
       </TooltipButton>
       {open && (
         <div className="settings-popover row-threshold-popover">
-          <p>Пороговые значения</p>
+          <p>Коридор показателя</p>
           <label className="threshold-field">
-            <span>Верхнее значение</span>
+            <span>Верхняя граница</span>
             <input
               type="number"
               value={value.upper}
@@ -1439,7 +1439,7 @@ export function RowThresholdMenu({
             />
           </label>
           <label className="threshold-field">
-            <span>Нижнее значение</span>
+            <span>Нижняя граница</span>
             <input
               type="number"
               value={value.lower}
@@ -1448,7 +1448,7 @@ export function RowThresholdMenu({
             />
           </label>
           <label className="threshold-field">
-            <span>Среднее значение</span>
+            <span>Средний уровень</span>
             <input value={average === null ? '' : average} readOnly />
           </label>
           <button
@@ -1776,7 +1776,7 @@ export function RowActionsMenu({
                 type="button"
                 onClick={() => setMode('thresholds')}
               >
-                <span>Пороговые значения</span>
+                <span>Коридор показателя</span>
               </button>
             </div>
           ) : mode === 'employees' ? (
@@ -1813,10 +1813,10 @@ export function RowActionsMenu({
                   type="button"
                   onClick={() => onSelectAllEmployees?.(employees.map((employee) => employee.id))}
                 >
-                  Выбрать все
+                  Выбрать всех
                 </button>
                 <button type="button" onClick={onResetEmployees}>
-                  Сбросить
+                  Снять выбор
                 </button>
                 <button
                   className="employee-selector-apply"

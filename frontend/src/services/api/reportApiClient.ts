@@ -5,6 +5,7 @@ import type {
     MetricDetailItem,
     ReportLoadFilters,
     SourceMetricsData,
+    ValueStateMap,
 } from '../report/reportTypes';
 
 export type ReportCatalogResponse = {
@@ -28,6 +29,10 @@ export type ReportPreviewResponse = {
     details: MetricDetailItem[];
     source_metrics?: Record<string, SourceMetricsData>;
     chart_source_metrics?: Record<string, SourceMetricsData>;
+    metadata?: {
+        valueStates?: ValueStateMap;
+        [key: string]: unknown;
+    };
 };
 
 export type PortalEmployeeItem = {

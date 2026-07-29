@@ -28,6 +28,12 @@ class ReportDataResult:
     metadata: dict = field(default_factory=dict)
 
     def to_cache_payload(self, *, session_key: str, filters_hash: str) -> dict:
+        meta_metadata = {
+            key: value
+            for key, value in self.metadata.items()
+            if key != "valueStates"
+        }
+
         return {
             "data": self.data,
             "chart_data": self.chart_data or self.data,
@@ -41,7 +47,7 @@ class ReportDataResult:
                 "message": self.message,
                 "sessionKey": session_key,
                 "filtersHash": filters_hash,
-                **self.metadata,
+                **meta_metadata,
             },
         }
 

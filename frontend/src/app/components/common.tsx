@@ -495,10 +495,12 @@ export function TooltipLink({
 export function ValueCellButton({
   className = '',
   valueLabel,
+  tooltipLabel,
   onClick,
 }: {
   className?: string;
   valueLabel: string;
+  tooltipLabel?: string;
   onClick: () => void;
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -525,7 +527,8 @@ export function ValueCellButton({
       toJSON: () => undefined,
     };
     const maxWidth = Math.max(120, Math.min(280, boundary.width - 24));
-    const estimatedWidth = Math.min(maxWidth, Math.max(112, valueLabel.length * 7 + 24));
+    const label = tooltipLabel ?? valueLabel;
+    const estimatedWidth = Math.min(maxWidth, Math.max(112, label.length * 7 + 24));
     const estimatedHeight = 36;
     const left = Math.min(
       Math.max(buttonRect.left + buttonRect.width / 2, boundary.left + estimatedWidth / 2 + 12),
@@ -560,7 +563,7 @@ export function ValueCellButton({
       <span className="value-cell-corner-arrow" aria-hidden="true">
         ↗
       </span>
-      {tooltipStyle && <TooltipPortal label={valueLabel} style={tooltipStyle} />}
+      {tooltipStyle && <TooltipPortal label={tooltipLabel ?? valueLabel} style={tooltipStyle} />}
     </button>
   );
 }

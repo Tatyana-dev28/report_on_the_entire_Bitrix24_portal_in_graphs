@@ -11,7 +11,12 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
 from apps.bitrix.models import PortalUser
-from apps.bitrix.services.rest_client import BitrixRestAuthError, BitrixRestClient, BitrixRestError
+from apps.bitrix.services.rest_client import (
+    BitrixRestAuthError,
+    BitrixRestClient,
+    BitrixRestError,
+    BitrixRestResponseError,
+)
 from apps.reports.catalog import METRICS, REPORT_SOURCES
 from apps.reports.models import CrmSource
 from apps.reports.services.calculators.activity_calculator import (
@@ -127,11 +132,13 @@ class BitrixReportDataProvider:
 
         client = self.rest_client_factory(context.portal)
 
+        source_value_states: dict[str, dict[str, str]] = {}
         rows_by_source = self._load_source_rows(
             client=client,
             selected_sources=all_selected_sources,
             date_from=date_from,
             date_to=date_to,
+            source_value_states=source_value_states,
         )
         _enrich_rows_with_user_names(
             client=client,
@@ -181,7 +188,6 @@ class BitrixReportDataProvider:
             source_id: sum(1 for row in rows if any(_row_in_bucket(row, bucket) for bucket in buckets))
             for source_id, rows in rows_by_source.items()
         }
-
         # One heavy source_metrics pass for the loaded union, then split by settings.
         combined_source_metrics = build_source_metrics_by_period(
             buckets=buckets,
@@ -198,6 +204,13 @@ class BitrixReportDataProvider:
         chart_source_metrics = _filter_source_metrics_by_sources(
             combined_source_metrics,
             chart_selected_sources,
+        )
+        value_states = _build_value_states(
+            buckets=buckets,
+            selected_sources=selected_sources,
+            metric_catalog=metric_catalog,
+            source_metrics=source_metrics,
+            source_value_states=source_value_states,
         )
 
         return ReportDataResult(
@@ -219,6 +232,7 @@ class BitrixReportDataProvider:
                 "unsupportedSources": unsupported_sources,
                 "sourceRowCounts": source_row_counts,
                 "matchedSourceRowCounts": matched_source_row_counts,
+                "valueStates": value_states,
             },
         )
 
@@ -229,6 +243,7 @@ class BitrixReportDataProvider:
         selected_sources: list[dict],
         date_from: datetime,
         date_to: datetime,
+        source_value_states: dict[str, dict[str, str]] | None = None,
     ) -> dict[str, list[dict]]:
         rows_by_source: dict[str, list[dict]] = {}
 
@@ -239,12 +254,29 @@ class BitrixReportDataProvider:
 
         if max_workers <= 1:
             for source in selected_sources:
-                rows_by_source[source["id"]] = self._load_single_source_rows(
-                    client=client,
-                    source=source,
-                    date_from=date_from,
-                    date_to=date_to,
-                )
+                try:
+                    rows_by_source[source["id"]] = self._load_single_source_rows(
+                        client=client,
+                        source=source,
+                        date_from=date_from,
+                        date_to=date_to,
+                    )
+                except BitrixRestAuthError:
+                    if source_value_states is not None:
+                        source_value_states[str(source.get("id") or "")] = {
+                            "reason": "access_denied",
+                            "message": "Нет доступа к данным показателя",
+                        }
+                    raise
+                except BitrixRestError as error:
+                    logger.warning(
+                        "Bitrix source loading failed for source=%s; metrics for this source will be zero.",
+                        source.get("id"),
+                        exc_info=True,
+                    )
+                    if source_value_states is not None:
+                        source_value_states[str(source.get("id") or "")] = _value_state_for_bitrix_error(error)
+                    rows_by_source[source["id"]] = []
 
             return rows_by_source
 
@@ -268,13 +300,20 @@ class BitrixReportDataProvider:
                 try:
                     rows_by_source[source["id"]] = future.result()
                 except BitrixRestAuthError:
+                    if source_value_states is not None:
+                        source_value_states[str(source.get("id") or "")] = {
+                            "reason": "access_denied",
+                            "message": "Нет доступа к данным показателя",
+                        }
                     raise
-                except BitrixRestError:
+                except BitrixRestError as error:
                     logger.warning(
                         "Bitrix source loading failed for source=%s; metrics for this source will be zero.",
                         source.get("id"),
                         exc_info=True,
                     )
+                    if source_value_states is not None:
+                        source_value_states[str(source.get("id") or "")] = _value_state_for_bitrix_error(error)
                     rows_by_source[source["id"]] = []
 
         return rows_by_source
@@ -979,6 +1018,175 @@ def _filter_source_metrics_by_sources(
         or str(entry.get("id") or "") in selected_ids
         or key in selected_ids
     }
+
+
+def _build_value_states(
+    *,
+    buckets: list[PeriodBucket],
+    selected_sources: list[dict],
+    metric_catalog: list[dict],
+    source_metrics: dict[str, dict],
+    source_value_states: dict[str, dict[str, str]],
+) -> dict[str, dict[str, dict[str, str]]]:
+    if not source_value_states:
+        return {}
+
+    selected_metric_ids = {str(metric.get("id") or "") for metric in metric_catalog}
+    states_by_period: dict[str, dict[str, dict[str, str]]] = {}
+
+    for source in selected_sources:
+        source_id = str(source.get("id") or "")
+        source_state = source_value_states.get(source_id)
+
+        if not source_state:
+            continue
+
+        metric_ids = _metric_ids_for_source_state(source, selected_metric_ids)
+        source_metric_entry = _find_source_metric_entry(source_metrics, source_id)
+        if source_metric_entry:
+            metric_ids.update(
+                f"{source_id}::{metric_key}"
+                for metric_key in source_metric_entry.get("metrics", {}).keys()
+            )
+
+        if not metric_ids:
+            continue
+
+        for bucket in buckets:
+            period_states = states_by_period.setdefault(bucket.key, {})
+            for metric_id in metric_ids:
+                period_states[metric_id] = dict(source_state)
+
+    return states_by_period
+
+
+def _value_state_for_bitrix_error(error: BitrixRestError) -> dict[str, str]:
+    if isinstance(error, BitrixRestResponseError):
+        error_text = f"{error.error_code} {error.error_description}".lower()
+        if any(marker in error_text for marker in ("access", "denied", "permission", "forbidden")):
+            return {
+                "reason": "access_denied",
+                "message": "Нет доступа к данным показателя",
+            }
+
+    return {
+        "reason": "load_error",
+        "message": "Не удалось загрузить данные",
+    }
+
+
+def _find_source_metric_entry(source_metrics: dict[str, dict], source_id: str) -> dict | None:
+    for key, entry in source_metrics.items():
+        if (
+            key == source_id
+            or str(entry.get("sourceId") or "") == source_id
+            or str(entry.get("id") or "") == source_id
+        ):
+            return entry
+
+    return None
+
+
+def _metric_ids_for_source_state(source: dict, selected_metric_ids: set[str]) -> set[str]:
+    source_type = str(source.get("type") or "")
+    source_id = str(source.get("id") or "")
+    candidates: set[str] = set()
+
+    if source_type == "lead" or source_id.startswith("lead-"):
+        candidates.update({
+            "leads_created",
+            "leads_quality",
+            "leads_bad",
+            "leads_quality_sum",
+            "leads_bad_sum",
+            "leads_conversion",
+            "lead_qualified",
+            "lead_bad_stage",
+            "lead_new",
+            "lead_work",
+        })
+    elif source_type == "deal" or source_id.startswith("deal-"):
+        candidates.update({
+            "deals_created",
+            "deals_won",
+            "deals_lost",
+            "deals_won_sum",
+            "deals_lost_sum",
+            "deals_conversion",
+            "sales_won",
+            "sales_lost",
+            "sales_new",
+            "sales_talk",
+            "sales_invoice",
+        })
+    elif source_type == "invoice" or source_id.startswith("invoice-"):
+        candidates.update({
+            "invoices_created",
+            "invoices_won",
+            "invoices_lost",
+            "invoices_won_sum",
+            "invoices_lost_sum",
+            "invoices_conversion",
+        })
+    elif source_type == "smartProcess" or source_id.startswith("smart-"):
+        candidates.update({
+            "smart_process_total",
+            "smart_process_working",
+            "smart_process_success",
+            "smart_process_failed",
+            "smart_process_success_sum",
+            "smart_process_conversion",
+            "contracts_created",
+            "contracts_sent",
+            "contracts_signed",
+            "contracts_failed",
+            "contracts_signed_sum",
+            "contracts_conversion",
+            "meetings_created",
+            "production_accepted",
+            "production_work",
+            "production_check",
+            "production_ready",
+            "production_closed",
+        })
+    elif source_type == "telephony" or source_id.startswith("telephony-"):
+        candidates.update({
+            "calls_total",
+            "calls_in",
+            "calls_out",
+            "calls_out_success",
+            "calls_missed",
+        })
+    elif source_type == "activity" or source_id.startswith("activity-"):
+        candidates.update({
+            "activities_created",
+            "activities_done",
+            "activities_undone",
+            "email_in",
+            "email_out",
+            "messages_new",
+            "messages_total",
+        })
+    elif source_type == "quote" or source_id.startswith("quote-"):
+        candidates.update({
+            "quotes_created",
+            "quotes_sent",
+            "quotes_accepted",
+            "quotes_declined",
+            "quotes_accepted_sum",
+            "quotes_declined_sum",
+            "quotes_conversion",
+        })
+    elif source_type == "company" or source_id.startswith("company-"):
+        candidates.add("companies_new")
+    elif source_type == "contact" or source_id.startswith("contact-"):
+        candidates.add("contacts_new")
+    elif source_type == "task" or source_id.startswith("task-"):
+        candidates.update({"tasks_created", "tasks_done", "tasks_overdue"})
+    elif source_type == "crm_form" or source_id.startswith("crm-form-"):
+        candidates.add("crm_forms")
+
+    return candidates & selected_metric_ids
 
 
 def _build_indicator_value(

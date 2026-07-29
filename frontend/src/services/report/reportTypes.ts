@@ -75,6 +75,15 @@ export type EmployeeMetricPeriodValue = {
   values: Record<string, number>;
 };
 
+export type ValueStateReason = 'no_data' | 'load_error' | 'access_denied' | 'not_applicable';
+
+export type ValueState = {
+  reason: ValueStateReason;
+  message?: string;
+};
+
+export type ValueStateMap = Record<string, Record<string, ValueState>>;
+
 export type EmployeeMetricItem = {
   id: string;
   userId?: number;
@@ -93,6 +102,7 @@ export type ReportPreviewPayload = {
   details: MetricDetailItem[];
   sourceMetrics?: Record<string, SourceMetricsData>;
   chartSourceMetrics?: Record<string, SourceMetricsData>;
+  valueStates?: ValueStateMap;
 };
 
 /** A single metric inside a source (deal pipeline or smart process) */

@@ -19,6 +19,8 @@ let latestPreview: ReportPreviewPayload = {
   employees: [],
   details: [],
   sourceMetrics: {},
+  chartSourceMetrics: {},
+  valueStates: {},
 };
 
 export const bitrixReportDataSource: ReportDataSource = {
@@ -66,6 +68,7 @@ export const bitrixReportDataSource: ReportDataSource = {
       details: preview.details ?? [],
       sourceMetrics: preview.source_metrics ?? {},
       chartSourceMetrics: preview.chart_source_metrics ?? preview.source_metrics ?? {},
+      valueStates: preview.metadata?.valueStates ?? {},
     };
 
     return latestPreview;

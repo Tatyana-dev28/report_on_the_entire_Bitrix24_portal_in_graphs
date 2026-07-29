@@ -62,7 +62,7 @@ import {
   type ReportPoint,
 } from './services/report/reportCatalog';
 import { reportDataSource } from './services/report/reportDataSource';
-import type { CrmSource, CrmSourceType, MetricDetailItem, ReportLoadFilters, SourceMetricsData } from './services/report/reportTypes';
+import type { CrmSource, CrmSourceType, MetricDetailItem, ReportLoadFilters, SourceMetricsData, ValueStateMap } from './services/report/reportTypes';
 import type { PortalEmployeeItem } from './services/api/reportApiClient';
 import {
   APP_SETTINGS_STORAGE_KEY,
@@ -455,6 +455,43 @@ const readValuesByPeriod = (
   );
 
   return matched && Number.isFinite(matched[1]) ? matched[1] : 0;
+};
+
+const ZERO_VALUE_TOOLTIP = 'За этот период в системе не зарегистрировано действий';
+
+const valueStateTooltipByReason = {
+  no_data: 'Данные за этот период отсутствуют',
+  load_error: 'Не удалось загрузить данные',
+  access_denied: 'Нет доступа к данным показателя',
+  not_applicable: 'Показатель неприменим',
+} as const;
+
+const getValueCellDisplay = (
+  value: number | undefined,
+  metricType: MetricRow['type'],
+  state?: ValueStateMap[string][string],
+) => {
+  if (state) {
+    return {
+      label: '—',
+      tooltip: state.message || valueStateTooltipByReason[state.reason],
+      hasNumericValue: false,
+    };
+  }
+
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return {
+      label: '—',
+      tooltip: valueStateTooltipByReason.no_data,
+      hasNumericValue: false,
+    };
+  }
+
+  return {
+    label: formatMetricValue(value, metricType),
+    tooltip: value === 0 ? ZERO_VALUE_TOOLTIP : undefined,
+    hasNumericValue: true,
+  };
 };
 
 const getEmployeePeriodMetricValue = (
@@ -1067,6 +1104,7 @@ function App() {
   const [reportDetails, setReportDetails] = useState<MetricDetailItem[]>([]);
   const [sourceMetrics, setSourceMetrics] = useState<Record<string, SourceMetricsData>>({});
   const [chartSourceMetrics, setChartSourceMetrics] = useState<Record<string, SourceMetricsData>>({});
+  const [valueStates, setValueStates] = useState<ValueStateMap>({});
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
@@ -1878,6 +1916,7 @@ function App() {
           setReportDetails(preview.details ?? []);
           setSourceMetrics(preview.sourceMetrics ?? {});
           setChartSourceMetrics(preview.chartSourceMetrics ?? preview.sourceMetrics ?? {});
+          setValueStates(preview.valueStates ?? {});
 
           if (applyAutomaticThresholdsRef.current) {
             const scheduledData = applyScheduleToReportData(preview.data, filters.period, appliedFilters.schedule);
@@ -2014,6 +2053,7 @@ function App() {
             setRawChartReportData([]);
             setReportEmployees([]);
             setReportDetails([]);
+            setValueStates({});
             setSourceMetrics({});
             setChartSourceMetrics({});
             applyAutomaticThresholdsRef.current = false;
@@ -2036,6 +2076,7 @@ function App() {
           setRawChartReportData([]);
           setReportEmployees([]);
           setReportDetails([]);
+          setValueStates({});
           setSourceMetrics({});
           setChartSourceMetrics({});
           applyAutomaticThresholdsRef.current = false;
@@ -5314,13 +5355,20 @@ function App() {
                             ? getEmployeePeriodMetricValue(row.employee, point, row.metric.id)
                             : 0;
 
-                          const valueLabel = formatMetricValue(value, row.metric.type);
-                          const thresholdClass = getThresholdClass(value, employeeThreshold);
+                          const display = getValueCellDisplay(
+                            value,
+                            row.metric.type,
+                            valueStates[point.key]?.[row.metric.id],
+                          );
+                          const thresholdClass = display.hasNumericValue
+                            ? getThresholdClass(value, employeeThreshold)
+                            : '';
 
                           return (
                             <ValueCellButton
                               className={thresholdClass}
-                              valueLabel={valueLabel}
+                              valueLabel={display.label}
+                              tooltipLabel={display.tooltip}
                               key={`${row.rowId}-${point.key}`}
                               onClick={() => openDetail(
                                 row.metric,
@@ -5491,13 +5539,22 @@ function App() {
                           }
 
                           const value = readValuesByPeriod(metricData?.valuesByPeriod, point.key);
-                          const valueLabel = formatMetricValue(value, valueType);
-                          const thresholdClass = getThresholdClass(value, rowThreshold);
+                          const display = getValueCellDisplay(
+                            value,
+                            valueType,
+                            actionIds
+                              .map((id) => valueStates[point.key]?.[id])
+                              .find(Boolean),
+                          );
+                          const thresholdClass = display.hasNumericValue
+                            ? getThresholdClass(value, rowThreshold)
+                            : '';
 
                           return (
                             <ValueCellButton
                               className={thresholdClass}
-                              valueLabel={valueLabel}
+                              valueLabel={display.label}
+                              tooltipLabel={display.tooltip}
                               key={`${row.rowId}-${point.key}`}
                               onClick={() => openDetail(
                                 syntheticMetric,
@@ -5588,13 +5645,20 @@ function App() {
                       <div className="value-axis-gutter" aria-hidden="true" />
                       {reportData.map((point) => {
                         const value = point.values[metricRow.metric.id];
-                        const thresholdClass = getThresholdClass(value, rowThreshold);
-                        const valueLabel = formatMetricValue(value, metricRow.metric.type);
+                        const display = getValueCellDisplay(
+                          value,
+                          metricRow.metric.type,
+                          valueStates[point.key]?.[metricRow.metric.id],
+                        );
+                        const thresholdClass = display.hasNumericValue
+                          ? getThresholdClass(value, rowThreshold)
+                          : '';
 
                         return (
                           <ValueCellButton
                             className={thresholdClass}
-                            valueLabel={valueLabel}
+                            valueLabel={display.label}
+                            tooltipLabel={display.tooltip}
                             key={`${metricRow.rowId}-${point.key}`}
                             onClick={() => openDetail(metricRow.metric, point, value, metricRow.sectionId)}
                           />

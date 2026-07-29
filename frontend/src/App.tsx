@@ -30,7 +30,6 @@ import {
   PinOff,
   Plus,
   Play,
-  RefreshCw,
   Settings2,
   SlidersHorizontal,
   TrendingUp,
@@ -142,7 +141,6 @@ import {
   getChartDomain,
   getChartSeriesValue,
   getChartSumValue,
-  getEmployeeInitials,
 } from './app/utils/reportCalculations';
 import {
   calculateRecommendedThresholds,
@@ -202,8 +200,7 @@ const splitEmployeeName = (name: string) => {
 
 const BILLING_LOAD_ERROR_MESSAGE = 'Не удалось загрузить платные тарифы. Попробуйте открыть приложение заново или напишите нам.';
 
-const BITRIX_AUTH_RELOAD_ATTEMPT_KEY = 'sapp-bitrix-auth-reload-attempted';
-const BITRIX_AUTH_EXPIRED_MESSAGE = 'Доступ к Bitrix24 устарел. Обновите приложение, чтобы продолжить работу.';
+const BITRIX_AUTH_EXPIRED_MESSAGE = 'Доступ к Bitrix24 устарел. Обновите страницу, чтобы продолжить работу.';
 
 const getFriendlyBillingError = (error: unknown) => {
   const message = error instanceof Error ? error.message : '';
@@ -233,53 +230,6 @@ const isBitrixAuthErrorMessage = (message: string) => {
     normalized.includes('token') ||
     normalized.includes('токен')
   );
-};
-
-const reloadApplication = ({ rememberAttempt }: { rememberAttempt: boolean }) => {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  try {
-    if (rememberAttempt) {
-      window.sessionStorage.setItem(BITRIX_AUTH_RELOAD_ATTEMPT_KEY, '1');
-    } else {
-      window.sessionStorage.removeItem(BITRIX_AUTH_RELOAD_ATTEMPT_KEY);
-    }
-  } catch {
-    // sessionStorage can be blocked in embedded contexts; reloading is still safe.
-  }
-
-  window.location.reload();
-  return true;
-};
-
-const clearBitrixAuthReloadAttempt = () => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  try {
-    window.sessionStorage.removeItem(BITRIX_AUTH_RELOAD_ATTEMPT_KEY);
-  } catch {
-    // Ignore storage restrictions in embedded contexts.
-  }
-};
-
-const tryAutoReloadForBitrixAuth = () => {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  try {
-    if (window.sessionStorage.getItem(BITRIX_AUTH_RELOAD_ATTEMPT_KEY) === '1') {
-      return false;
-    }
-  } catch {
-    return false;
-  }
-
-  return reloadApplication({ rememberAttempt: true });
 };
 
 const toReportEmployee = (employee: { id: string; userId?: number; name: string; avatarUrl?: string; values?: Record<string, number> }): ReportEmployee => {
@@ -1105,7 +1055,6 @@ function App() {
   const [reportLoading, setReportLoading] = useState(false);
   const [reportElapsed, setReportElapsed] = useState('');
   const [reportError, setReportError] = useState('');
-  const [reportAuthExpired, setReportAuthExpired] = useState(false);
   const [isSaveOpen, setIsSaveOpen] = useState(false);
   const [isProOpen, setIsProOpen] = useState(false);
   const [isInstructionOpen, setIsInstructionOpen] = useState(false);
@@ -1316,10 +1265,6 @@ function App() {
       .catch((error) => {
         console.warn('[Portal] Employees were not loaded', error);
       });
-  }, []);
-
-  const refreshBitrixAccess = useCallback(() => {
-    reloadApplication({ rememberAttempt: false });
   }, []);
 
   useEffect(() => {
@@ -1898,13 +1843,10 @@ function App() {
     setReportLoading(true);
     reportStartTimeRef.current = Date.now();
     setReportError('');
-    setReportAuthExpired(false);
     reportDataSource
       .loadReportPreview(filters)
       .then((preview) => {
         if (isActive) {
-          clearBitrixAuthReloadAttempt();
-          setReportAuthExpired(false);
           setRawReportData(preview.data);
           setRawChartReportData(preview.chartData ?? preview.data);
           setReportEmployees((preview.employees ?? []).map(toReportEmployee));
@@ -2041,11 +1983,6 @@ function App() {
         if (isActive) {
           const message = error instanceof Error ? error.message : 'Не удалось построить отчет.';
           if (isBitrixAuthErrorMessage(message)) {
-            if (tryAutoReloadForBitrixAuth()) {
-              return;
-            }
-
-            setReportAuthExpired(true);
             setReportError(BITRIX_AUTH_EXPIRED_MESSAGE);
             setRawReportData([]);
             setRawChartReportData([]);
@@ -2068,7 +2005,6 @@ function App() {
             return;
           }
 
-          setReportAuthExpired(false);
           setReportError(message);
           setRawReportData([]);
           setRawChartReportData([]);
@@ -4864,12 +4800,6 @@ function App() {
             {catalogError && <span>{catalogError}</span>}
             {reportLoading && <span>Отчет формируется {reportElapsed}</span>}
             {reportError && <span>{reportError}</span>}
-            {reportAuthExpired && (
-              <button className="report-status-action" type="button" onClick={refreshBitrixAccess}>
-                <RefreshCw size={14} />
-                <span>Обновить доступ</span>
-              </button>
-            )}
             {hasBuiltReport && !reportLoading && !reportError && reportData.length === 0 && (
               <span>По выбранным фильтрам данных нет. Измените период, источники или метрики и постройте отчет заново.</span>
             )}
@@ -5311,13 +5241,6 @@ function App() {
                         type="button"
                         onClick={() => openBitrixUser(row.employee.userId)}
                       >
-                        <span className="employee-avatar" aria-hidden="true">
-                          {row.employee.avatarUrl ? (
-                            <img src={row.employee.avatarUrl} alt="" />
-                          ) : (
-                            <span>{getEmployeeInitials(row.employee)}</span>
-                          )}
-                        </span>
                         <span>{row.employee.firstName} {row.employee.lastName}</span>
                       </button>
                       <button

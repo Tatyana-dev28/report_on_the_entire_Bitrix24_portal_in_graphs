@@ -30,8 +30,12 @@ export const bitrixReportDataSource: ReportDataSource = {
 
   async loadPeriods() {
     const catalog = await loadReportCatalog();
+    const labelByPeriod = new Map(periodOptions.map((option) => [option.value, option.label]));
 
-    return catalog.periods;
+    return catalog.periods.map((option) => ({
+      ...option,
+      label: labelByPeriod.get(option.value) ?? option.label,
+    }));
   },
 
   async loadMetricSections() {

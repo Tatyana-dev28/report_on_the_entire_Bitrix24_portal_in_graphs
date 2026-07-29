@@ -4683,119 +4683,380 @@ function App() {
   }, [appliedFilters.dateRange, appliedFilters.period, downloadBlob, hasBuiltReport, reportData, tableRows, sourceMetrics]);
 
   const exportPdf = useCallback(async () => {
-    const element = reportCardRef.current;
-
-    if (!element) {
+    if (!hasBuiltReport || !reportData.length) {
       return;
     }
 
-    const scrollbar = horizontalScrollbarRef.current;
-    const savedScrollLeft = scrollbar?.scrollLeft ?? 0;
-    const reportSurface = element.querySelector('.report-surface') as HTMLElement | null;
-    const leftColumnWidth = reportSurface
-      ? parseFloat(getComputedStyle(reportSurface).getPropertyValue('--left-column-width')) || 280
-      : 280;
-    const getElementWidth = (node: HTMLElement | null) => {
-      if (!node) {
-        return 0;
+    const escapeHtml = (value: unknown) =>
+      String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    const chunk = <T,>(items: T[], size: number) => {
+      const result: T[][] = [];
+      for (let index = 0; index < items.length; index += size) {
+        result.push(items.slice(index, index + size));
       }
-
-      const rect = node.getBoundingClientRect();
-      return Math.ceil(Math.max(node.scrollWidth, node.clientWidth, rect.width));
+      return result;
     };
-    const firstTableRowGrid = tableContentRef.current?.querySelector('.table-row-grid') as HTMLElement | null;
-    const pdfRightWidth = Math.max(
-      rightContentWidth,
-      getElementWidth(chartContentRef.current),
-      getElementWidth(periodContentRef.current),
-      getElementWidth(firstTableRowGrid),
+    const currentViewLabel = savedViews.find((view) => view.value === selectedView)?.label ?? 'Обзор бизнеса';
+    const params = new URLSearchParams(window.location.search);
+    const portalLabel = params.get('DOMAIN') || params.get('domain') || 'Портал Bitrix24';
+    const periodOptionLabel = periodOptions.find((option) => option.value === appliedFilters.period)?.label ?? 'Группировка';
+    const periodLabel = formatRangeLabel(appliedFilters.period, appliedFilters.dateRange);
+    const generatedAt = new Intl.DateTimeFormat('ru-RU', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }).format(new Date());
+    const format = appliedFilters.period === 'hours' && (reportData.length > 12 || tableRows.length > 24) ? 'a3' : 'a4';
+    const pageWidth = format === 'a3' ? 1587 : 1123;
+    const pageHeight = format === 'a3' ? 1123 : 794;
+    const maxPeriodColumns = format === 'a3' ? 12 : 8;
+    const maxRowsPerTablePage = format === 'a3' ? 24 : 17;
+    const pagePadding = 34;
+    const contentWidth = pageWidth - pagePadding * 2;
+
+    type PdfTableRow = {
+      label: string;
+      values: string[];
+      kind: 'section' | 'metric' | 'employee';
+    };
+
+    const getSourceMetricState = (pointKey: string, actionIds: string[]) =>
+      actionIds.map((id) => valueStates[pointKey]?.[id]).find(Boolean);
+    const tablePdfRows: PdfTableRow[] = tableRows
+      .filter((row) => row.kind !== 'chart' && row.kind !== 'employee_chart')
+      .map((row) => {
+        if (row.kind === 'section' || row.kind === 'source_section') {
+          return {
+            label: row.label,
+            values: reportData.map(() => ''),
+            kind: 'section',
+          };
+        }
+
+        if (row.kind === 'employee') {
+          return {
+            label: `  ${row.employee.firstName} ${row.employee.lastName}`.trim(),
+            values: reportData.map((point) => {
+              const value = hasBuiltReport ? getEmployeePeriodMetricValue(row.employee, point, row.metric.id) : 0;
+              return getValueCellDisplay(value, row.metric.type, valueStates[point.key]?.[row.metric.id]).label;
+            }),
+            kind: 'employee',
+          };
+        }
+
+        if (row.kind === 'source_metric') {
+          const sourceData = sourceMetrics[row.sourceId];
+          const metricData = sourceData?.metrics[row.metricKey];
+          const valueType = row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number';
+          const actionIds = buildSourceMetricActionIds(row.sourceId, row.metricKey, sourceData);
+
+          return {
+            label: `  ${row.metricLabel}`.trim(),
+            values: reportData.map((point) => {
+              const value = readValuesByPeriod(metricData?.valuesByPeriod, point.key);
+              return getValueCellDisplay(value, valueType, getSourceMetricState(point.key, actionIds)).label;
+            }),
+            kind: 'metric',
+          };
+        }
+
+        return {
+          label: row.metric.label,
+          values: reportData.map((point) =>
+            getValueCellDisplay(
+              point.values[row.metric.id],
+              row.metric.type,
+              valueStates[point.key]?.[row.metric.id],
+            ).label,
+          ),
+          kind: 'metric',
+        };
+      });
+
+    const thresholdSummary = [
+      { label: 'Верхняя граница', value: mainThreshold.upper },
+      { label: 'Средний уровень', value: getThresholdAverage(mainThreshold) ?? '' },
+      { label: 'Нижняя граница', value: mainThreshold.lower },
+    ];
+    const chartMetricType: MetricRow['type'] = appliedFilters.metricMode === 'money' ? 'money' : 'number';
+    const chartValues = chartData.map((point) => Number(point.indicator) || 0);
+    const mainIndicatorValue = chartValues.reduce((sum, value) => sum + value, 0);
+    const chartMax = Math.max(1, ...chartValues, ...thresholdSummary.map((item) => Number(item.value) || 0));
+    const chartMin = Math.min(0, ...chartValues);
+    const makeChartSvg = () => {
+      const width = contentWidth - 18;
+      const height = format === 'a3' ? 300 : 230;
+      const left = 62;
+      const right = 20;
+      const top = 18;
+      const bottom = 38;
+      const innerWidth = width - left - right;
+      const innerHeight = height - top - bottom;
+      const yFor = (value: number) =>
+        top + innerHeight - ((value - chartMin) / Math.max(1, chartMax - chartMin)) * innerHeight;
+      const xFor = (index: number) =>
+        left + (chartValues.length <= 1 ? innerWidth / 2 : (index / (chartValues.length - 1)) * innerWidth);
+      const points = chartValues.map((value, index) => `${xFor(index)},${yFor(value)}`).join(' ');
+      const thresholdLines = thresholdSummary
+        .map((item) => Number(item.value))
+        .filter((value) => Number.isFinite(value))
+        .map((value) => {
+          const y = yFor(value);
+          return `<line x1="${left}" y1="${y}" x2="${width - right}" y2="${y}" stroke="#d89a00" stroke-width="1.5" stroke-dasharray="7 7" />`;
+        })
+        .join('');
+      const labels = reportData
+        .filter((_point, index) => index === 0 || index === reportData.length - 1 || reportData.length <= 8)
+        .map((point, index, items) => {
+          const sourceIndex = reportData.findIndex((item) => item.key === point.key);
+          const x = xFor(sourceIndex);
+          const anchor = index === 0 ? 'start' : index === items.length - 1 ? 'end' : 'middle';
+          return `<text x="${x}" y="${height - 10}" text-anchor="${anchor}" font-size="13" fill="#5f6b7a">${escapeHtml(point.label)}</text>`;
+        })
+        .join('');
+
+      return `
+        <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+          <rect x="0" y="0" width="${width}" height="${height}" rx="12" fill="#ffffff" stroke="#dfe7f1" />
+          <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}" stroke="#dfe7f1" />
+          <line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" stroke="#dfe7f1" />
+          <text x="18" y="${top + 6}" font-size="12" fill="#7b8794">${escapeHtml(formatMetricValue(chartMax, chartMetricType))}</text>
+          <text x="18" y="${height - bottom}" font-size="12" fill="#7b8794">${escapeHtml(formatMetricValue(chartMin, chartMetricType))}</text>
+          ${thresholdLines}
+          <polyline points="${points}" fill="none" stroke="#2274ff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+          ${chartValues.map((value, index) => `<circle cx="${xFor(index)}" cy="${yFor(value)}" r="4" fill="#ffffff" stroke="#2274ff" stroke-width="3" />`).join('')}
+          ${labels}
+        </svg>
+      `;
+    };
+
+    const attentionRows: Array<{
+      label: string;
+      period: string;
+      value: number;
+      type: MetricRow['type'];
+    }> = tableRows
+      .filter((row) => row.kind === 'metric' || row.kind === 'source_metric')
+      .flatMap((row) => {
+        if (row.kind === 'source_metric') {
+          const sourceData = sourceMetrics[row.sourceId];
+          const metricData = sourceData?.metrics[row.metricKey];
+          const actionIds = buildSourceMetricActionIds(row.sourceId, row.metricKey, sourceData);
+          const threshold = resolveThresholdForIds(actionIds, rowThresholds);
+          const valueType: MetricRow['type'] = row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number';
+
+          if (!threshold.mode && !threshold.upper && !threshold.lower) {
+            return [];
+          }
+
+          return reportData
+            .map((point) => ({
+              label: row.metricLabel,
+              period: point.label,
+              value: readValuesByPeriod(metricData?.valuesByPeriod, point.key),
+              type: valueType,
+              threshold,
+            }))
+            .filter((item) => getThresholdClass(item.value, item.threshold));
+        }
+
+        const threshold = rowThresholds[row.metric.id];
+        if (!threshold?.mode && !threshold?.upper && !threshold?.lower) {
+          return [];
+        }
+
+        return reportData
+          .map((point) => ({
+            label: row.metric.label,
+            period: point.label,
+            value: point.values[row.metric.id],
+            type: row.metric.type,
+            threshold,
+          }))
+          .filter((item) => getThresholdClass(item.value, item.threshold));
+      })
+      .slice(0, 12);
+
+    const exportRoot = document.createElement('div');
+    exportRoot.style.position = 'fixed';
+    exportRoot.style.left = '-10000px';
+    exportRoot.style.top = '0';
+    exportRoot.style.width = `${pageWidth}px`;
+    exportRoot.style.background = '#ffffff';
+    exportRoot.innerHTML = `
+      <style>
+        .pdf-page { width: ${pageWidth}px; height: ${pageHeight}px; padding: ${pagePadding}px; box-sizing: border-box; background: #fff; color: #202938; font-family: Arial, sans-serif; }
+        .pdf-header { display: flex; justify-content: space-between; gap: 18px; border-bottom: 1px solid #dfe7f1; padding-bottom: 14px; margin-bottom: 18px; }
+        .pdf-title { font-size: 26px; font-weight: 700; line-height: 1.15; }
+        .pdf-meta { margin-top: 7px; color: #5f6b7a; font-size: 14px; }
+        .pdf-generated { color: #5f6b7a; font-size: 13px; text-align: right; white-space: nowrap; }
+        .pdf-content { height: ${pageHeight - pagePadding * 2 - 82}px; overflow: hidden; }
+        .pdf-section-title { margin: 18px 0 10px; font-size: 18px; font-weight: 700; }
+        .pdf-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .pdf-card { border: 1px solid #dfe7f1; border-radius: 10px; padding: 12px 14px; background: #fbfdff; }
+        .pdf-card-label { color: #6a7482; font-size: 13px; margin-bottom: 7px; }
+        .pdf-card-value { font-size: 18px; font-weight: 700; }
+        .pdf-attention { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .pdf-attention td { border-bottom: 1px solid #e7edf5; padding: 7px 8px; }
+        .pdf-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: ${format === 'a3' ? 13 : 12}px; }
+        .pdf-table th, .pdf-table td { border: 1px solid #dfe7f1; padding: 7px 8px; text-align: center; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .pdf-table th { background: #eaf4ff; color: #2f3a4a; font-weight: 700; }
+        .pdf-table .pdf-label { text-align: left; width: ${format === 'a3' ? 280 : 235}px; }
+        .pdf-table .pdf-section { background: #f5f7fa; font-weight: 700; text-align: left; }
+        .pdf-table .pdf-employee { color: #4f5c6b; }
+        .pdf-footer { margin-top: 12px; border-top: 1px solid #dfe7f1; padding-top: 8px; color: #6a7482; font-size: 12px; display: flex; justify-content: space-between; }
+      </style>
+    `;
+    const pages: HTMLElement[] = [];
+
+    const appendPage = (title: string, bodyHtml: string) => {
+      const page = document.createElement('section');
+      page.className = 'pdf-page';
+      page.innerHTML = `
+        <div class="pdf-header">
+          <div>
+            <div class="pdf-title">${escapeHtml(title)}</div>
+            <div class="pdf-meta">${escapeHtml(portalLabel)} · ${escapeHtml(periodOptionLabel)} · ${escapeHtml(periodLabel)}</div>
+          </div>
+          <div class="pdf-generated">Дата формирования<br><b>${escapeHtml(generatedAt)}</b></div>
+        </div>
+        <div class="pdf-content">${bodyHtml}</div>
+        <div class="pdf-footer">
+          <span>${escapeHtml(currentViewLabel)}</span>
+          <span class="pdf-page-number"></span>
+        </div>
+      `;
+      exportRoot.appendChild(page);
+      pages.push(page);
+    };
+
+    appendPage(
+      currentViewLabel,
+      `
+        <div class="pdf-section-title">Главный показатель и основной график</div>
+        <div class="pdf-card" style="margin-bottom: 12px;">
+          <div class="pdf-card-label">Главный показатель за выбранный период</div>
+          <div class="pdf-card-value">${escapeHtml(formatMetricValue(mainIndicatorValue, chartMetricType))}</div>
+        </div>
+        ${makeChartSvg()}
+        <div class="pdf-section-title">Текущий коридор</div>
+        <div class="pdf-grid">
+          ${thresholdSummary.map((item) => `
+            <div class="pdf-card">
+              <div class="pdf-card-label">${escapeHtml(item.label)}</div>
+              <div class="pdf-card-value">${escapeHtml(item.value || '—')}</div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="pdf-section-title">Показатели, требующие внимания</div>
+        ${
+          attentionRows.length
+            ? `<table class="pdf-attention"><tbody>${attentionRows.map((row) => `
+                <tr>
+                  <td>${escapeHtml(row.label)}</td>
+                  <td>${escapeHtml(row.period)}</td>
+                  <td><b>${escapeHtml(formatMetricValue(row.value, row.type))}</b></td>
+                </tr>
+              `).join('')}</tbody></table>`
+            : '<div class="pdf-card">Показателей, требующих внимания, нет.</div>'
+        }
+      `,
     );
-    const expandedWidth = Math.ceil(leftColumnWidth + pdfRightWidth);
-    const previousWidth = element.style.width;
-    const previousMaxWidth = element.style.maxWidth;
+
+    const periodChunks = chunk(reportData.map((point, index) => ({ point, index })), maxPeriodColumns);
+    periodChunks.forEach((periodChunk, periodChunkIndex) => {
+      chunk(tablePdfRows, maxRowsPerTablePage).forEach((rowChunk, rowChunkIndex) => {
+        const headers = periodChunk.map(({ point }) => `<th>${escapeHtml(point.label)}</th>`).join('');
+        const rows = rowChunk.map((row) => {
+          if (row.kind === 'section') {
+            return `<tr><td class="pdf-section" colspan="${periodChunk.length + 1}">${escapeHtml(row.label)}</td></tr>`;
+          }
+
+          return `
+            <tr>
+              <td class="pdf-label ${row.kind === 'employee' ? 'pdf-employee' : ''}">${escapeHtml(row.label)}</td>
+              ${periodChunk.map(({ index }) => `<td>${escapeHtml(row.values[index] ?? '')}</td>`).join('')}
+            </tr>
+          `;
+        }).join('');
+
+        appendPage(
+          `Таблица выбранных показателей${periodChunks.length > 1 ? ` · ${periodChunkIndex + 1}/${periodChunks.length}` : ''}`,
+          `
+            <table class="pdf-table">
+              <thead>
+                <tr>
+                  <th class="pdf-label">Показатели</th>
+                  ${headers}
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          `,
+        );
+      });
+    });
+
+    document.body.appendChild(exportRoot);
 
     try {
-      if (scrollbar) {
-        scrollbar.scrollLeft = 0;
-      }
-
-      applySyncedScroll(0);
-      element.classList.add('pdf-capture-mode');
-      element.style.setProperty('--pdf-right-width', `${pdfRightWidth}px`);
-      element.style.setProperty('--pdf-total-width', `${expandedWidth}px`);
-      element.style.width = `${Math.max(expandedWidth, element.scrollWidth)}px`;
-      element.style.maxWidth = 'none';
-
-      // PDF сейчас намеренно остается визуальным снимком. Текстовый режим можно добавить отдельной опцией позже.
-      await new Promise<void>((resolve) => {
-        window.requestAnimationFrame(() => resolve());
+      pages.forEach((page, index) => {
+        const marker = page.querySelector('.pdf-page-number');
+        if (marker) {
+          marker.textContent = `Страница ${index + 1} из ${pages.length}`;
+        }
       });
 
-      const captureWidth = Math.max(element.scrollWidth, expandedWidth);
-      const captureHeight = element.scrollHeight;
-      const canvas = await html2canvas(element, {
-        backgroundColor: '#ffffff',
-        scale: Math.min(2, window.devicePixelRatio || 1.5),
-        useCORS: true,
-        scrollX: 0,
-        scrollY: -window.scrollY,
-        windowWidth: Math.max(document.documentElement.clientWidth, captureWidth),
-        windowHeight: Math.max(document.documentElement.clientHeight, captureHeight),
-        width: captureWidth,
-        height: captureHeight,
-      });
-      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdf = new jsPDF('l', 'mm', format);
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
-      const imageHeight = (canvas.height * pdfWidth) / canvas.width;
-      const image = canvas.toDataURL('image/png');
-      let position = 0;
-      let remainingHeight = imageHeight;
 
-      pdf.addImage(image, 'PNG', 0, position, pdfWidth, imageHeight);
-      remainingHeight -= pdfHeight;
+      for (let index = 0; index < pages.length; index += 1) {
+        if (index > 0) {
+          pdf.addPage();
+        }
 
-      while (remainingHeight > 0) {
-        position -= pdfHeight;
-        pdf.addPage();
-        pdf.addImage(image, 'PNG', 0, position, pdfWidth, imageHeight);
-        remainingHeight -= pdfHeight;
-      }
-
-      const logo = element.querySelector('.brand-mark') as HTMLElement | null;
-
-      if (logo) {
-        const logoRect = logo.getBoundingClientRect();
-        const elementRect = element.getBoundingClientRect();
-        const ratio = pdfWidth / elementRect.width;
-        const linkX = (logoRect.left - elementRect.left) * ratio;
-        const linkY = (logoRect.top - elementRect.top) * ratio;
-        const linkWidth = logoRect.width * ratio;
-        const linkHeight = logoRect.height * ratio;
-        const pageIndex = Math.floor(linkY / pdfHeight);
-        const pageY = linkY - pageIndex * pdfHeight;
-
-        pdf.setPage(pageIndex + 1);
-        pdf.link(linkX, pageY, linkWidth, linkHeight, {
-          url: 'https://sapp24.com/?utm_source=app-b24',
+        const canvas = await html2canvas(pages[index], {
+          backgroundColor: '#ffffff',
+          scale: 2,
+          useCORS: true,
+          scrollX: 0,
+          scrollY: 0,
+          width: pageWidth,
+          height: pageHeight,
+          windowWidth: pageWidth,
+          windowHeight: pageHeight,
         });
+
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, pdfWidth, pdfHeight);
       }
 
       pdf.save('bitrix24-report.pdf');
     } finally {
-      element.classList.remove('pdf-capture-mode');
-      element.style.width = previousWidth;
-      element.style.maxWidth = previousMaxWidth;
-      element.style.removeProperty('--pdf-right-width');
-      element.style.removeProperty('--pdf-total-width');
-
-      if (scrollbar) {
-        scrollbar.scrollLeft = savedScrollLeft;
-      }
-
-      applySyncedScroll(savedScrollLeft);
+      exportRoot.remove();
     }
-  }, [applySyncedScroll, rightContentWidth]);
+  }, [
+    appliedFilters.dateRange,
+    appliedFilters.metricMode,
+    appliedFilters.period,
+    chartData,
+    chartDomain,
+    formatRangeLabel,
+    hasBuiltReport,
+    mainThreshold,
+    periodOptions,
+    reportData,
+    rowThresholds,
+    savedViews,
+    selectedView,
+    sourceMetrics,
+    tableRows,
+    valueStates,
+  ]);
 
   return (
     <main className="page">

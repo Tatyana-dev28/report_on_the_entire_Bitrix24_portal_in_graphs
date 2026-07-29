@@ -1470,6 +1470,8 @@ export function RowActionsMenu({
   chartOpen,
   threshold,
   recommendedThreshold,
+  employeeThreshold,
+  employeeRecommendedThreshold,
   onToggleEmployees,
   onOpenEmployeeSelector,
   employees = [],
@@ -1480,6 +1482,7 @@ export function RowActionsMenu({
   onApplyEmployees,
   onToggleChart,
   onThresholdChange,
+  onEmployeeThresholdChange,
   showEmployees = true,
   metricId,
 }: {
@@ -1488,6 +1491,8 @@ export function RowActionsMenu({
   chartOpen: boolean;
   threshold: ThresholdValues;
   recommendedThreshold: RecommendedThresholdValues;
+  employeeThreshold: ThresholdValues;
+  employeeRecommendedThreshold: RecommendedThresholdValues;
   onToggleEmployees: () => void;
   onOpenEmployeeSelector?: () => void;
   employees?: ReportEmployee[];
@@ -1498,13 +1503,14 @@ export function RowActionsMenu({
   onApplyEmployees?: () => void;
   onToggleChart: () => void;
   onThresholdChange: (value: ThresholdValues) => void;
+  onEmployeeThresholdChange: (value: ThresholdValues) => void;
   /** Hide employees action when per-source employee breakdown is unavailable. */
   showEmployees?: boolean;
   /** Metric/action id used to find the first employee table row for popover alignment. */
   metricId?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<'actions' | 'thresholds' | 'employees'>('actions');
+  const [mode, setMode] = useState<'actions' | 'thresholds' | 'employeeThresholds' | 'employees'>('actions');
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [employeeSelectorAnchorRect, setEmployeeSelectorAnchorRect] = useState<DOMRect | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -1720,8 +1726,8 @@ export function RowActionsMenu({
           popoverRef={popoverRef}
           open={open}
           className={`settings-popover row-actions-popover ${mode === 'employees' ? 'is-employee-selector-popover' : ''}`}
-          expectedWidth={mode === 'thresholds' ? 520 : mode === 'employees' ? 390 : 280}
-          expectedHeight={mode === 'thresholds' ? 330 : mode === 'employees' ? 620 : 200}
+          expectedWidth={mode === 'thresholds' || mode === 'employeeThresholds' ? 520 : mode === 'employees' ? 390 : 280}
+          expectedHeight={mode === 'thresholds' || mode === 'employeeThresholds' ? 330 : mode === 'employees' ? 620 : 200}
           constrainHeight={mode !== 'employees'}
           updateOnScroll={mode !== 'employees'}
           verticalPlacement={mode === 'employees' ? 'anchor-start' : 'auto'}
@@ -1757,6 +1763,14 @@ export function RowActionsMenu({
                     onClick={(event) => openEmployees(event.currentTarget)}
                   >
                     <Settings2 size={14} />
+                  </button>
+                  <button
+                    className="row-action-menu-configure"
+                    type="button"
+                    aria-label="Коридор показателя для сотрудников"
+                    onClick={() => setMode('employeeThresholds')}
+                  >
+                    <SlidersHorizontal size={14} />
                   </button>
                 </div>
               )}
@@ -1848,7 +1862,7 @@ export function RowActionsMenu({
                 )}
               </div>
             </div>
-          ) : (
+          ) : mode === 'thresholds' ? (
             <div className="row-threshold-fields">
               <div className="row-popover-head">
                 <button type="button" onClick={() => setMode('actions')}>
@@ -1868,6 +1882,29 @@ export function RowActionsMenu({
                 recommended={recommendedThreshold}
                 onApply={onThresholdChange}
                 onReset={() => onThresholdChange({ upper: '', lower: '', mode: null })}
+                onClose={() => setOpen(false)}
+              />
+            </div>
+          ) : (
+            <div className="row-threshold-fields">
+              <div className="row-popover-head">
+                <button type="button" onClick={() => setMode('actions')}>
+                  Назад
+                </button>
+                <button
+                  className="row-menu-close"
+                  type="button"
+                  aria-label="Закрыть меню"
+                  onClick={() => setOpen(false)}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <ThresholdEditor
+                threshold={employeeThreshold}
+                recommended={employeeRecommendedThreshold}
+                onApply={onEmployeeThresholdChange}
+                onReset={() => onEmployeeThresholdChange({ upper: '', lower: '', mode: null })}
                 onClose={() => setOpen(false)}
               />
             </div>

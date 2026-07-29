@@ -181,6 +181,7 @@ export type SavedReportViewState = {
   expandedSections: string[];
   mainThreshold: ThresholdValues;
   rowThresholds: Record<string, ThresholdValues>;
+  employeeThresholdsByMetricId?: Record<string, ThresholdValues>;
 };
 
 export type SavedReportViewOption = SelectOption<string> & {

@@ -493,6 +493,23 @@ const buildEmployeeChartValuesByPeriod = (
     ]),
   );
 
+const buildEmployeeThresholdValues = (
+  metricId: string,
+  employees: ReportEmployee[],
+  selectedEmployeeIds: Set<string> | undefined,
+  reportData: ReportPoint[],
+) => {
+  if (!selectedEmployeeIds || selectedEmployeeIds.size === 0) {
+    return [];
+  }
+
+  return employees
+    .filter((employee) => selectedEmployeeIds.has(employee.id))
+    .flatMap((employee) =>
+      reportData.map((point) => getEmployeePeriodMetricValue(employee, point, metricId)),
+    );
+};
+
 /** Build per-employee period values for a funnel/smart source_metric from details. */
 const buildSourceMetricEmployees = (
   details: MetricDetailItem[],
@@ -1105,6 +1122,7 @@ function App() {
     suppressReportSettingsTouchRef.current = true;
   }, []);
   const [rowThresholds, setRowThresholds] = useState<Record<string, ThresholdValues>>({});
+  const [employeeThresholdsByMetricId, setEmployeeThresholdsByMetricId] = useState<Record<string, ThresholdValues>>({});
   const [enabledMetricIdsBySection, setEnabledMetricIdsBySection] = useState<Record<string, Set<string>>>(
     () =>
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
@@ -1376,6 +1394,7 @@ function App() {
     collapsedSourceSectionsByUser.current = new Set();
     setMainThreshold({ upper: '', lower: '', mode: null });
     setRowThresholds({});
+    setEmployeeThresholdsByMetricId({});
     setSavedViews([defaultSavedView]);
     setAppSettings(defaultAppSettings);
     setHasBuiltReport(false);
@@ -1546,6 +1565,12 @@ function App() {
 
             if (settings.rowThresholds && typeof settings.rowThresholds === 'object') {
               setRowThresholds(settings.rowThresholds as Record<string, { upper: string; lower: string; mode: 'manual' | 'recommended' | null }>);
+            }
+
+            if (settings.employeeThresholdsByMetricId && typeof settings.employeeThresholdsByMetricId === 'object') {
+              setEmployeeThresholdsByMetricId(
+                settings.employeeThresholdsByMetricId as Record<string, { upper: string; lower: string; mode: 'manual' | 'recommended' | null }>,
+              );
             }
           }
 
@@ -1957,6 +1982,7 @@ function App() {
             // that may still be on the server (before triggerAutoSave saves empty ones).
             setMainThreshold({ upper: '', lower: '', mode: null });
             setRowThresholds({});
+            setEmployeeThresholdsByMetricId({});
           }
 
           // End auto-build skip only after thresholds (and other presets) are applied.
@@ -3421,6 +3447,7 @@ function App() {
     resetTemporaryReportUiState();
     setMainThreshold({ upper: '', lower: '', mode: null });
     setRowThresholds({});
+    setEmployeeThresholdsByMetricId({});
     immediateAutoSaveRef.current = true;
     setAutoSaveRequest((current) => current + 1);
     // Empty chart selection stays empty — never expand to all/default sources.
@@ -3491,6 +3518,7 @@ function App() {
     const nextSectionOrder = preset.sectionOrder;
 
     applyAutomaticThresholdsRef.current = true;
+    setEmployeeThresholdsByMetricId({});
 
     setAppliedFilters((current) => ({
       ...current,
@@ -3728,6 +3756,14 @@ function App() {
   const updateRowThreshold = useCallback((metricId: string, value: ThresholdValues) => {
     markUserSettingsChange();
     setRowThresholds((current) => ({
+      ...current,
+      [metricId]: value,
+    }));
+  }, [markUserSettingsChange]);
+
+  const updateEmployeeThreshold = useCallback((metricId: string, value: ThresholdValues) => {
+    markUserSettingsChange();
+    setEmployeeThresholdsByMetricId((current) => ({
       ...current,
       [metricId]: value,
     }));
@@ -4093,12 +4129,14 @@ function App() {
       expandedSections: [...expandedSections],
       mainThreshold: { ...mainThreshold },
       rowThresholds: { ...rowThresholds },
+      employeeThresholdsByMetricId: { ...employeeThresholdsByMetricId },
     }),
     [
       appliedFilters,
       draftFilters,
       enabledMetricIdsBySection,
       enabledMetricKeysBySource,
+      employeeThresholdsByMetricId,
       expandedSections,
       mainThreshold,
       metricOrderBySection,
@@ -4178,6 +4216,7 @@ function App() {
           expandedSections: currentState.expandedSections,
           mainThreshold: currentState.mainThreshold,
           rowThresholds: currentState.rowThresholds,
+          employeeThresholdsByMetricId: currentState.employeeThresholdsByMetricId ?? {},
         },
         savedViews: savedViews.filter((view) => !view.isSystem).map((view) => ({
           value: view.value,
@@ -4214,6 +4253,7 @@ function App() {
     expandedSections,
     mainThreshold,
     rowThresholds,
+    employeeThresholdsByMetricId,
     savedViews,
     appSettings,
     tableSelectedSources,
@@ -4315,6 +4355,7 @@ function App() {
     setExpandedSections(new Set(state.expandedSections));
     setMainThreshold({ ...state.mainThreshold });
     setRowThresholds({ ...state.rowThresholds });
+    setEmployeeThresholdsByMetricId({ ...(state.employeeThresholdsByMetricId ?? {}) });
     setHasBuiltReport(true);
     setBuildMoment(Date.now());
     // Trigger report build for the restored view state
@@ -5206,6 +5247,7 @@ function App() {
                 const employeeChartOpen = expandedEmployeeChartIds.has(
                   buildEmployeeChartId(row.metric.id, row.employee.id),
                 );
+                const employeeThreshold = employeeThresholdsByMetricId[row.metric.id];
 
                 return (
                   <div
@@ -5261,9 +5303,11 @@ function App() {
                             : 0;
 
                           const valueLabel = formatMetricValue(value, row.metric.type);
+                          const thresholdClass = getThresholdClass(value, employeeThreshold);
 
                           return (
                             <ValueCellButton
+                              className={thresholdClass}
                               valueLabel={valueLabel}
                               key={`${row.rowId}-${point.key}`}
                               onClick={() => openDetail(
@@ -5297,6 +5341,7 @@ function App() {
                           <RowMetricChart
                             metric={row.metric}
                             reportData={reportData}
+                            threshold={employeeThresholdsByMetricId[row.metric.id]}
                             valuesByPeriod={buildEmployeeChartValuesByPeriod(
                               row.employee,
                               reportData,
@@ -5356,6 +5401,19 @@ function App() {
                   detailMetricIds,
                   availableEmployees,
                 );
+                const sourceMetricEmployeesForThreshold = sourceMetricEmployees.map((employee) =>
+                  remapEmployeeValuesToMetricId(employee, detailMetricIds, actionId),
+                );
+                const employeeThreshold = employeeThresholdsByMetricId[actionId] ?? { upper: '', lower: '', mode: null };
+                const employeeRecommendedThreshold = calculateRecommendedThresholds(
+                  buildEmployeeThresholdValues(
+                    actionId,
+                    sourceMetricEmployeesForThreshold,
+                    appliedEmployeeIdsByMetricId[actionId],
+                    reportData,
+                  ),
+                  valueType,
+                );
                 const syntheticMetric: MetricRow = {
                   id: actionId,
                   label: row.metricLabel,
@@ -5395,6 +5453,8 @@ function App() {
                         chartOpen={chartOpen}
                         threshold={rowThreshold}
                         recommendedThreshold={rowRecommendedThreshold}
+                        employeeThreshold={employeeThreshold}
+                        employeeRecommendedThreshold={employeeRecommendedThreshold}
                         showEmployees
                         metricId={actionId}
                         onToggleEmployees={() => toggleEmployeeRows(actionId)}
@@ -5407,6 +5467,7 @@ function App() {
                         onApplyEmployees={() => applyMetricEmployees(actionId, sourceMetricEmployees.map((employee) => employee.id))}
                         onToggleChart={() => toggleMetricChart(actionId)}
                         onThresholdChange={applySourceRowThreshold}
+                        onEmployeeThresholdChange={(value) => updateEmployeeThreshold(actionId, value)}
                       />
                     </div>
                     <div className="table-right-cell" role="cell">
@@ -5452,6 +5513,16 @@ function App() {
                 reportData.map((point) => point.values[metricRow.metric.id]),
                 metricRow.metric.type,
               );
+              const employeeThreshold = employeeThresholdsByMetricId[metricRow.metric.id] ?? { upper: '', lower: '', mode: null };
+              const employeeRecommendedThreshold = calculateRecommendedThresholds(
+                buildEmployeeThresholdValues(
+                  metricRow.metric.id,
+                  availableEmployees,
+                  appliedEmployeeIdsByMetricId[metricRow.metric.id],
+                  reportData,
+                ),
+                metricRow.metric.type,
+              );
               const employeesOpen = expandedEmployeeMetricIds.has(metricRow.metric.id);
               const chartOpen = expandedChartMetricIds.has(metricRow.metric.id);
 
@@ -5484,6 +5555,8 @@ function App() {
                       chartOpen={chartOpen}
                       threshold={rowThreshold}
                       recommendedThreshold={rowRecommendedThreshold}
+                      employeeThreshold={employeeThreshold}
+                      employeeRecommendedThreshold={employeeRecommendedThreshold}
                       metricId={metricRow.metric.id}
                       onToggleEmployees={() => toggleEmployeeRows(metricRow.metric.id)}
                       onOpenEmployeeSelector={() => ensureEmployeeSelectorDraft(metricRow.metric.id)}
@@ -5495,6 +5568,7 @@ function App() {
                       onApplyEmployees={() => applyMetricEmployees(metricRow.metric.id, availableEmployees.map((employee) => employee.id))}
                       onToggleChart={() => toggleMetricChart(metricRow.metric.id)}
                       onThresholdChange={(value) => updateRowThreshold(metricRow.metric.id, value)}
+                      onEmployeeThresholdChange={(value) => updateEmployeeThreshold(metricRow.metric.id, value)}
                     />
                   </div>
                   <div className="table-right-cell" role="cell">

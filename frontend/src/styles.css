@@ -1980,16 +1980,16 @@ button {
 .row-action-menu-main {
   flex: 1 1 auto;
   justify-content: space-between;
-  gap: 8px;
-  padding: 0 8px 0 10px;
+  gap: 4px;
+  padding: 0 4px 0 10px;
   text-align: left;
 }
 
 .row-action-menu-configure {
-  width: 34px;
+  width: 28px;
   flex: 0 0 auto;
   justify-content: center;
-  border-radius: 9px;
+  border-radius: 8px;
   color: #7b8491;
 }
 

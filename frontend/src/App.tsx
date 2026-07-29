@@ -5079,12 +5079,24 @@ function App() {
 
           <div className="report-table" ref={tableContentRef} role="table" aria-label="Значения показателей">
             {tableRows.map((row) => {
+              const activeMetricId =
+                row.kind === 'metric'
+                  ? row.metric.id
+                  : row.kind === 'source_metric'
+                    ? buildSourceMetricActionId(row.sourceId, row.metricKey)
+                    : null;
+              const isActiveMetricRow = activeMetricId
+                ? expandedEmployeeMetricIds.has(activeMetricId) ||
+                  expandedChartMetricIds.has(activeMetricId) ||
+                  Array.from(expandedEmployeeChartIds).some((chartId) => chartId.startsWith(`${activeMetricId}::`))
+                : false;
               const rowClassName = [
                 'report-table-row',
                 row.kind === 'section' ? 'is-section-row' : '',
                 row.kind === 'source_section' ? 'is-section-row' : '',
                 row.kind === 'metric' ? 'is-metric-row' : '',
                 row.kind === 'source_metric' ? 'is-metric-row' : '',
+                isActiveMetricRow ? 'is-active-metric-row' : '',
                 row.kind === 'employee' ? 'is-employee-row' : '',
                 row.kind === 'chart' || row.kind === 'employee_chart' ? 'is-chart-row' : '',
               ].filter(Boolean).join(' ');

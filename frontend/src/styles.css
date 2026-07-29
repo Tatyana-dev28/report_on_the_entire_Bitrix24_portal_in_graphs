@@ -1660,6 +1660,17 @@ button {
   min-height: var(--chart-row-height);
 }
 
+.report-table-row.is-active-metric-row,
+.report-table-row.is-active-metric-row .table-left-cell,
+.report-table-row.is-active-metric-row .value-cell,
+.report-table-row.is-active-metric-row .value-axis-gutter {
+  background: #eaf5ff;
+}
+
+.report-table-row.is-active-metric-row .metric-name {
+  font-weight: 600;
+}
+
 .report-table-row.is-empty-row {
   height: var(--section-row-height);
   min-height: var(--section-row-height);

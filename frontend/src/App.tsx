@@ -4911,30 +4911,10 @@ function App() {
         .pdf-footer { margin-top: 12px; border-top: 1px solid #dfe7f1; padding-top: 8px; color: #6a7482; font-size: 12px; display: flex; justify-content: space-between; }
       </style>
     `;
-    const pages: HTMLElement[] = [];
+    const pages: Array<{ title: string; bodyHtml: string }> = [];
 
     const appendPage = (title: string, bodyHtml: string) => {
-      const page = document.createElement('section');
-      page.className = 'pdf-page';
-      page.innerHTML = `
-        <div class="pdf-header">
-          <div>
-            <div class="pdf-title">${escapeHtml(title)}</div>
-            <div class="pdf-meta">
-              <div>Портал: ${escapeHtml(portalLabel)}</div>
-              <div>${escapeHtml(periodOptionLabel)} · Период: ${escapeHtml(periodLabel)}</div>
-            </div>
-          </div>
-          <div class="pdf-generated">Дата формирования<br><b>${escapeHtml(generatedAt)}</b></div>
-        </div>
-        <div class="pdf-content">${bodyHtml}</div>
-        <div class="pdf-footer">
-          <span>${escapeHtml(currentViewLabel)}</span>
-          <span class="pdf-page-number"></span>
-        </div>
-      `;
-      exportRoot.appendChild(page);
-      pages.push(page);
+      pages.push({ title, bodyHtml });
     };
 
     appendPage(
@@ -4951,20 +4931,38 @@ function App() {
             </div>
           `).join('')}
         </div>
-        <div class="pdf-section-title">Показатели, требующие внимания</div>
-        ${
-          attentionRows.length
-            ? `<table class="pdf-attention"><tbody>${attentionRows.map((row) => `
-                <tr>
-                  <td>${escapeHtml(row.label)}</td>
-                  <td>${escapeHtml(row.period)}</td>
-                  <td><b>${escapeHtml(formatMetricValue(row.value, row.type))}</b></td>
-                </tr>
-              `).join('')}</tbody></table>`
-            : '<div class="pdf-card">Показателей, требующих внимания, нет.</div>'
-        }
       `,
     );
+
+    if (attentionRows.length) {
+      chunk(attentionRows, format === 'a3' ? 26 : 20).forEach((attentionChunk, attentionChunkIndex, attentionChunks) => {
+        appendPage(
+          `Показатели, требующие внимания${attentionChunks.length > 1 ? ` · ${attentionChunkIndex + 1}/${attentionChunks.length}` : ''}`,
+          `
+            <div class="pdf-section-title">Показатели, требующие внимания</div>
+            <table class="pdf-attention">
+              <tbody>
+                ${attentionChunk.map((row) => `
+                  <tr>
+                    <td>${escapeHtml(row.label)}</td>
+                    <td>${escapeHtml(row.period)}</td>
+                    <td><b>${escapeHtml(formatMetricValue(row.value, row.type))}</b></td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          `,
+        );
+      });
+    } else {
+      appendPage(
+        'Показатели, требующие внимания',
+        `
+          <div class="pdf-section-title">Показатели, требующие внимания</div>
+          <div class="pdf-card">Показателей, требующих внимания, нет.</div>
+        `,
+      );
+    }
 
     const periodChunks = chunk(reportData.map((point, index) => ({ point, index })), maxPeriodColumns);
     periodChunks.forEach((periodChunk, periodChunkIndex) => {
@@ -5003,25 +5001,40 @@ function App() {
     document.body.appendChild(exportRoot);
 
     try {
-      pages.forEach((page, index) => {
-        const marker = page.querySelector('.pdf-page-number');
-        if (marker) {
-          marker.textContent = `Страница ${index + 1} из ${pages.length}`;
-        }
-      });
-
       const pdf = new jsPDF('l', 'mm', format);
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
+      const renderScale = pages.length > 12 ? 1.15 : pages.length > 6 ? 1.35 : 1.7;
 
       for (let index = 0; index < pages.length; index += 1) {
         if (index > 0) {
           pdf.addPage();
         }
 
-        const canvas = await html2canvas(pages[index], {
+        const page = document.createElement('section');
+        page.className = 'pdf-page';
+        page.innerHTML = `
+          <div class="pdf-header">
+            <div>
+              <div class="pdf-title">${escapeHtml(pages[index].title)}</div>
+              <div class="pdf-meta">
+                <div>Портал: ${escapeHtml(portalLabel)}</div>
+                <div>${escapeHtml(periodOptionLabel)} · Период: ${escapeHtml(periodLabel)}</div>
+              </div>
+            </div>
+            <div class="pdf-generated">Дата формирования<br><b>${escapeHtml(generatedAt)}</b></div>
+          </div>
+          <div class="pdf-content">${pages[index].bodyHtml}</div>
+          <div class="pdf-footer">
+            <span>${escapeHtml(currentViewLabel)}</span>
+            <span>Страница ${index + 1} из ${pages.length}</span>
+          </div>
+        `;
+        exportRoot.appendChild(page);
+
+        const canvas = await html2canvas(page, {
           backgroundColor: '#ffffff',
-          scale: 2,
+          scale: renderScale,
           useCORS: true,
           scrollX: 0,
           scrollY: 0,
@@ -5031,10 +5044,14 @@ function App() {
           windowHeight: pageHeight,
         });
 
-        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, pdfWidth, pdfHeight);
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.88), 'JPEG', 0, 0, pdfWidth, pdfHeight);
+        page.remove();
       }
 
       pdf.save('bitrix24-report.pdf');
+    } catch (error) {
+      console.warn('[PDF export] report PDF was not generated', error);
+      setNotification('Не удалось скачать PDF. Попробуйте уменьшить период или количество строк отчета.');
     } finally {
       exportRoot.remove();
     }
@@ -5052,6 +5069,7 @@ function App() {
     rowThresholds,
     savedViews,
     selectedView,
+    setNotification,
     sourceMetrics,
     tableRows,
     valueStates,

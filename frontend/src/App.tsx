@@ -4784,7 +4784,6 @@ function App() {
     ];
     const chartMetricType: MetricRow['type'] = appliedFilters.metricMode === 'money' ? 'money' : 'number';
     const chartValues = chartData.map((point) => Number(point.indicator) || 0);
-    const mainIndicatorValue = chartValues.reduce((sum, value) => sum + value, 0);
     const chartMax = Math.max(1, ...chartValues, ...thresholdSummary.map((item) => Number(item.value) || 0));
     const chartMin = Math.min(0, ...chartValues);
     const makeChartSvg = () => {
@@ -4893,6 +4892,7 @@ function App() {
         .pdf-header { display: flex; justify-content: space-between; gap: 18px; border-bottom: 1px solid #dfe7f1; padding-bottom: 14px; margin-bottom: 18px; }
         .pdf-title { font-size: 26px; font-weight: 700; line-height: 1.15; }
         .pdf-meta { margin-top: 7px; color: #5f6b7a; font-size: 14px; }
+        .pdf-meta div + div { margin-top: 3px; }
         .pdf-generated { color: #5f6b7a; font-size: 13px; text-align: right; white-space: nowrap; }
         .pdf-content { height: ${pageHeight - pagePadding * 2 - 82}px; overflow: hidden; }
         .pdf-section-title { margin: 18px 0 10px; font-size: 18px; font-weight: 700; }
@@ -4920,7 +4920,10 @@ function App() {
         <div class="pdf-header">
           <div>
             <div class="pdf-title">${escapeHtml(title)}</div>
-            <div class="pdf-meta">${escapeHtml(portalLabel)} · ${escapeHtml(periodOptionLabel)} · ${escapeHtml(periodLabel)}</div>
+            <div class="pdf-meta">
+              <div>Портал: ${escapeHtml(portalLabel)}</div>
+              <div>${escapeHtml(periodOptionLabel)} · Период: ${escapeHtml(periodLabel)}</div>
+            </div>
           </div>
           <div class="pdf-generated">Дата формирования<br><b>${escapeHtml(generatedAt)}</b></div>
         </div>
@@ -4938,10 +4941,6 @@ function App() {
       currentViewLabel,
       `
         <div class="pdf-section-title">Главный показатель и основной график</div>
-        <div class="pdf-card" style="margin-bottom: 12px;">
-          <div class="pdf-card-label">Главный показатель за выбранный период</div>
-          <div class="pdf-card-value">${escapeHtml(formatMetricValue(mainIndicatorValue, chartMetricType))}</div>
-        </div>
         ${makeChartSvg()}
         <div class="pdf-section-title">Текущий коридор</div>
         <div class="pdf-grid">

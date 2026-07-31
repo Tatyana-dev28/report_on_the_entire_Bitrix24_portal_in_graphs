@@ -17,3 +17,4 @@ class PeriodBucket:
     tooltip_label: str
     start: datetime
     end: datetime
+    is_partial: bool = False

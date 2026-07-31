@@ -5223,7 +5223,9 @@ function App() {
               >
                 <span className="period-axis-gutter" aria-hidden="true" />
                 {reportData.map((point) => (
-                  <span key={point.key}>{point.label}</span>
+                  <span key={point.key} title={point.tooltipLabel || point.label}>
+                    {point.label}
+                  </span>
                 ))}
               </div>
             </div>

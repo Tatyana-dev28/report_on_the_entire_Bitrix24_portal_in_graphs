@@ -45,6 +45,11 @@ from apps.reports.services.data_providers import (
     ReportDataResult,
 )
 from apps.reports.services.report_periods import PeriodBucket
+from apps.reports.services.portal_timezone import (
+    ensure_portal_timezone,
+    get_portal_tzinfo,
+    localtime_for_portal,
+)
 from apps.reports.services.source_metrics_service import build_source_metrics_by_period
 from apps.reports.services.employee_breakdown import build_employee_breakdown
 from apps.reports.services.entity_details import build_entity_details
@@ -110,8 +115,16 @@ class BitrixReportDataProvider:
         filters: dict,
         context: ReportDataProviderContext,
     ) -> ReportDataResult:
-        date_from, date_to = _resolve_date_range(filters)
-        buckets = build_period_buckets(filters["period"], date_from, date_to)
+        client = self.rest_client_factory(context.portal)
+        ensure_portal_timezone(context.portal, client)
+
+        date_from, date_to = _resolve_date_range(filters, portal=context.portal)
+        buckets = build_period_buckets(
+            filters["period"],
+            date_from,
+            date_to,
+            portal=context.portal,
+        )
 
         selected_sources = resolve_selected_sources_for_portal(
             context.portal,
@@ -129,8 +142,6 @@ class BitrixReportDataProvider:
         # Lean chart catalog: only CRM-entity metrics the main chart can read from point.values.
         # Deal/smart pipelines use chart_source_metrics on the frontend instead.
         chart_metric_catalog = _resolve_chart_metric_catalog(chart_selected_sources, metric_mode)
-
-        client = self.rest_client_factory(context.portal)
 
         source_value_states: dict[str, dict[str, str]] = {}
         rows_by_source = self._load_source_rows(
@@ -925,6 +936,7 @@ def build_report_points(
                 "key": bucket.key,
                 "label": bucket.label,
                 "tooltipLabel": bucket.tooltip_label,
+                "isPartial": bucket.is_partial,
                 "indicator": _build_indicator_value(
                     values,
                     metric_catalog,
@@ -1631,17 +1643,23 @@ def _crm_source_to_report_source(source: CrmSource) -> dict:
     }
 
 
-def build_period_buckets(period: str, date_from: datetime, date_to: datetime) -> list[PeriodBucket]:
+def build_period_buckets(
+    period: str,
+    date_from: datetime,
+    date_to: datetime,
+    *,
+    portal: Any | None = None,
+) -> list[PeriodBucket]:
     if period == "hours":
-        return _build_hour_buckets(date_from, date_to)
+        return _build_hour_buckets(date_from, date_to, portal=portal)
 
     if period == "weeks":
-        return _build_week_buckets(date_from, date_to)
+        return _build_week_buckets(date_from, date_to, portal=portal)
 
     if period == "months":
-        return _build_month_buckets(date_from, date_to)
+        return _build_month_buckets(date_from, date_to, portal=portal)
 
-    return _build_day_buckets(date_from, date_to)
+    return _build_day_buckets(date_from, date_to, portal=portal)
 
 
 def _build_bucket_values(
@@ -1863,23 +1881,24 @@ def _build_bucket_values(
     return {metric_id: values.get(metric_id, 0) for metric_id in metric_ids}
 
 
-def _resolve_date_range(filters: dict) -> tuple[datetime, datetime]:
+def _resolve_date_range(filters: dict, *, portal: Any | None = None) -> tuple[datetime, datetime]:
     date_range = filters.get("dateRange") or {}
+    portal_tz = get_portal_tzinfo(portal)
 
     start_value = date_range.get("from") or date_range.get("start")
     end_value = date_range.get("to") or date_range.get("end")
 
-    now = timezone.localtime()
+    now = timezone.localtime(timezone.now(), portal_tz)
 
-    date_from = _parse_datetime_or_date(start_value, end_of_day=False) or datetime.combine(
+    date_from = _parse_datetime_or_date(start_value, end_of_day=False, portal=portal) or datetime.combine(
         now.date(),
         time.min,
-        tzinfo=now.tzinfo,
+        tzinfo=portal_tz,
     )
-    date_to = _parse_datetime_or_date(end_value, end_of_day=True) or datetime.combine(
+    date_to = _parse_datetime_or_date(end_value, end_of_day=True, portal=portal) or datetime.combine(
         now.date(),
         time.max,
-        tzinfo=now.tzinfo,
+        tzinfo=portal_tz,
     )
 
     if date_from > date_to:
@@ -1893,9 +1912,16 @@ def _resolve_date_range(filters: dict) -> tuple[datetime, datetime]:
     return date_from, date_to
 
 
-def _parse_datetime_or_date(value: Any, *, end_of_day: bool) -> datetime | None:
+def _parse_datetime_or_date(
+    value: Any,
+    *,
+    end_of_day: bool,
+    portal: Any | None = None,
+) -> datetime | None:
     if not value or not isinstance(value, str):
         return None
+
+    portal_tz = get_portal_tzinfo(portal)
 
     if len(value) == 10:
         parsed_date = parse_date(value)
@@ -1905,14 +1931,14 @@ def _parse_datetime_or_date(value: Any, *, end_of_day: bool) -> datetime | None:
 
             return timezone.make_aware(
                 datetime.combine(parsed_date, parsed_time),
-                timezone.get_current_timezone(),
+                portal_tz,
             )
 
     parsed_datetime = parse_datetime(value)
 
     if parsed_datetime is not None:
         if timezone.is_naive(parsed_datetime):
-            return timezone.make_aware(parsed_datetime, timezone.get_current_timezone())
+            return timezone.make_aware(parsed_datetime, portal_tz)
 
         return parsed_datetime
 
@@ -1925,24 +1951,57 @@ def _parse_datetime_or_date(value: Any, *, end_of_day: bool) -> datetime | None:
 
     return timezone.make_aware(
         datetime.combine(parsed_date, parsed_time),
-        timezone.get_current_timezone(),
+        portal_tz,
     )
 
 
-def _build_hour_buckets(date_from: datetime, date_to: datetime) -> list[PeriodBucket]:
+def _partial_tooltip(tooltip_label: str, is_partial: bool) -> str:
+    if not is_partial:
+        return tooltip_label
+
+    marker = "данные за неполный интервал"
+    if marker in tooltip_label:
+        return tooltip_label
+
+    return f"{tooltip_label} · {marker}"
+
+
+def _is_partial_interval(
+    start: datetime,
+    end: datetime,
+    natural_end: datetime,
+) -> bool:
+    now = timezone.now()
+    if end < natural_end:
+        return True
+
+    return start <= now < natural_end
+
+
+def _build_hour_buckets(
+    date_from: datetime,
+    date_to: datetime,
+    *,
+    portal: Any | None = None,
+) -> list[PeriodBucket]:
     buckets = []
     cursor = date_from.replace(minute=0, second=0, microsecond=0)
 
     while cursor <= date_to:
-        end = min(cursor + timedelta(hours=1) - timedelta(microseconds=1), date_to)
+        natural_end = cursor + timedelta(hours=1) - timedelta(microseconds=1)
+        end = min(natural_end, date_to)
+        local_cursor = localtime_for_portal(cursor, portal)
+        is_partial = _is_partial_interval(cursor, end, natural_end)
+        tooltip = _partial_tooltip(local_cursor.strftime("%d.%m.%Y, %H:%M"), is_partial)
 
         buckets.append(
             PeriodBucket(
                 key=cursor.isoformat(),
-                label=timezone.localtime(cursor).strftime("%H:%M"),
-                tooltip_label=timezone.localtime(cursor).strftime("%d.%m.%Y, %H:%M"),
+                label=local_cursor.strftime("%H:%M"),
+                tooltip_label=tooltip,
                 start=cursor,
                 end=end,
+                is_partial=is_partial,
             )
         )
 
@@ -1951,21 +2010,30 @@ def _build_hour_buckets(date_from: datetime, date_to: datetime) -> list[PeriodBu
     return buckets
 
 
-def _build_day_buckets(date_from: datetime, date_to: datetime) -> list[PeriodBucket]:
+def _build_day_buckets(
+    date_from: datetime,
+    date_to: datetime,
+    *,
+    portal: Any | None = None,
+) -> list[PeriodBucket]:
     buckets = []
     cursor = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
     while cursor <= date_to:
-        end = min(cursor + timedelta(days=1) - timedelta(microseconds=1), date_to)
-        local_cursor = timezone.localtime(cursor)
+        natural_end = cursor + timedelta(days=1) - timedelta(microseconds=1)
+        end = min(natural_end, date_to)
+        local_cursor = localtime_for_portal(cursor, portal)
+        is_partial = _is_partial_interval(cursor, end, natural_end)
+        tooltip = _partial_tooltip(local_cursor.strftime("%d.%m.%Y"), is_partial)
 
         buckets.append(
             PeriodBucket(
                 key=cursor.isoformat(),
                 label=local_cursor.strftime("%d.%m"),
-                tooltip_label=local_cursor.strftime("%d.%m.%Y"),
+                tooltip_label=tooltip,
                 start=cursor,
                 end=end,
+                is_partial=is_partial,
             )
         )
 
@@ -1974,22 +2042,34 @@ def _build_day_buckets(date_from: datetime, date_to: datetime) -> list[PeriodBuc
     return buckets
 
 
-def _build_week_buckets(date_from: datetime, date_to: datetime) -> list[PeriodBucket]:
+def _build_week_buckets(
+    date_from: datetime,
+    date_to: datetime,
+    *,
+    portal: Any | None = None,
+) -> list[PeriodBucket]:
     buckets = []
     cursor = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
     while cursor <= date_to:
-        end = min(cursor + timedelta(days=7) - timedelta(microseconds=1), date_to)
-        local_start = timezone.localtime(cursor)
-        local_end = timezone.localtime(end)
+        natural_end = cursor + timedelta(days=7) - timedelta(microseconds=1)
+        end = min(natural_end, date_to)
+        local_start = localtime_for_portal(cursor, portal)
+        local_end = localtime_for_portal(end, portal)
+        is_partial = _is_partial_interval(cursor, end, natural_end)
+        tooltip = _partial_tooltip(
+            f"Неделя {local_start:%d.%m.%Y} - {local_end:%d.%m.%Y}",
+            is_partial,
+        )
 
         buckets.append(
             PeriodBucket(
                 key=cursor.isoformat(),
                 label=f"{local_start:%d.%m}-{local_end:%d.%m}",
-                tooltip_label=f"Неделя {local_start:%d.%m.%Y} - {local_end:%d.%m.%Y}",
+                tooltip_label=tooltip,
                 start=cursor,
                 end=end,
+                is_partial=is_partial,
             )
         )
 
@@ -1998,22 +2078,31 @@ def _build_week_buckets(date_from: datetime, date_to: datetime) -> list[PeriodBu
     return buckets
 
 
-def _build_month_buckets(date_from: datetime, date_to: datetime) -> list[PeriodBucket]:
+def _build_month_buckets(
+    date_from: datetime,
+    date_to: datetime,
+    *,
+    portal: Any | None = None,
+) -> list[PeriodBucket]:
     buckets = []
     cursor = date_from.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     while cursor <= date_to:
         next_month = _add_month(cursor)
-        end = min(next_month - timedelta(microseconds=1), date_to)
-        local_cursor = timezone.localtime(cursor)
+        natural_end = next_month - timedelta(microseconds=1)
+        end = min(natural_end, date_to)
+        local_cursor = localtime_for_portal(cursor, portal)
+        is_partial = _is_partial_interval(cursor, end, natural_end)
+        tooltip = _partial_tooltip(local_cursor.strftime("%m.%Y"), is_partial)
 
         buckets.append(
             PeriodBucket(
                 key=cursor.isoformat(),
                 label=local_cursor.strftime("%m.%Y"),
-                tooltip_label=local_cursor.strftime("%m.%Y"),
+                tooltip_label=tooltip,
                 start=cursor,
                 end=end,
+                is_partial=is_partial,
             )
         )
 

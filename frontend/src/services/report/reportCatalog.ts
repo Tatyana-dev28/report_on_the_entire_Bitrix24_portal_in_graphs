@@ -41,6 +41,7 @@ export type ReportPoint = {
     tooltipLabel: string;
     indicator: number;
     values: Record<string, number>;
+    isPartial?: boolean;
 };
 
 export type PeriodPoint = {

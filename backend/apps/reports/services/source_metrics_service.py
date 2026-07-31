@@ -154,36 +154,48 @@ def _find_matching_source_keys(
 ) -> list[str]:
     """
     Find which keys in rows_by_source correspond to this source.
-    For deal pipelines: match by entityTypeId and categoryId.
-    For smart processes: match by entityTypeId.
+    Prefer exact catalog source id (deal-0, smart-180-4). categoryId=0 must not
+    be treated as missing via Python truthiness.
     """
     source_type = _normalize_source_type(source.get("type") or "")
     source_id = str(source.get("id", ""))
-    entity_type_id = source.get("entityTypeId") or source.get("entity_type_id")
-    category_id = source.get("categoryId") or source.get("category_id")
+
+    if source_id and source_id in rows_by_source:
+        return [source_id]
+
+    entity_type_id = source.get("entityTypeId")
+    if entity_type_id is None:
+        entity_type_id = source.get("entity_type_id")
+
+    category_id = source.get("categoryId")
+    if category_id is None:
+        category_id = source.get("category_id")
 
     matched = []
 
     for key in rows_by_source:
-        if source_type == "deal_pipeline" and "deal-" in key:
-            if entity_type_id and category_id is not None:
-                expected_prefix = f"deal-{entity_type_id}-{category_id}"
-                if key.startswith(expected_prefix):
+        if source_type == "deal_pipeline" and key.startswith("deal-"):
+            if key == "deal-default":
+                continue
+            if entity_type_id is not None and category_id is not None:
+                # Legacy/alternate key shapes, e.g. deal-2-0
+                expected_keys = {
+                    f"deal-{entity_type_id}-{category_id}",
+                    f"deal-{category_id}",
+                }
+                if key in expected_keys:
                     matched.append(key)
-            elif source_id:
-                if source_id in key:
-                    matched.append(key)
-        elif source_type == "smart_process" and "smart-" in key:
-            if entity_type_id:
+            elif source_id and key == source_id:
+                matched.append(key)
+        elif source_type == "smart_process" and key.startswith("smart-"):
+            if entity_type_id is not None:
                 expected_prefix = f"smart-{entity_type_id}"
-                if key.startswith(expected_prefix) or source_id in key:
+                if key == source_id or key.startswith(f"{expected_prefix}-") or key == expected_prefix:
                     matched.append(key)
-            elif source_id:
-                if source_id in key:
-                    matched.append(key)
+            elif source_id and key == source_id:
+                matched.append(key)
 
-    return matched or ([source_id] if source_id in rows_by_source else [])
-
+    return matched
 
 def _compute_deal_pipeline_metrics(
     *,
@@ -226,11 +238,19 @@ def _compute_deal_pipeline_metrics(
         created_values[period_key] = len(created_rows)
 
         # Won deals
-        won_deals = [r for r in created_rows if _is_won_stage(r.get("STAGE_ID")) or r.get("SEMANTIC_ID") == "S"]
+        won_deals = [
+            r for r in created_rows
+            if _is_won_stage(r.get("STAGE_ID"))
+            or str(r.get("STAGE_SEMANTIC_ID") or r.get("SEMANTIC_ID") or "").upper() == "S"
+        ]
         won_values[period_key] = len(won_deals)
 
         # Lost deals
-        lost_deals = [r for r in created_rows if _is_lost_stage(r.get("STAGE_ID")) or r.get("SEMANTIC_ID") == "F"]
+        lost_deals = [
+            r for r in created_rows
+            if _is_lost_stage(r.get("STAGE_ID"))
+            or str(r.get("STAGE_SEMANTIC_ID") or r.get("SEMANTIC_ID") or "").upper() == "F"
+        ]
         lost_values[period_key] = len(lost_deals)
 
         # Won sum

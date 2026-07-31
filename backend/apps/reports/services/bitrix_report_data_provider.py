@@ -180,10 +180,17 @@ class BitrixReportDataProvider:
             buckets=buckets,
             build_bucket_values=_build_bucket_values,
         )
+        # Funnel/smart blocks always show created/won/lost even when CRM-section
+        # metrics are off — expand catalog so their drill-down details are built too.
+        detail_metric_catalog = _expand_metric_catalog_for_source_details(
+            metric_catalog,
+            selected_sources=selected_sources,
+        )
         details = build_entity_details(
             buckets=buckets,
             rows_by_source=table_rows_by_source,
-            metric_catalog=metric_catalog,
+            metric_catalog=detail_metric_catalog,
+            portal=context.portal,
         )
 
         unsupported_sources = [
@@ -448,6 +455,7 @@ class BitrixReportDataProvider:
                     "TITLE",
                     "DATE_CREATE",
                     "STAGE_ID",
+                    "STAGE_SEMANTIC_ID",
                     "CATEGORY_ID",
                     "OPPORTUNITY",
                     "CURRENCY_ID",
@@ -1367,6 +1375,61 @@ def resolve_metric_catalog(selected_metric_ids: list[str] | None) -> list[dict]:
         status=400,
         details={"selectedMetricIds": selected_metric_ids},
     )
+
+
+_DEAL_PIPELINE_DETAIL_METRIC_IDS = (
+    "deals_created",
+    "deals_won",
+    "deals_lost",
+    "deals_won_sum",
+    "deals_lost_sum",
+    "deals_conversion",
+)
+_SMART_PIPELINE_DETAIL_METRIC_IDS = (
+    "smart_process_total",
+    "smart_process_success",
+    "smart_process_failed",
+    "smart_process_success_sum",
+    "smart_process_working",
+)
+
+
+def _expand_metric_catalog_for_source_details(
+    metric_catalog: list[dict],
+    *,
+    selected_sources: list[dict],
+) -> list[dict]:
+    """Ensure funnel/smart drill-down metric ids are present for entity details."""
+    needed_ids: set[str] = set()
+
+    for source in selected_sources:
+        source_id = str(source.get("id") or "")
+        source_type = str(source.get("type") or "")
+
+        if source_id == "deal-default":
+            continue
+
+        if source_id.startswith("deal-") or source_type in {"deal", "deal_pipeline", "deal_category"}:
+            if source.get("categoryId") is not None or source_id.startswith("deal-"):
+                needed_ids.update(_DEAL_PIPELINE_DETAIL_METRIC_IDS)
+
+        if source_id.startswith("smart-") or source_type in {"smartProcess", "smart_process"}:
+            needed_ids.update(_SMART_PIPELINE_DETAIL_METRIC_IDS)
+
+    if not needed_ids:
+        return metric_catalog
+
+    present_ids = {str(metric.get("id") or "") for metric in metric_catalog}
+    extra = [
+        dict(metric)
+        for metric in METRICS
+        if str(metric.get("id") or "") in needed_ids and str(metric.get("id") or "") not in present_ids
+    ]
+
+    if not extra:
+        return metric_catalog
+
+    return [*metric_catalog, *extra]
 
 
 def resolve_selected_sources(selected_sources: list[str]) -> list[dict]:

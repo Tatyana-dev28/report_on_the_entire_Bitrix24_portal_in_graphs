@@ -294,6 +294,10 @@ const matchDetailPeriodKey = (detailPeriodKey: string | undefined, pointKey: str
     return true;
   }
 
+  if (detailPeriodKey === pointKey) {
+    return true;
+  }
+
   return normalizePeriodKey(detailPeriodKey) === normalizePeriodKey(pointKey);
 };
 
@@ -1919,7 +1923,12 @@ function App() {
         return [];
       }
 
-      const enabledMetricIds = appliedEnabledMetricIdsBySection[section.id] ?? new Set<string>();
+      // Missing entry = all section metrics enabled; empty Set = none selected.
+      const enabledMetricIds = appliedEnabledMetricIdsBySection[section.id];
+      if (!enabledMetricIds) {
+        return section.metricIds;
+      }
+
       return section.metricIds.filter((metricId) => enabledMetricIds.has(metricId));
     });
     // Auto-build reads locked chart/table sources via refs so a stale closure cannot

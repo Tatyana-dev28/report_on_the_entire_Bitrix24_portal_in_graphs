@@ -39,11 +39,15 @@ from apps.reports.services.calculators.telephony_calculator import (
 )
 
 
+from apps.reports.services.portal_timezone import get_portal_tzinfo
+
+
 def build_entity_details(
     *,
     buckets: list[Any],
     rows_by_source: dict[str, list[dict]],
     metric_catalog: list[dict],
+    portal: Any | None = None,
 ) -> list[dict]:
     metric_ids = {metric["id"] for metric in metric_catalog}
     metric_by_id = {metric["id"]: metric for metric in metric_catalog}
@@ -55,7 +59,7 @@ def build_entity_details(
     for bucket in buckets:
         for source_id, rows in rows_by_source.items():
             for row in rows:
-                if not _row_in_bucket(row, bucket):
+                if not _row_in_bucket(row, bucket, portal=portal):
                     continue
 
                 for metric_id in _row_metric_ids(source_id, row, metric_ids):
@@ -67,6 +71,7 @@ def build_entity_details(
                             metric_id=metric_id,
                             metric=metric,
                             period_key=bucket.key,
+                            portal=portal,
                         )
                     )
 
@@ -123,10 +128,10 @@ def _deal_metric_ids(row: dict) -> list[str]:
     metric_ids = ["deals_created"]
     stage = _stage_suffix(row.get("STAGE_ID"))
 
-    if _is_won_stage(row.get("STAGE_ID")):
+    if _is_won_deal(row):
         metric_ids.extend(["deals_won", "deals_won_sum", "deals_conversion", "sales_won"])
 
-    if _is_lost_stage(row.get("STAGE_ID")):
+    if _is_lost_deal(row):
         metric_ids.extend(["deals_lost", "deals_lost_sum", "sales_lost"])
 
     if stage in {"NEW", "PREPARATION"}:
@@ -291,11 +296,12 @@ def _build_entity_detail(
     metric_id: str,
     metric: dict,
     period_key: str,
+    portal: Any | None = None,
 ) -> dict:
     employee_id = _extract_employee_id(row)
     entity_id = str(row.get("CRM_ACTIVITY_ID") or row.get("CALL_ID") or row.get("ID") or "")
     title = _extract_entity_title(row, source_id)
-    created_at = _extract_row_datetime(row)
+    created_at = _extract_row_datetime(row, portal=portal)
     navigation_entity = _extract_navigation_entity(row, source_id)
 
     detail = {
@@ -478,8 +484,8 @@ def _first_non_empty_value(row: dict, fields: list[str]) -> str:
     return ""
 
 
-def _row_in_bucket(row: dict, bucket: Any) -> bool:
-    created_at = _extract_row_datetime(row)
+def _row_in_bucket(row: dict, bucket: Any, *, portal: Any | None = None) -> bool:
+    created_at = _extract_row_datetime(row, portal=portal)
 
     return bool(created_at and bucket.start <= created_at <= bucket.end)
 
@@ -497,12 +503,12 @@ ROW_DATE_FIELDS = [
 ]
 
 
-def _extract_row_datetime(row: dict) -> datetime | None:
+def _extract_row_datetime(row: dict, *, portal: Any | None = None) -> datetime | None:
     for field in ROW_DATE_FIELDS:
         value = row.get(field)
 
         if value:
-            parsed = _parse_datetime_or_date(str(value), end_of_day=False)
+            parsed = _parse_datetime_or_date(str(value), end_of_day=False, portal=portal)
 
             if parsed is not None:
                 return parsed
@@ -510,9 +516,16 @@ def _extract_row_datetime(row: dict) -> datetime | None:
     return None
 
 
-def _parse_datetime_or_date(value: str, *, end_of_day: bool) -> datetime | None:
+def _parse_datetime_or_date(
+    value: str,
+    *,
+    end_of_day: bool,
+    portal: Any | None = None,
+) -> datetime | None:
     if not value:
         return None
+
+    portal_tz = get_portal_tzinfo(portal)
 
     if len(value) == 10:
         parsed_date = parse_date(value)
@@ -522,14 +535,14 @@ def _parse_datetime_or_date(value: str, *, end_of_day: bool) -> datetime | None:
 
             return timezone.make_aware(
                 datetime.combine(parsed_date, parsed_time),
-                timezone.get_current_timezone(),
+                portal_tz,
             )
 
     parsed_datetime = parse_datetime(value)
 
     if parsed_datetime is not None:
         if timezone.is_naive(parsed_datetime):
-            return timezone.make_aware(parsed_datetime, timezone.get_current_timezone())
+            return timezone.make_aware(parsed_datetime, portal_tz)
 
         return parsed_datetime
 
@@ -542,12 +555,35 @@ def _parse_datetime_or_date(value: str, *, end_of_day: bool) -> datetime | None:
 
     return timezone.make_aware(
         datetime.combine(parsed_date, parsed_time),
-        timezone.get_current_timezone(),
+        portal_tz,
     )
 
 
 def _stage_suffix(value: Any) -> str:
     return str(value or "").split(":")[-1].upper()
+
+
+def _deal_semantic(row: dict) -> str:
+    return str(
+        row.get("STAGE_SEMANTIC_ID")
+        or row.get("stageSemanticId")
+        or row.get("SEMANTIC_ID")
+        or ""
+    ).upper()
+
+
+def _is_won_deal(row: dict) -> bool:
+    if _deal_semantic(row) == "S":
+        return True
+
+    return _is_won_stage(row.get("STAGE_ID"))
+
+
+def _is_lost_deal(row: dict) -> bool:
+    if _deal_semantic(row) == "F":
+        return True
+
+    return _is_lost_stage(row.get("STAGE_ID"))
 
 
 def _is_won_stage(value: Any) -> bool:

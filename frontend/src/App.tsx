@@ -140,6 +140,7 @@ import {
   getChartSeriesValue,
   getChartSumValue,
 } from './app/utils/reportCalculations';
+import { buildMainIndicatorCaption, hasResolvableMainChartSources } from './app/utils/mainIndicatorCaption';
 import {
   calculateRecommendedThresholds,
   getAppliedThresholdItems,
@@ -2254,6 +2255,39 @@ function App() {
           ],
     [crmSourceLabelById, isSeparateChart, selectedChartSourceLabels, selectedChartSources],
   );
+  const mainIndicatorCaption = useMemo(() => {
+    const periodOptionLabel =
+      periodOptions.find((option) => option.value === appliedFilters.period)?.label;
+    const hasChartData =
+      chartReportData.length > 0 &&
+      hasResolvableMainChartSources(
+        selectedChartSources,
+        appliedFilters.metricMode,
+        chartSourceMetrics,
+      );
+
+    return buildMainIndicatorCaption({
+      sourceLabels: selectedChartSourceLabels,
+      chartDisplayMode: appliedFilters.chartDisplayMode,
+      metricMode: appliedFilters.metricMode,
+      period: appliedFilters.period,
+      dateRange: appliedFilters.dateRange,
+      periodOptionLabel,
+      hasBuiltReport,
+      hasChartData,
+    });
+  }, [
+    appliedFilters.chartDisplayMode,
+    appliedFilters.dateRange,
+    appliedFilters.metricMode,
+    appliedFilters.period,
+    chartReportData.length,
+    chartSourceMetrics,
+    hasBuiltReport,
+    periodOptions,
+    selectedChartSourceLabels,
+    selectedChartSources,
+  ]);
   const chartBaseValues = useMemo(
     () =>
       chartReportData.map((point) =>
@@ -4912,6 +4946,19 @@ function App() {
                 </div>
               )}
               <div className="sync-content chart-sync-content" style={syncedContentStyle} ref={chartContentRef}>
+                <div
+                  className="main-indicator-caption"
+                  title={mainIndicatorCaption.titleFull !== mainIndicatorCaption.title ? mainIndicatorCaption.titleFull : undefined}
+                >
+                  <div className="main-indicator-caption-title">{mainIndicatorCaption.title}</div>
+                  <div className="main-indicator-caption-meta">{mainIndicatorCaption.meta}</div>
+                </div>
+                {mainIndicatorCaption.empty ? (
+                  <div className="main-indicator-empty" role="status">
+                    <p>{mainIndicatorCaption.emptyMessage}</p>
+                    {mainIndicatorCaption.emptyHint && <span>{mainIndicatorCaption.emptyHint}</span>}
+                  </div>
+                ) : (
                 <div className="chart-wrap" ref={mainChartWrapRef}>
                   <ResponsiveContainer width="100%" height={280}>
                     <LineChart
@@ -5026,6 +5073,7 @@ function App() {
                     />
                   )}
                 </div>
+                )}
               </div>
               <div className="chart-zoom-controls" aria-label="Масштаб графика">
                 <TooltipButton

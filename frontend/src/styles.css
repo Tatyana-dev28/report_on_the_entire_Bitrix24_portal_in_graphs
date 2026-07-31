@@ -1067,8 +1067,64 @@ button {
 
 .chart-left,
 .chart-viewport {
-  min-height: 342px;
+  min-height: 372px;
   border-bottom: 1px solid var(--soft-line);
+}
+
+.main-indicator-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 12px 8px;
+  box-sizing: border-box;
+}
+
+.main-indicator-caption-title {
+  color: #202938;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main-indicator-caption-meta {
+  color: #6a7482;
+  font-size: 12px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main-indicator-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 6px;
+  min-height: 240px;
+  margin: 0 12px;
+  padding: 20px 18px;
+  border: 1px dashed #dfe7f1;
+  border-radius: 12px;
+  background: #fbfdff;
+  box-sizing: border-box;
+}
+
+.main-indicator-empty p {
+  margin: 0;
+  color: #202938;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.main-indicator-empty span {
+  color: #6a7482;
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .section-title-row {
@@ -1395,8 +1451,9 @@ button {
 }
 
 .chart-sync-content {
-  height: 342px;
+  height: 372px;
   padding: 12px 0;
+  box-sizing: border-box;
 }
 
 .chart-wrap {
@@ -3659,8 +3716,8 @@ button {
   .chart-left,
   .chart-viewport,
   .chart-sync-content {
-    min-height: 318px;
-    height: 318px;
+    min-height: 348px;
+    height: 348px;
   }
 
   .chart-wrap {
@@ -3873,8 +3930,8 @@ button {
   .chart-left,
   .chart-viewport,
   .chart-sync-content {
-    min-height: 342px;
-    height: 342px;
+    min-height: 372px;
+    height: 372px;
   }
 
   .chart-wrap {

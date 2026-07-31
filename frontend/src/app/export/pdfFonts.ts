@@ -1,7 +1,7 @@
 import type { jsPDF } from 'jspdf';
 
-import dejavuSansUrl from 'dejavu-fonts-ttf/ttf/DejaVuSans.ttf?url';
-import dejavuSansBoldUrl from 'dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf?url';
+import dejavuSansUrl from './fonts/DejaVuSans.ttf?url';
+import dejavuSansBoldUrl from './fonts/DejaVuSans-Bold.ttf?url';
 
 export const PDF_FONT_FAMILY = 'DejaVuSans';
 

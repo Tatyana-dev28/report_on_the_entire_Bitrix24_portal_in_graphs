@@ -970,6 +970,42 @@ const cloneSetRecord = (record: Record<string, Set<string>>) =>
     Object.entries(record).map(([key, values]) => [key, new Set(values)]),
   );
 
+const serializeSetRecord = (record: Record<string, Set<string>>) =>
+  Object.fromEntries(
+    Object.entries(record).map(([key, values]) => [key, [...values]]),
+  );
+
+const deserializeSetRecord = (record?: Record<string, string[]>) => {
+  if (!record || typeof record !== 'object') {
+    return {} as Record<string, Set<string>>;
+  }
+
+  return Object.fromEntries(
+    Object.entries(record).map(([key, values]) => [
+      key,
+      new Set(Array.isArray(values) ? values.map(String) : []),
+    ]),
+  );
+};
+
+const serializeStringArrayRecord = (record: Record<string, string[]>) =>
+  Object.fromEntries(
+    Object.entries(record).map(([key, values]) => [key, [...values]]),
+  );
+
+const deserializeStringArrayRecord = (record?: Record<string, string[]>) => {
+  if (!record || typeof record !== 'object') {
+    return {} as Record<string, string[]>;
+  }
+
+  return Object.fromEntries(
+    Object.entries(record).map(([key, values]) => [
+      key,
+      Array.isArray(values) ? values.map(String) : [],
+    ]),
+  );
+};
+
 const createAllEnabledMetricIdsBySection = (sections: MetricSection[]) =>
   sections.reduce<Record<string, Set<string>>>((acc, section) => {
     acc[section.id] = new Set(section.metricIds);
@@ -1682,14 +1718,19 @@ function App() {
         if (savedViewsData.length > 0) {
           const restoredViews: SavedReportViewOption[] = [
             defaultSavedView,
-            ...savedViewsData.map((item) => ({
-              value: String(item.value ?? ''),
-              label: String(item.label ?? ''),
-              isSystem: Boolean(item.isSystem),
-              state: item.state as SavedReportViewState | undefined,
-            })),
+            ...savedViewsData
+              .map((item) => ({
+                value: String(item.value ?? '').trim(),
+                label: String(item.label ?? '').trim(),
+                isSystem: Boolean(item.isSystem),
+                state: item.state as SavedReportViewState | undefined,
+              }))
+              .filter((item) => item.value && item.label && item.value !== defaultSavedView.value),
           ];
           setSavedViews(restoredViews);
+          setSelectedView((current) =>
+            restoredViews.some((view) => view.value === current) ? current : defaultSavedView.value,
+          );
         }
 
         // Apply app settings
@@ -4175,43 +4216,35 @@ function App() {
       draftFilters: serializeFilters(draftFilters),
       appliedFilters: serializeFilters(appliedFilters),
       tableSelectedSources: [...tableSelectedSources],
-      enabledMetricIdsBySection: Object.fromEntries(
-        Object.entries(enabledMetricIdsBySection).map(([sectionId, metricIds]) => [
-          sectionId,
-          [...metricIds],
-        ]),
-      ),
+      enabledMetricIdsBySection: serializeSetRecord(enabledMetricIdsBySection),
       sectionOrder: [...sectionOrder],
-      metricOrderBySection: Object.fromEntries(
-        Object.entries(metricOrderBySection).map(([sectionId, metricIds]) => [
-          sectionId,
-          [...metricIds],
-        ]),
-      ),
+      metricOrderBySection: serializeStringArrayRecord(metricOrderBySection),
       sourceSectionOrder: [...sourceSectionOrder],
-      sourceMetricOrderBySource: Object.fromEntries(
-        Object.entries(sourceMetricOrderBySource).map(([sourceId, metricKeys]) => [
-          sourceId,
-          [...metricKeys],
-        ]),
-      ),
-      enabledMetricKeysBySource: Object.fromEntries(
-        Object.entries(enabledMetricKeysBySource).map(([sourceId, metricKeys]) => [
-          sourceId,
-          [...metricKeys],
-        ]),
-      ),
+      sourceMetricOrderBySource: serializeStringArrayRecord(sourceMetricOrderBySource),
+      enabledMetricKeysBySource: serializeSetRecord(enabledMetricKeysBySource),
       expandedSections: [...expandedSections],
       mainThreshold: { ...mainThreshold },
       rowThresholds: { ...rowThresholds },
       employeeThresholdsByMetricId: { ...employeeThresholdsByMetricId },
+      appliedEmployeeIdsByMetricId: serializeSetRecord(appliedEmployeeIdsByMetricId),
+      draftEmployeeIdsByMetricId: serializeSetRecord(draftEmployeeIdsByMetricId),
+      employeeOrderByMetricId: serializeStringArrayRecord(employeeOrderByMetricId),
+      expandedEmployeeMetricIds: [...expandedEmployeeMetricIds],
+      expandedChartMetricIds: [...expandedChartMetricIds],
+      expandedEmployeeChartIds: [...expandedEmployeeChartIds],
     }),
     [
+      appliedEmployeeIdsByMetricId,
       appliedFilters,
+      draftEmployeeIdsByMetricId,
       draftFilters,
+      employeeOrderByMetricId,
+      employeeThresholdsByMetricId,
       enabledMetricIdsBySection,
       enabledMetricKeysBySource,
-      employeeThresholdsByMetricId,
+      expandedChartMetricIds,
+      expandedEmployeeChartIds,
+      expandedEmployeeMetricIds,
       expandedSections,
       mainThreshold,
       metricOrderBySection,
@@ -4431,20 +4464,99 @@ function App() {
     setMainThreshold({ ...state.mainThreshold });
     setRowThresholds({ ...state.rowThresholds });
     setEmployeeThresholdsByMetricId({ ...(state.employeeThresholdsByMetricId ?? {}) });
+    const restoredAppliedEmployees = deserializeSetRecord(state.appliedEmployeeIdsByMetricId);
+    const restoredDraftEmployees = state.draftEmployeeIdsByMetricId
+      ? deserializeSetRecord(state.draftEmployeeIdsByMetricId)
+      : cloneSetRecord(restoredAppliedEmployees);
+    setAppliedEmployeeIdsByMetricId(restoredAppliedEmployees);
+    setDraftEmployeeIdsByMetricId(restoredDraftEmployees);
+    setEmployeeOrderByMetricId(deserializeStringArrayRecord(state.employeeOrderByMetricId));
+    setExpandedEmployeeMetricIds(new Set(state.expandedEmployeeMetricIds ?? []));
+    setExpandedChartMetricIds(new Set(state.expandedChartMetricIds ?? []));
+    setExpandedEmployeeChartIds(new Set(state.expandedEmployeeChartIds ?? []));
     setHasBuiltReport(true);
     setBuildMoment(Date.now());
     // Trigger report build for the restored view state
     setReportBuildRequest((current) => current + 1);
   }, []);
 
+  const applyDefaultOverviewView = useCallback(() => {
+    dateRangeSelectedManuallyRef.current = false;
+    setDraftFilters(createDefaultFilters());
+    setAppliedFilters(createDefaultFilters());
+    setTableSelectedSources([]);
+    setDraftTableSelectedSources([]);
+    setTableEntitySourceIds([]);
+    setEnabledMetricIdsBySection(
+      metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
+        acc[section.id] = new Set();
+        return acc;
+      }, {}),
+    );
+    setAppliedEnabledMetricIdsBySection(
+      metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
+        acc[section.id] = new Set();
+        return acc;
+      }, {}),
+    );
+    setSectionOrder(metricSections.map((section) => section.id));
+    setMetricOrderBySection(
+      metricSections.reduce<Record<string, string[]>>((acc, section) => {
+        acc[section.id] = [...section.metricIds];
+        return acc;
+      }, {}),
+    );
+    setSourceSectionOrder([]);
+    setTableLeadingSourceId(null);
+    setSourceMetricOrderBySource({});
+    setEnabledMetricKeysBySource({});
+    setAppliedEnabledMetricKeysBySource({});
+    setExpandedSections(new Set());
+    setExpandedSourceSections(new Set());
+    collapsedSourceSectionsByUser.current = new Set();
+    setMainThreshold({ upper: '', lower: '', mode: null });
+    setRowThresholds({});
+    setEmployeeThresholdsByMetricId({});
+    setAppliedEmployeeIdsByMetricId({});
+    setDraftEmployeeIdsByMetricId({});
+    setEmployeeOrderByMetricId({});
+    setExpandedEmployeeMetricIds(new Set());
+    setExpandedChartMetricIds(new Set());
+    setExpandedEmployeeChartIds(new Set());
+    setHasBuiltReport(true);
+    setBuildMoment(Date.now());
+    setReportBuildRequest((current) => current + 1);
+  }, [metricSections]);
+
   const handleSavedViewChange = useCallback((viewId: string) => {
-    setSelectedView(viewId);
     const selectedSavedView = savedViews.find((view) => view.value === viewId);
 
-    if (selectedSavedView?.state) {
-      applySavedViewState(selectedSavedView.state);
+    if (!selectedSavedView) {
+      setSelectedView(defaultSavedView.value);
+      applyDefaultOverviewView();
+      setNotification('Представление недоступно. Открыт «Обзор бизнеса».');
+      return;
     }
-  }, [applySavedViewState, savedViews]);
+
+    if (selectedSavedView.isSystem || selectedSavedView.value === defaultSavedView.value) {
+      const switchingToDefault = selectedView !== defaultSavedView.value;
+      setSelectedView(defaultSavedView.value);
+      if (switchingToDefault) {
+        applyDefaultOverviewView();
+      }
+      return;
+    }
+
+    if (!selectedSavedView.state) {
+      setSelectedView(defaultSavedView.value);
+      applyDefaultOverviewView();
+      setNotification('Представление недоступно или повреждено. Открыт «Обзор бизнеса».');
+      return;
+    }
+
+    setSelectedView(viewId);
+    applySavedViewState(selectedSavedView.state);
+  }, [applyDefaultOverviewView, applySavedViewState, savedViews, selectedView]);
 
   const editSavedView = useCallback((viewId: string) => {
     const view = savedViews.find((item) => item.value === viewId && !item.isSystem);
@@ -4476,10 +4588,12 @@ function App() {
 
     if (selectedView === deleteViewId) {
       setSelectedView(defaultSavedView.value);
+      applyDefaultOverviewView();
+      setNotification('Отображение удалено. Открыт «Обзор бизнеса».');
     }
 
     setDeleteViewId(null);
-  }, [deleteViewId, saveViews, savedViews, selectedView]);
+  }, [applyDefaultOverviewView, deleteViewId, saveViews, savedViews, selectedView]);
 
   const saveAppSettings = useCallback((settings: AppSettings) => {
     setAppSettings(settings);

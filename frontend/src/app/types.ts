@@ -182,6 +182,15 @@ export type SavedReportViewState = {
   mainThreshold: ThresholdValues;
   rowThresholds: Record<string, ThresholdValues>;
   employeeThresholdsByMetricId?: Record<string, ThresholdValues>;
+  /** Applied employee selection per metric/action id. */
+  appliedEmployeeIdsByMetricId?: Record<string, string[]>;
+  /** Draft employee selection per metric/action id. */
+  draftEmployeeIdsByMetricId?: Record<string, string[]>;
+  /** Display order of employees within a metric/action. */
+  employeeOrderByMetricId?: Record<string, string[]>;
+  expandedEmployeeMetricIds?: string[];
+  expandedChartMetricIds?: string[];
+  expandedEmployeeChartIds?: string[];
 };
 
 export type SavedReportViewOption = SelectOption<string> & {

@@ -883,6 +883,8 @@ class FakeCatalogBitrixRestClient:
         return []
 
     def call_method(self, method, params=None, *, retry_on_auth_error=True):
+        params = params or {}
+
         if method == "crm.type.list":
             return type(
                 "Result",
@@ -900,17 +902,27 @@ class FakeCatalogBitrixRestClient:
             )()
 
         if method == "crm.category.list":
+            entity_type_id = int(params.get("entityTypeId") or 0)
+
+            if entity_type_id == 2:
+                categories = [
+                    {"id": 0, "name": "Продажи", "sort": 0, "isDefault": "Y"},
+                    {"id": 12, "name": "Производство", "sort": 20},
+                ]
+            else:
+                categories = [
+                    {
+                        "id": 4,
+                        "name": "Новые заявки",
+                    }
+                ]
+
             return type(
                 "Result",
                 (),
                 {
                     "result": {
-                        "categories": [
-                            {
-                                "id": 4,
-                                "name": "Новые заявки",
-                            }
-                        ]
+                        "categories": categories,
                     }
                 },
             )()
@@ -919,6 +931,12 @@ class FakeCatalogBitrixRestClient:
 
 
 class FakeCatalogWithoutDefaultDealBitrixRestClient(FakeCatalogBitrixRestClient):
+    """
+    Legacy dealcategory.list omits built-in funnel id=0.
+    Modern category.list for deals is empty here to force that legacy path,
+    while category.get returns the real renamed default funnel title.
+    """
+
     def call_list(self, method, params=None, *, max_pages=None):
         if method == "crm.dealcategory.list":
             return [
@@ -928,6 +946,43 @@ class FakeCatalogWithoutDefaultDealBitrixRestClient(FakeCatalogBitrixRestClient)
 
         return []
 
+    def call_method(self, method, params=None, *, retry_on_auth_error=True):
+        params = params or {}
+
+        if method == "crm.category.list" and int(params.get("entityTypeId") or 0) == 2:
+            return type("Result", (), {"result": {"categories": []}})()
+
+        if method == "crm.category.get":
+            return type(
+                "Result",
+                (),
+                {
+                    "result": {
+                        "category": {
+                            "id": 0,
+                            "name": "Капы",
+                            "sort": 0,
+                            "entityTypeId": 2,
+                            "isDefault": "Y",
+                        }
+                    }
+                },
+            )()
+
+        if method == "crm.dealcategory.get":
+            return type(
+                "Result",
+                (),
+                {
+                    "result": {
+                        "ID": "0",
+                        "NAME": "Капы",
+                        "SORT": "0",
+                    }
+                },
+            )()
+
+        return super().call_method(method, params, retry_on_auth_error=retry_on_auth_error)
 
 class ReportCatalogTests(TestCase):
     def setUp(self):
@@ -973,13 +1028,16 @@ class ReportCatalogTests(TestCase):
     def test_catalog_keeps_default_deal_pipeline_and_bitrix_sort_order(self, _has_token):
         catalog = build_report_catalog(self.portal)
 
-        deal_source_ids = [
+        deal_pipeline_ids = [
             source["id"]
             for source in catalog["sources"]
-            if source["type"] == "deal"
+            if source["type"] == "deal" and source["id"] != "deal-default"
         ]
+        deal_0 = next(source for source in catalog["sources"] if source["id"] == "deal-0")
 
-        self.assertEqual(deal_source_ids, ["deal-0", "deal-3", "deal-12"])
+        self.assertEqual(deal_pipeline_ids, ["deal-0", "deal-3", "deal-12"])
+        self.assertEqual(deal_0["sourceLabel"], "Капы")
+        self.assertEqual(deal_0["title"], "Капы")
 
     def test_catalog_falls_back_to_cached_sources_without_bitrix_token(self):
         CrmSource.objects.create(
@@ -1016,6 +1074,8 @@ class FakeCatalogWithDuplicateLabelsBitrixRestClient:
         return []
 
     def call_method(self, method, params=None, *, retry_on_auth_error=True):
+        params = params or {}
+
         if method == "crm.type.list":
             return type(
                 "Result",
@@ -1037,17 +1097,28 @@ class FakeCatalogWithDuplicateLabelsBitrixRestClient:
             )()
 
         if method == "crm.category.list":
+            entity_type_id = int(params.get("entityTypeId") or 0)
+
+            if entity_type_id == 2:
+                categories = [
+                    {"id": 0, "name": "Общее", "sort": 10, "isDefault": "Y"},
+                    {"id": 12, "name": "Производство", "sort": 20},
+                    {"id": 18, "name": "Общее", "sort": 30},
+                ]
+            else:
+                categories = [
+                    {
+                        "id": 1,
+                        "name": "Общее",
+                    }
+                ]
+
             return type(
                 "Result",
                 (),
                 {
                     "result": {
-                        "categories": [
-                            {
-                                "id": 1,
-                                "name": "Общее",
-                            }
-                        ]
+                        "categories": categories,
                     }
                 },
             )()

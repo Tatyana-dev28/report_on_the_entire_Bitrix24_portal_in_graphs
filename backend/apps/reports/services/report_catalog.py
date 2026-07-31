@@ -276,18 +276,18 @@ def _extract_smart_process_name(raw_data: dict) -> str | None:
 
 
 def _deal_sources(client: BitrixRestClient) -> list[dict]:
-    categories = client.call_list("crm.dealcategory.list", {"order": {"SORT": "ASC"}})
-    categories = _ensure_default_deal_category(categories)
+    categories = _deal_categories(client)
+    categories = _ensure_default_deal_category(client, categories)
 
     if not categories:
         categories = [{"ID": 0, "NAME": "Продажи"}]
 
     return [
         {
-            "id": f"deal-{_safe_int(category.get('ID'), 0)}",
+            "id": f"deal-{_category_id(category)}",
             "type": "deal",
             "entityTypeId": 2,
-            "categoryId": _safe_int(category.get("ID"), 0),
+            "categoryId": _category_id(category),
             "title": _category_title(category, default="Продажи"),
             "sourceLabel": _category_title(category, default="Продажи"),
             "entityTypeName": "Сделки",
@@ -299,6 +299,33 @@ def _deal_sources(client: BitrixRestClient) -> list[dict]:
         }
         for category in _sort_categories(categories)
     ]
+
+
+def _deal_categories(client: BitrixRestClient) -> list[dict]:
+    """
+    Load deal pipelines.
+
+    Prefer crm.category.list (entityTypeId=2): it includes the built-in default
+    funnel (id=0) with the real portal name (e.g. «Капы», «Общее»).
+
+    Legacy crm.dealcategory.list often omits category 0 entirely.
+    """
+    try:
+        response = client.call_method(
+            "crm.category.list",
+            {"entityTypeId": 2, "order": {"sort": "ASC"}},
+        )
+        categories = _extract_items(response.result, keys=("categories", "items"))
+        if categories:
+            return categories
+    except BitrixRestError:
+        logger.warning("Bitrix deal category.list loading failed; falling back to dealcategory.list.", exc_info=True)
+
+    try:
+        return client.call_list("crm.dealcategory.list", {"order": {"SORT": "ASC"}})
+    except BitrixRestError:
+        logger.warning("Bitrix dealcategory.list loading failed.", exc_info=True)
+        return []
 
 
 def _smart_process_sources(client: BitrixRestClient) -> list[dict]:
@@ -559,6 +586,10 @@ def _category_title(category: dict, *, default: str) -> str:
     )
 
 
+def _category_id(category: dict) -> int:
+    return _safe_int(_first_present(category, "ID", "id"), 0)
+
+
 def _safe_int(value: Any, default: int) -> int:
     try:
         return int(value)
@@ -566,13 +597,54 @@ def _safe_int(value: Any, default: int) -> int:
         return default
 
 
-def _ensure_default_deal_category(categories: list[dict]) -> list[dict]:
+def _ensure_default_deal_category(client: BitrixRestClient, categories: list[dict]) -> list[dict]:
+    """
+    Bitrix often omits the built-in deal funnel (id=0) from legacy list methods.
+    Keep it in the catalog and resolve the real portal name when possible.
+    """
     normalized_categories = [category for category in categories if isinstance(category, dict)]
 
-    if any(_safe_int(category.get("ID"), -1) == 0 for category in normalized_categories):
+    if any(_category_id(category) == 0 for category in normalized_categories):
         return normalized_categories
 
-    return [{"ID": 0, "NAME": "Продажи", "SORT": 0}, *normalized_categories]
+    default_name = _fetch_default_deal_category_name(client) or "Продажи"
+    return [{"ID": 0, "NAME": default_name, "SORT": 0}, *normalized_categories]
+
+
+def _fetch_default_deal_category_name(client: BitrixRestClient) -> str | None:
+    """Resolve the renamed default deal funnel (id=0), e.g. «Капы» / «Общее»."""
+    try:
+        response = client.call_method(
+            "crm.category.get",
+            {"entityTypeId": 2, "id": 0},
+        )
+        category = _extract_category_payload(response.result)
+        title = _category_title(category, default="") if category else ""
+        if title:
+            return title
+    except BitrixRestError:
+        logger.warning("Bitrix crm.category.get for default deal funnel failed.", exc_info=True)
+
+    try:
+        response = client.call_method("crm.dealcategory.get", {"id": 0})
+        category = _extract_category_payload(response.result)
+        title = _category_title(category, default="") if category else ""
+        if title:
+            return title
+    except BitrixRestError:
+        logger.warning("Bitrix crm.dealcategory.get for default deal funnel failed.", exc_info=True)
+
+    return None
+
+
+def _extract_category_payload(value: Any) -> dict | None:
+    if isinstance(value, dict):
+        nested = value.get("category")
+        if isinstance(nested, dict):
+            return nested
+        return value
+
+    return None
 
 
 def _sort_categories(categories: list[dict]) -> list[dict]:

@@ -729,6 +729,11 @@ button {
   background: #7c5cff;
 }
 
+.action-button:disabled {
+  opacity: 0.72;
+  cursor: wait;
+}
+
 .build-report-icon-button {
   width: 42px;
   height: 42px;

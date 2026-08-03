@@ -149,6 +149,7 @@ import {
   getAppliedThresholdItems,
   getThresholdClass,
   getThresholdLineLabel,
+  isManualThreshold,
   parseThreshold,
   resolveDisplayedThresholdAverage,
   thresholdLineColors,
@@ -1271,6 +1272,12 @@ function App() {
   }, []);
   const [rowThresholds, setRowThresholds] = useState<Record<string, ThresholdValues>>({});
   const [employeeThresholdsByMetricId, setEmployeeThresholdsByMetricId] = useState<Record<string, ThresholdValues>>({});
+  const mainThresholdRef = useRef(mainThreshold);
+  const rowThresholdsRef = useRef(rowThresholds);
+  const employeeThresholdsRef = useRef(employeeThresholdsByMetricId);
+  mainThresholdRef.current = mainThreshold;
+  rowThresholdsRef.current = rowThresholds;
+  employeeThresholdsRef.current = employeeThresholdsByMetricId;
   const [enabledMetricIdsBySection, setEnabledMetricIdsBySection] = useState<Record<string, Set<string>>>(
     () =>
       metricSections.reduce<Record<string, Set<string>>>((acc, section) => {
@@ -2081,16 +2088,21 @@ function App() {
             );
             const mainRecommended = calculateRecommendedThresholds(mainValues, metricMode);
 
-            setMainThreshold({
-              upper: mainRecommended.upper,
-              lower: mainRecommended.lower,
-              average: mainRecommended.average,
-              mode: 'recommended',
-            });
+            // F-08: do not overwrite a manually saved corridor until the user chooses auto mode.
+            const currentMainThreshold = mainThresholdRef.current;
+            if (!isManualThreshold(currentMainThreshold)) {
+              setMainThreshold({
+                upper: mainRecommended.upper,
+                lower: mainRecommended.lower,
+                average: mainRecommended.average,
+                mode: 'recommended',
+              });
+            }
 
             const nextRowThresholds: Record<string, ThresholdValues> = {};
             // Count corridors for table indicators only (main chart corridor is separate).
             let corridorMetricsCount = 0;
+            const currentRowThresholds = rowThresholdsRef.current;
 
             // Regular section metrics (deals, leads, …).
             selectedMetricIds.forEach((metricId) => {
@@ -2116,7 +2128,6 @@ function App() {
                   average: recommended.average,
                   mode: 'recommended',
                 };
-                corridorMetricsCount += 1;
               } catch (error) {
                 console.warn('[Auto thresholds] skipped section metric', metricId, error);
               }
@@ -2152,14 +2163,21 @@ function App() {
                   buildSourceMetricActionIds(sourceKey, metricKey, sourceData).forEach((actionId) => {
                     nextRowThresholds[actionId] = thresholdValue;
                   });
-                  corridorMetricsCount += 1;
                 } catch (error) {
                   console.warn('[Auto thresholds] skipped source metric', sourceKey, metricKey, error);
                 }
               });
             });
 
-            setRowThresholds(nextRowThresholds);
+            const mergedRowThresholds: Record<string, ThresholdValues> = { ...currentRowThresholds };
+            Object.entries(nextRowThresholds).forEach(([actionId, value]) => {
+              if (isManualThreshold(currentRowThresholds[actionId])) {
+                return;
+              }
+              mergedRowThresholds[actionId] = value;
+              corridorMetricsCount += 1;
+            });
+            setRowThresholds(mergedRowThresholds);
             applyAutomaticThresholdsRef.current = false;
             autoBuildChartSourcesRef.current = null;
             autoBuildTableSourcesRef.current = null;
@@ -2173,12 +2191,21 @@ function App() {
               pendingSummary.corridorMetricsCount = corridorMetricsCount;
             }
           } else {
-            // Regular build (not automatic): clear thresholds after data load
-            // to prevent applyBackendSettings from restoring stale values
-            // that may still be on the server (before triggerAutoSave saves empty ones).
-            setMainThreshold({ upper: '', lower: '', mode: null });
-            setRowThresholds({});
-            setEmployeeThresholdsByMetricId({});
+            // Regular build: clear auto corridors, but keep manually saved ones (F-08).
+            const currentMainThreshold = mainThresholdRef.current;
+            if (!isManualThreshold(currentMainThreshold)) {
+              setMainThreshold({ upper: '', lower: '', mode: null });
+            }
+            setRowThresholds(
+              Object.fromEntries(
+                Object.entries(rowThresholdsRef.current).filter(([, value]) => isManualThreshold(value)),
+              ),
+            );
+            setEmployeeThresholdsByMetricId(
+              Object.fromEntries(
+                Object.entries(employeeThresholdsRef.current).filter(([, value]) => isManualThreshold(value)),
+              ),
+            );
           }
 
           // End auto-build skip only after thresholds (and other presets) are applied.
@@ -5860,6 +5887,7 @@ function App() {
                         onThresholdChange={applySourceRowThreshold}
                         onEmployeeThresholdChange={(value) => updateEmployeeThreshold(actionId, value)}
                         calculationPeriodLabel={corridorCalculationPeriodLabel}
+                        valueType={valueType}
                       />
                     </div>
                     <div className="table-right-cell" role="cell">
@@ -5971,6 +5999,7 @@ function App() {
                       onThresholdChange={(value) => updateRowThreshold(metricRow.metric.id, value)}
                       onEmployeeThresholdChange={(value) => updateEmployeeThreshold(metricRow.metric.id, value)}
                       calculationPeriodLabel={corridorCalculationPeriodLabel}
+                      valueType={metricRow.metric.type}
                     />
                   </div>
                   <div className="table-right-cell" role="cell">

@@ -78,9 +78,15 @@ import {
   getAppliedThresholdItems,
   getThresholdAverage,
   getThresholdLineLabel,
+  hasCorridorValidationErrors,
+  isManualThreshold,
   parseThreshold,
   resolveDisplayedThresholdAverage,
   thresholdLineColors,
+  validateCorridorFields,
+  type CorridorFieldKey,
+  type CorridorValidationErrors,
+  type CorridorValueType,
 } from '../utils/thresholds';
 
 export function SavedViewLabel({ label }: { label: string }) {
@@ -1039,6 +1045,7 @@ export function ConfigureChartMenu({
               value={mainThreshold}
               recommended={mainRecommendedThreshold}
               calculationPeriodLabel={calculationPeriodLabel}
+              valueType={draftSettings.metricMode}
               onApply={onThresholdApply}
               onReset={onThresholdReset}
               menuGroup={chartMenuGroup}
@@ -1069,6 +1076,7 @@ export function ThresholdEditor({
   threshold,
   recommended,
   calculationPeriodLabel,
+  valueType,
   onApply,
   onReset,
   onClose,
@@ -1077,21 +1085,113 @@ export function ThresholdEditor({
   recommended: RecommendedThresholdValues;
   /** Human-readable report period used for corridor calculation (same as display for now). */
   calculationPeriodLabel?: string;
+  valueType?: CorridorValueType;
   onApply: (value: ThresholdValues) => void;
   onReset: () => void;
   onClose: () => void;
 }) {
-  const [manualUpper, setManualUpper] = useState(threshold.upper);
-  const [manualLower, setManualLower] = useState(threshold.lower);
-  const manualAverage = getThresholdAverage({ upper: manualUpper, lower: manualLower });
-  const canApplyManual = parseThreshold(manualUpper) !== null && parseThreshold(manualLower) !== null;
-  const canApplyRecommended =
+  const initialMode: 'manual' | 'recommended' = threshold.mode === 'manual' ? 'manual' : 'recommended';
+  const [editorMode, setEditorMode] = useState<'manual' | 'recommended'>(initialMode);
+  const [upper, setUpper] = useState(
+    initialMode === 'manual' ? threshold.upper : (recommended.upper || threshold.upper),
+  );
+  const [average, setAverage] = useState(
+    initialMode === 'manual'
+      ? (threshold.average ?? '')
+      : (recommended.average || threshold.average || ''),
+  );
+  const [lower, setLower] = useState(
+    initialMode === 'manual' ? threshold.lower : (recommended.lower || threshold.lower),
+  );
+  const [errors, setErrors] = useState<CorridorValidationErrors>({});
+  const [showReplaceConfirm, setShowReplaceConfirm] = useState(false);
+
+  const isAutoMode = editorMode === 'recommended';
+  const displayUpper = isAutoMode ? formatCorridorFieldValue(recommended.upper) : upper;
+  const displayAverage = isAutoMode ? formatCorridorFieldValue(recommended.average) : average;
+  const displayLower = isAutoMode ? formatCorridorFieldValue(recommended.lower) : lower;
+
+  const canSaveAuto =
     parseThreshold(recommended.upper) !== null && parseThreshold(recommended.lower) !== null;
+
+  const switchMode = (nextMode: 'manual' | 'recommended') => {
+    setErrors({});
+    setShowReplaceConfirm(false);
+    setEditorMode(nextMode);
+
+    if (nextMode === 'manual') {
+      if (threshold.mode === 'manual') {
+        setUpper(threshold.upper);
+        setAverage(threshold.average ?? '');
+        setLower(threshold.lower);
+      } else {
+        setUpper(recommended.upper || threshold.upper || '');
+        setAverage(recommended.average || threshold.average || '');
+        setLower(recommended.lower || threshold.lower || '');
+      }
+      return;
+    }
+
+    setUpper(recommended.upper || '');
+    setAverage(recommended.average || '');
+    setLower(recommended.lower || '');
+  };
+
+  const applyManual = () => {
+    const nextErrors = validateCorridorFields({ upper, average, lower }, valueType);
+    setErrors(nextErrors);
+    if (hasCorridorValidationErrors(nextErrors)) {
+      return;
+    }
+
+    onApply({
+      upper: upper.trim(),
+      lower: lower.trim(),
+      average: average.trim(),
+      mode: 'manual',
+    });
+    onClose();
+  };
+
+  const applyAutomatic = () => {
+    if (!canSaveAuto) {
+      return;
+    }
+
+    onApply({
+      upper: recommended.upper,
+      lower: recommended.lower,
+      average: recommended.average,
+      mode: 'recommended',
+    });
+    onClose();
+  };
+
+  const handleSave = () => {
+    if (editorMode === 'manual') {
+      applyManual();
+      return;
+    }
+
+    if (isManualThreshold(threshold) && !showReplaceConfirm) {
+      setShowReplaceConfirm(true);
+      return;
+    }
+
+    applyAutomatic();
+  };
+
   const resetValues = () => {
-    setManualUpper('');
-    setManualLower('');
+    setUpper('');
+    setAverage('');
+    setLower('');
+    setErrors({});
+    setShowReplaceConfirm(false);
+    setEditorMode('recommended');
     onReset();
   };
+
+  const fieldError = (key: CorridorFieldKey) => errors[key];
 
   return (
     <div className="threshold-editor">
@@ -1106,75 +1206,119 @@ export function ThresholdEditor({
           Период расчёта: {calculationPeriodLabel} (совпадает с периодом отчёта)
         </p>
       ) : null}
-      <div className="threshold-editor-grid">
-        <div className="threshold-column">
-          <p>Настроить вручную</p>
-          <label className="threshold-field compact-threshold-field">
-            <span>Верхняя граница</span>
-            <input
-              type="number"
-              value={manualUpper}
-              onChange={(event) => setManualUpper(event.target.value)}
-              placeholder="1200000"
-            />
-          </label>
-          <label className="threshold-field compact-threshold-field">
-            <span>Средний уровень</span>
-            <input value={manualAverage === null ? '' : manualAverage} readOnly />
-          </label>
-          <label className="threshold-field compact-threshold-field">
-            <span>Нижняя граница</span>
-            <input
-              type="number"
-              value={manualLower}
-              onChange={(event) => setManualLower(event.target.value)}
-              placeholder="800000"
-            />
-          </label>
-          <button
-            className="threshold-apply-button manual-apply-button"
-            type="button"
-            disabled={!canApplyManual}
-            onClick={() => {
-              onApply({ upper: manualUpper, lower: manualLower, mode: 'manual' });
-              onClose();
-            }}
-          >
-            Применить
-          </button>
-        </div>
-        <div className="threshold-column">
-          <p>Рассчитано системой</p>
-          <label className="threshold-field compact-threshold-field">
-            <span>Верхняя граница</span>
-            <input value={formatCorridorFieldValue(recommended.upper)} readOnly />
-          </label>
-          <label className="threshold-field compact-threshold-field">
-            <span>Средний уровень</span>
-            <input value={formatCorridorFieldValue(recommended.average)} readOnly />
-          </label>
-          <label className="threshold-field compact-threshold-field">
-            <span>Нижняя граница</span>
-            <input value={formatCorridorFieldValue(recommended.lower)} readOnly />
-          </label>
-          <button
-            className="threshold-apply-button recommended-apply-button"
-            type="button"
-            disabled={!canApplyRecommended}
-            onClick={() => {
-              onApply({
-                upper: recommended.upper,
-                lower: recommended.lower,
-                average: recommended.average,
-                mode: 'recommended',
-              });
-              onClose();
-            }}
-          >
-            Применить
-          </button>
-        </div>
+
+      <div className="threshold-mode-switch" role="tablist" aria-label="Режим коридора">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={editorMode === 'recommended'}
+          className={editorMode === 'recommended' ? 'is-active' : ''}
+          onClick={() => switchMode('recommended')}
+        >
+          Рассчитать автоматически
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={editorMode === 'manual'}
+          className={editorMode === 'manual' ? 'is-active' : ''}
+          onClick={() => switchMode('manual')}
+        >
+          Задать вручную
+        </button>
       </div>
+
+      <div className="threshold-single-column">
+        <label className={`threshold-field compact-threshold-field ${fieldError('upper') ? 'has-error' : ''}`}>
+          <span>Верхняя граница</span>
+          <input
+            type={isAutoMode ? 'text' : 'number'}
+            value={displayUpper}
+            readOnly={isAutoMode}
+            onChange={(event) => {
+              setUpper(event.target.value);
+              setErrors((current) => {
+                const next = { ...current };
+                delete next.upper;
+                return next;
+              });
+            }}
+            placeholder="90"
+          />
+          {fieldError('upper') ? <em className="threshold-field-error">{fieldError('upper')}</em> : null}
+        </label>
+        <label className={`threshold-field compact-threshold-field ${fieldError('average') ? 'has-error' : ''}`}>
+          <span>Средний уровень</span>
+          <input
+            type={isAutoMode ? 'text' : 'number'}
+            value={displayAverage}
+            readOnly={isAutoMode}
+            onChange={(event) => {
+              setAverage(event.target.value);
+              setErrors((current) => {
+                const next = { ...current };
+                delete next.average;
+                return next;
+              });
+            }}
+            placeholder="60"
+          />
+          {fieldError('average') ? <em className="threshold-field-error">{fieldError('average')}</em> : null}
+        </label>
+        <label className={`threshold-field compact-threshold-field ${fieldError('lower') ? 'has-error' : ''}`}>
+          <span>Нижняя граница</span>
+          <input
+            type={isAutoMode ? 'text' : 'number'}
+            value={displayLower}
+            readOnly={isAutoMode}
+            onChange={(event) => {
+              setLower(event.target.value);
+              setErrors((current) => {
+                const next = { ...current };
+                delete next.lower;
+                return next;
+              });
+            }}
+            placeholder="30"
+          />
+          {fieldError('lower') ? <em className="threshold-field-error">{fieldError('lower')}</em> : null}
+        </label>
+      </div>
+
+      {showReplaceConfirm ? (
+        <div className="threshold-replace-warning" role="alert">
+          <p>
+            Сейчас сохранён ручной коридор. Автоматический расчёт заменит эти значения.
+            Подтвердите замену или вернитесь к ручному режиму.
+          </p>
+          <div className="threshold-replace-actions">
+            <button
+              type="button"
+              className="threshold-apply-button manual-apply-button"
+              onClick={() => setShowReplaceConfirm(false)}
+            >
+              Отмена
+            </button>
+            <button
+              type="button"
+              className="threshold-apply-button recommended-apply-button"
+              disabled={!canSaveAuto}
+              onClick={applyAutomatic}
+            >
+              Заменить
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          className={`threshold-apply-button threshold-save-button ${isAutoMode ? 'recommended-apply-button' : 'manual-apply-button'}`}
+          type="button"
+          disabled={isAutoMode && !canSaveAuto}
+          onClick={handleSave}
+        >
+          Сохранить коридор
+        </button>
+      )}
     </div>
   );
 }
@@ -1183,6 +1327,7 @@ export function ThresholdMenu({
   value,
   recommended,
   calculationPeriodLabel,
+  valueType,
   onApply,
   onReset,
   menuGroup,
@@ -1191,6 +1336,7 @@ export function ThresholdMenu({
   value: ThresholdValues;
   recommended: RecommendedThresholdValues;
   calculationPeriodLabel?: string;
+  valueType?: CorridorValueType;
   onApply: (value: ThresholdValues) => void;
   onReset: () => void;
   menuGroup?: string;
@@ -1252,13 +1398,14 @@ export function ThresholdMenu({
           popoverRef={popoverRef}
           open={open}
           className="settings-popover threshold-popover"
-          expectedWidth={520}
-          expectedHeight={360}
+          expectedWidth={360}
+          expectedHeight={420}
         >
           <ThresholdEditor
             threshold={value}
             recommended={recommended}
             calculationPeriodLabel={calculationPeriodLabel}
+            valueType={valueType}
             onApply={onApply}
             onReset={onReset}
             onClose={() => setOpen(false)}
@@ -1544,6 +1691,7 @@ export function RowActionsMenu({
   showEmployees = true,
   metricId,
   calculationPeriodLabel,
+  valueType,
 }: {
   employeesOpen: boolean;
   hasAppliedEmployees?: boolean;
@@ -1568,6 +1716,7 @@ export function RowActionsMenu({
   /** Metric/action id used to find the first employee table row for popover alignment. */
   metricId?: string;
   calculationPeriodLabel?: string;
+  valueType?: CorridorValueType;
 }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<'actions' | 'thresholds' | 'employeeThresholds' | 'employees'>('actions');
@@ -1941,6 +2090,7 @@ export function RowActionsMenu({
                 threshold={threshold}
                 recommended={recommendedThreshold}
                 calculationPeriodLabel={calculationPeriodLabel}
+                valueType={valueType}
                 onApply={onThresholdChange}
                 onReset={() => onThresholdChange({ upper: '', lower: '', mode: null })}
                 onClose={() => setOpen(false)}
@@ -1965,6 +2115,7 @@ export function RowActionsMenu({
                 threshold={employeeThreshold}
                 recommended={employeeRecommendedThreshold}
                 calculationPeriodLabel={calculationPeriodLabel}
+                valueType={valueType}
                 onApply={onEmployeeThresholdChange}
                 onReset={() => onEmployeeThresholdChange({ upper: '', lower: '', mode: null })}
                 onClose={() => setOpen(false)}

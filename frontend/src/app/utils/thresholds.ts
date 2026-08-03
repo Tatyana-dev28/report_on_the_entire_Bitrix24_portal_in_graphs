@@ -41,6 +41,77 @@ export const formatCorridorFieldValue = (value: string) => {
   return trimmed ? trimmed : EMPTY_CORRIDOR_PLACEHOLDER;
 };
 
+export type CorridorFieldKey = 'upper' | 'average' | 'lower';
+export type CorridorFieldValues = Record<CorridorFieldKey, string>;
+export type CorridorValidationErrors = Partial<Record<CorridorFieldKey, string>>;
+export type CorridorValueType = MetricRow['type'] | ChartMetricMode;
+
+const isQuantityCorridorType = (valueType?: CorridorValueType) =>
+  valueType === 'number' || valueType === 'count';
+
+/** Field-level validation for manual corridor save (F-08). */
+export const validateCorridorFields = (
+  fields: CorridorFieldValues,
+  valueType?: CorridorValueType,
+): CorridorValidationErrors => {
+  const errors: CorridorValidationErrors = {};
+  const disallowNegative = isQuantityCorridorType(valueType);
+  const parsed: Partial<Record<CorridorFieldKey, number>> = {};
+
+  (['upper', 'average', 'lower'] as const).forEach((key) => {
+    const raw = fields[key].trim();
+    if (!raw) {
+      errors[key] = 'Заполните поле';
+      return;
+    }
+
+    const value = parseThreshold(raw);
+    if (value === null) {
+      errors[key] = 'Неверный формат';
+      return;
+    }
+
+    if (disallowNegative && value < 0) {
+      errors[key] = 'Значение не может быть отрицательным';
+      return;
+    }
+
+    parsed[key] = value;
+  });
+
+  if (
+    parsed.lower !== undefined
+    && parsed.average !== undefined
+    && parsed.lower > parsed.average
+  ) {
+    errors.lower = 'Нижняя граница не может быть больше средней';
+  }
+
+  if (
+    parsed.average !== undefined
+    && parsed.upper !== undefined
+    && parsed.average > parsed.upper
+  ) {
+    errors.average = 'Средний уровень не может быть больше верхней границы';
+  }
+
+  if (
+    parsed.lower !== undefined
+    && parsed.upper !== undefined
+    && parsed.lower > parsed.upper
+  ) {
+    errors.lower = errors.lower ?? 'Нижняя граница не может быть больше верхней';
+  }
+
+  return errors;
+};
+
+export const hasCorridorValidationErrors = (errors: CorridorValidationErrors) =>
+  Object.keys(errors).length > 0;
+
+export const isManualThreshold = (threshold?: ThresholdValues | null) =>
+  threshold?.mode === 'manual';
+
 const formatRecommendedThresholdValue = (value: number, type: MetricRow['type'] | ChartMetricMode = 'number') => {
   if (type === 'percent') {
     return String(Math.round(value * 10) / 10);

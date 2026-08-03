@@ -1,6 +1,8 @@
 import type { MetricRow } from '../../services/report/reportCatalog';
 import type { ChartMetricMode, RecommendedThresholdValues, ThresholdValues } from '../types';
 
+export const EMPTY_CORRIDOR_PLACEHOLDER = '—';
+
 export function parseThreshold(value: string) {
   if (!value.trim()) {
     return null;
@@ -10,6 +12,7 @@ export function parseThreshold(value: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/** Midpoint of upper/lower — used for manual corridor preview only. */
 export const getThresholdAverage = (threshold: ThresholdValues) => {
   const upper = parseThreshold(threshold.upper);
   const lower = parseThreshold(threshold.lower);
@@ -19,6 +22,23 @@ export const getThresholdAverage = (threshold: ThresholdValues) => {
   }
 
   return Math.round((upper + lower) / 2);
+};
+
+/**
+ * Average shown on chart/table/tooltips.
+ * Prefer stored formula average (recommended); fall back to midpoint for manual.
+ */
+export const resolveDisplayedThresholdAverage = (threshold: ThresholdValues) => {
+  if (threshold.average != null && threshold.average.trim() !== '') {
+    return parseThreshold(threshold.average);
+  }
+
+  return getThresholdAverage(threshold);
+};
+
+export const formatCorridorFieldValue = (value: string) => {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : EMPTY_CORRIDOR_PLACEHOLDER;
 };
 
 const formatRecommendedThresholdValue = (value: number, type: MetricRow['type'] | ChartMetricMode = 'number') => {
@@ -33,6 +53,7 @@ export const calculateRecommendedThresholds = (
   values: number[],
   type: MetricRow['type'] | ChartMetricMode = 'number',
 ): RecommendedThresholdValues => {
+  // Zero is a real value and must participate; only drop non-finite.
   const validValues = values.filter((value) => Number.isFinite(value));
 
   if (!validValues.length) {
@@ -42,6 +63,7 @@ export const calculateRecommendedThresholds = (
   const average = validValues.reduce((sum, value) => sum + value, 0) / validValues.length;
   const upperValues = validValues.filter((value) => value > average);
   const lowerValues = validValues.filter((value) => value < average);
+  // No values above/below average → that bound equals the average (no division by zero).
   const upperAverage = upperValues.length
     ? upperValues.reduce((sum, value) => sum + value, 0) / upperValues.length
     : average;
@@ -93,7 +115,7 @@ export const getAppliedThresholdItems = (threshold?: ThresholdValues) => {
 
   const upper = parseThreshold(threshold.upper);
   const lower = parseThreshold(threshold.lower);
-  const average = getThresholdAverage(threshold);
+  const average = resolveDisplayedThresholdAverage(threshold);
 
   const items: Array<ThresholdTooltipItem | null> = [
     upper === null

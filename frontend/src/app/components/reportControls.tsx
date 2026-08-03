@@ -74,10 +74,12 @@ import {
 import { formatAxisTick, getChartDomain } from '../utils/reportCalculations';
 import {
   calculateRecommendedThresholds,
+  formatCorridorFieldValue,
   getAppliedThresholdItems,
   getThresholdAverage,
   getThresholdLineLabel,
   parseThreshold,
+  resolveDisplayedThresholdAverage,
   thresholdLineColors,
 } from '../utils/thresholds';
 
@@ -865,6 +867,7 @@ export function ConfigureChartMenu({
   crmSourceOptions,
   mainThreshold,
   mainRecommendedThreshold,
+  calculationPeriodLabel,
   onApply,
   onDraftChange,
   onThresholdApply,
@@ -874,6 +877,7 @@ export function ConfigureChartMenu({
   crmSourceOptions: SelectOption<string>[];
   mainThreshold: ThresholdValues;
   mainRecommendedThreshold: RecommendedThresholdValues;
+  calculationPeriodLabel?: string;
   onApply: (settings: ChartDraftSettings) => void;
   onDraftChange: (settings: ChartDraftSettings) => void;
   onThresholdApply: (value: ThresholdValues) => void;
@@ -1034,6 +1038,7 @@ export function ConfigureChartMenu({
             <ThresholdMenu
               value={mainThreshold}
               recommended={mainRecommendedThreshold}
+              calculationPeriodLabel={calculationPeriodLabel}
               onApply={onThresholdApply}
               onReset={onThresholdReset}
               menuGroup={chartMenuGroup}
@@ -1063,12 +1068,15 @@ export function ConfigureChartMenu({
 export function ThresholdEditor({
   threshold,
   recommended,
+  calculationPeriodLabel,
   onApply,
   onReset,
   onClose,
 }: {
   threshold: ThresholdValues;
   recommended: RecommendedThresholdValues;
+  /** Human-readable report period used for corridor calculation (same as display for now). */
+  calculationPeriodLabel?: string;
   onApply: (value: ThresholdValues) => void;
   onReset: () => void;
   onClose: () => void;
@@ -1093,6 +1101,11 @@ export function ThresholdEditor({
           Сбросить
         </button>
       </div>
+      {calculationPeriodLabel ? (
+        <p className="threshold-period-hint">
+          Период расчёта: {calculationPeriodLabel} (совпадает с периодом отчёта)
+        </p>
+      ) : null}
       <div className="threshold-editor-grid">
         <div className="threshold-column">
           <p>Настроить вручную</p>
@@ -1134,22 +1147,27 @@ export function ThresholdEditor({
           <p>Рассчитано системой</p>
           <label className="threshold-field compact-threshold-field">
             <span>Верхняя граница</span>
-            <input value={recommended.upper} readOnly />
+            <input value={formatCorridorFieldValue(recommended.upper)} readOnly />
           </label>
           <label className="threshold-field compact-threshold-field">
             <span>Средний уровень</span>
-            <input value={recommended.average} readOnly />
+            <input value={formatCorridorFieldValue(recommended.average)} readOnly />
           </label>
           <label className="threshold-field compact-threshold-field">
             <span>Нижняя граница</span>
-            <input value={recommended.lower} readOnly />
+            <input value={formatCorridorFieldValue(recommended.lower)} readOnly />
           </label>
           <button
             className="threshold-apply-button recommended-apply-button"
             type="button"
             disabled={!canApplyRecommended}
             onClick={() => {
-              onApply({ upper: recommended.upper, lower: recommended.lower, mode: 'recommended' });
+              onApply({
+                upper: recommended.upper,
+                lower: recommended.lower,
+                average: recommended.average,
+                mode: 'recommended',
+              });
               onClose();
             }}
           >
@@ -1164,6 +1182,7 @@ export function ThresholdEditor({
 export function ThresholdMenu({
   value,
   recommended,
+  calculationPeriodLabel,
   onApply,
   onReset,
   menuGroup,
@@ -1171,6 +1190,7 @@ export function ThresholdMenu({
 }: {
   value: ThresholdValues;
   recommended: RecommendedThresholdValues;
+  calculationPeriodLabel?: string;
   onApply: (value: ThresholdValues) => void;
   onReset: () => void;
   menuGroup?: string;
@@ -1233,11 +1253,12 @@ export function ThresholdMenu({
           open={open}
           className="settings-popover threshold-popover"
           expectedWidth={520}
-          expectedHeight={330}
+          expectedHeight={360}
         >
           <ThresholdEditor
             threshold={value}
             recommended={recommended}
+            calculationPeriodLabel={calculationPeriodLabel}
             onApply={onApply}
             onReset={onReset}
             onClose={() => setOpen(false)}
@@ -1463,7 +1484,11 @@ export function RowThresholdMenu({
             <input
               type="number"
               value={value.upper}
-              onChange={(event) => onChange({ ...value, upper: event.target.value })}
+              onChange={(event) => onChange({
+                upper: event.target.value,
+                lower: value.lower,
+                mode: 'manual',
+              })}
               placeholder="Например, 80"
             />
           </label>
@@ -1472,7 +1497,11 @@ export function RowThresholdMenu({
             <input
               type="number"
               value={value.lower}
-              onChange={(event) => onChange({ ...value, lower: event.target.value })}
+              onChange={(event) => onChange({
+                upper: value.upper,
+                lower: event.target.value,
+                mode: 'manual',
+              })}
               placeholder="Например, 30"
             />
           </label>
@@ -1483,7 +1512,7 @@ export function RowThresholdMenu({
           <button
             className="popover-reset-button"
             type="button"
-            onClick={() => onChange({ upper: '', lower: '' })}
+            onClick={() => onChange({ upper: '', lower: '', mode: null })}
           >
             Сбросить
           </button>
@@ -1514,6 +1543,7 @@ export function RowActionsMenu({
   onEmployeeThresholdChange,
   showEmployees = true,
   metricId,
+  calculationPeriodLabel,
 }: {
   employeesOpen: boolean;
   hasAppliedEmployees?: boolean;
@@ -1537,6 +1567,7 @@ export function RowActionsMenu({
   showEmployees?: boolean;
   /** Metric/action id used to find the first employee table row for popover alignment. */
   metricId?: string;
+  calculationPeriodLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<'actions' | 'thresholds' | 'employeeThresholds' | 'employees'>('actions');
@@ -1909,6 +1940,7 @@ export function RowActionsMenu({
               <ThresholdEditor
                 threshold={threshold}
                 recommended={recommendedThreshold}
+                calculationPeriodLabel={calculationPeriodLabel}
                 onApply={onThresholdChange}
                 onReset={() => onThresholdChange({ upper: '', lower: '', mode: null })}
                 onClose={() => setOpen(false)}
@@ -1932,6 +1964,7 @@ export function RowActionsMenu({
               <ThresholdEditor
                 threshold={employeeThreshold}
                 recommended={employeeRecommendedThreshold}
+                calculationPeriodLabel={calculationPeriodLabel}
                 onApply={onEmployeeThresholdChange}
                 onReset={() => onEmployeeThresholdChange({ upper: '', lower: '', mode: null })}
                 onClose={() => setOpen(false)}
@@ -2001,7 +2034,7 @@ export function RowMetricChart({
       [
         parseThreshold(threshold?.upper ?? ''),
         parseThreshold(threshold?.lower ?? ''),
-        threshold ? getThresholdAverage(threshold) : null,
+        threshold ? resolveDisplayedThresholdAverage(threshold) : null,
       ].filter((item): item is number => item !== null),
     [threshold],
   );
@@ -2011,7 +2044,7 @@ export function RowMetricChart({
   );
   const upper = parseThreshold(threshold?.upper ?? '');
   const lower = parseThreshold(threshold?.lower ?? '');
-  const average = threshold ? getThresholdAverage(threshold) : null;
+  const average = threshold ? resolveDisplayedThresholdAverage(threshold) : null;
   const activeDataPoint = activePoint ? chartData[activePoint.index] : null;
   const thresholdItems = getAppliedThresholdItems(threshold);
 

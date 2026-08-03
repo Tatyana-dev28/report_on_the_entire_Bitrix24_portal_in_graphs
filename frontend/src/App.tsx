@@ -148,9 +148,9 @@ import {
   calculateRecommendedThresholds,
   getAppliedThresholdItems,
   getThresholdClass,
-  getThresholdAverage,
   getThresholdLineLabel,
   parseThreshold,
+  resolveDisplayedThresholdAverage,
   thresholdLineColors,
 } from './app/utils/thresholds';
 import {
@@ -1362,13 +1362,14 @@ function App() {
 
   const upperThresholdNumber = useMemo(() => parseThreshold(mainThreshold.upper), [mainThreshold.upper]);
   const lowerThresholdNumber = useMemo(() => parseThreshold(mainThreshold.lower), [mainThreshold.lower]);
-  const averageThresholdNumber = useMemo(() => {
-    if (upperThresholdNumber === null || lowerThresholdNumber === null) {
-      return null;
-    }
-
-    return Math.round((upperThresholdNumber + lowerThresholdNumber) / 2);
-  }, [upperThresholdNumber, lowerThresholdNumber]);
+  const averageThresholdNumber = useMemo(
+    () => resolveDisplayedThresholdAverage(mainThreshold),
+    [mainThreshold],
+  );
+  const corridorCalculationPeriodLabel = useMemo(
+    () => formatRangeLabel(appliedFilters.period, appliedFilters.dateRange),
+    [appliedFilters.dateRange, appliedFilters.period],
+  );
 
   useEffect(() => {
     if (!notification || pdfExporting) {
@@ -1711,6 +1712,7 @@ function App() {
               setMainThreshold({
                 upper: String(mt.upper ?? ''),
                 lower: String(mt.lower ?? ''),
+                average: mt.average != null ? String(mt.average) : undefined,
                 mode: (mt.mode as 'manual' | 'recommended' | null) ?? null,
               });
             }
@@ -2082,6 +2084,7 @@ function App() {
             setMainThreshold({
               upper: mainRecommended.upper,
               lower: mainRecommended.lower,
+              average: mainRecommended.average,
               mode: 'recommended',
             });
 
@@ -2110,6 +2113,7 @@ function App() {
                 nextRowThresholds[metricId] = {
                   upper: recommended.upper,
                   lower: recommended.lower,
+                  average: recommended.average,
                   mode: 'recommended',
                 };
                 corridorMetricsCount += 1;
@@ -2141,6 +2145,7 @@ function App() {
                   const thresholdValue: ThresholdValues = {
                     upper: recommended.upper,
                     lower: recommended.lower,
+                    average: recommended.average,
                     mode: 'recommended',
                   };
 
@@ -5205,6 +5210,7 @@ function App() {
                   crmSourceOptions={crmSourceOptions}
                   mainThreshold={mainThreshold}
                   mainRecommendedThreshold={mainRecommendedThreshold}
+                  calculationPeriodLabel={corridorCalculationPeriodLabel}
                   onApply={applyChartSettings}
                   onDraftChange={updateChartDraftSettings}
                   onThresholdApply={(value) => {
@@ -5853,6 +5859,7 @@ function App() {
                         onToggleChart={() => toggleMetricChart(actionId)}
                         onThresholdChange={applySourceRowThreshold}
                         onEmployeeThresholdChange={(value) => updateEmployeeThreshold(actionId, value)}
+                        calculationPeriodLabel={corridorCalculationPeriodLabel}
                       />
                     </div>
                     <div className="table-right-cell" role="cell">
@@ -5963,6 +5970,7 @@ function App() {
                       onToggleChart={() => toggleMetricChart(metricRow.metric.id)}
                       onThresholdChange={(value) => updateRowThreshold(metricRow.metric.id, value)}
                       onEmployeeThresholdChange={(value) => updateEmployeeThreshold(metricRow.metric.id, value)}
+                      calculationPeriodLabel={corridorCalculationPeriodLabel}
                     />
                   </div>
                   <div className="table-right-cell" role="cell">

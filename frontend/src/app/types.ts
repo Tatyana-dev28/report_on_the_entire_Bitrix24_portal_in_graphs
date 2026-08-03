@@ -83,6 +83,11 @@ export type TableRow =
 export type ThresholdValues = {
   upper: string;
   lower: string;
+  /**
+   * Formula average from system calculation (recommended mode).
+   * Manual mode usually omits this; UI then shows the midpoint of upper/lower.
+   */
+  average?: string;
   mode?: 'manual' | 'recommended' | null;
 };
 

@@ -5963,24 +5963,25 @@ function App() {
                   </div>
                 ) : (
                 <div className="chart-wrap" ref={mainChartWrapRef}>
-                  <div className="chart-series-legend" aria-label="Легенда графика">
-                    {(chartLegendCollapsible || (!isSeparateChart && hasTrendSeries)) ? (
+                  <div
+                    className={`chart-series-legend${chartLegendCollapsible ? ' is-collapsible' : ''}`}
+                    aria-label="Легенда графика"
+                  >
+                    {chartLegendCollapsible ? (
                       <div className="chart-series-legend-toolbar">
-                        {chartLegendCollapsible ? (
-                          <button
-                            type="button"
-                            className="chart-legend-toggle"
-                            aria-expanded={chartLegendExpanded}
-                            onClick={() => setChartLegendExpanded((prev) => !prev)}
-                          >
-                            <span>
-                              {chartLegendExpanded
-                                ? 'Свернуть легенду'
-                                : `Легенда · ${chartSeries.length}`}
-                            </span>
-                            {chartLegendExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                          </button>
-                        ) : null}
+                        <button
+                          type="button"
+                          className="chart-legend-toggle"
+                          aria-expanded={chartLegendExpanded}
+                          onClick={() => setChartLegendExpanded((prev) => !prev)}
+                        >
+                          <span>
+                            {chartLegendExpanded
+                              ? 'Свернуть легенду'
+                              : `Легенда · ${chartSeries.length}`}
+                          </span>
+                          {chartLegendExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        </button>
                         {!isSeparateChart && hasTrendSeries ? (
                           <label className="chart-legend-item chart-legend-trend-toggle">
                             <input
@@ -6008,6 +6009,17 @@ function App() {
                             <span title={series.label}>{series.label}</span>
                           </span>
                         ))}
+                        {!chartLegendCollapsible && !isSeparateChart && hasTrendSeries ? (
+                          <label className="chart-legend-item chart-legend-trend-toggle">
+                            <input
+                              type="checkbox"
+                              checked={showTrendLine}
+                              onChange={(event) => setShowTrendLine(event.target.checked)}
+                            />
+                            <i className="chart-legend-swatch is-trend" aria-hidden="true" />
+                            <span>Тренд</span>
+                          </label>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>

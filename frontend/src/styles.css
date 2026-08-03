@@ -1665,11 +1665,16 @@ button {
 }
 
 .chart-series-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  min-height: 24px;
+}
+
+.chart-series-legend.is-collapsible {
   display: grid;
   gap: 6px;
-  min-height: 24px;
-  padding: 0 12px;
-  box-sizing: border-box;
 }
 
 .chart-series-legend-toolbar {
@@ -1705,7 +1710,7 @@ button {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 14px;
+  gap: 12px 16px;
 }
 
 .chart-series-legend-list.is-scrollable {
@@ -1714,6 +1719,7 @@ button {
   overflow-y: auto;
   padding-right: 4px;
   overscroll-behavior: contain;
+  gap: 10px 14px;
 }
 
 .chart-legend-item {

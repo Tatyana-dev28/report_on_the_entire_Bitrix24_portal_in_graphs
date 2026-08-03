@@ -19,6 +19,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Cog,
   Crown,
   Download,
@@ -1150,7 +1151,7 @@ const deserializeStringArrayRecord = (record?: Record<string, string[]>) => {
   );
 };
 
-const isCrmSourceAvailable = (source: CrmSource) => source.isAvailable !== false;
+const isCrmSourceAvailable = (_source: CrmSource) => true;
 
 const getCrmSourceDisplayLabel = (source: CrmSource) =>
   (source.sourceLabel || source.title || source.id).trim();
@@ -1385,6 +1386,8 @@ function App() {
   const [isPinned, setIsPinned] = useState(false);
   // F-11: local UI toggle — does not affect saved report settings.
   const [showTrendLine, setShowTrendLine] = useState(true);
+  // Collapsed by default when the legend would hide the chart.
+  const [chartLegendExpanded, setChartLegendExpanded] = useState(false);
   const [hasBuiltReport, setHasBuiltReport] = useState(false);
   const [buildMoment, setBuildMoment] = useState(0);
   const [autoSaveRequest, setAutoSaveRequest] = useState(0);
@@ -2699,8 +2702,7 @@ function App() {
   const crmSourceOptions = useMemo(
     () =>
       [...crmSources]
-        // Keep all known sources visible, including unavailable ones —
-        // they are shown grey with «Недоступно» in pickers.
+        // Keep all known portal sources visible in pickers.
         .sort((left, right) => {
           const groupDiff = getSourceGroupRank(left) - getSourceGroupRank(right);
 
@@ -2722,10 +2724,6 @@ function App() {
           value: source.id,
           label: source.sourceLabel || source.title || source.id,
           group: getSourceGroup(source),
-          disabled: source.isAvailable === false,
-          hint: source.isAvailable === false
-            ? (source.unavailableReason || 'Недоступно')
-            : undefined,
         })),
     [crmSources],
   );
@@ -2827,6 +2825,8 @@ function App() {
           ],
     [crmSourceLabelById, isSeparateChart, selectedChartSourceLabels, selectedChartSources],
   );
+  const chartLegendCollapsible = chartSeries.length > 6;
+  const chartLegendVisible = !chartLegendCollapsible || chartLegendExpanded;
   const mainIndicatorCaption = useMemo(() => {
     const periodOptionLabel =
       periodOptions.find((option) => option.value === appliedFilters.period)?.label;
@@ -5912,26 +5912,51 @@ function App() {
                 ) : (
                 <div className="chart-wrap" ref={mainChartWrapRef}>
                   <div className="chart-series-legend" aria-label="Легенда графика">
-                    {chartSeries.map((series) => (
-                      <span className="chart-legend-item" key={series.key}>
-                        <i
-                          className="chart-legend-swatch"
-                          style={{ background: series.color }}
-                          aria-hidden="true"
-                        />
-                        <span title={series.label}>{series.label}</span>
-                      </span>
-                    ))}
-                    {!isSeparateChart && hasTrendSeries ? (
-                      <label className="chart-legend-item chart-legend-trend-toggle">
-                        <input
-                          type="checkbox"
-                          checked={showTrendLine}
-                          onChange={(event) => setShowTrendLine(event.target.checked)}
-                        />
-                        <i className="chart-legend-swatch is-trend" aria-hidden="true" />
-                        <span>Тренд</span>
-                      </label>
+                    {(chartLegendCollapsible || (!isSeparateChart && hasTrendSeries)) ? (
+                      <div className="chart-series-legend-toolbar">
+                        {chartLegendCollapsible ? (
+                          <button
+                            type="button"
+                            className="chart-legend-toggle"
+                            aria-expanded={chartLegendExpanded}
+                            onClick={() => setChartLegendExpanded((prev) => !prev)}
+                          >
+                            <span>
+                              {chartLegendExpanded
+                                ? 'Свернуть легенду'
+                                : `Легенда · ${chartSeries.length}`}
+                            </span>
+                            {chartLegendExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          </button>
+                        ) : null}
+                        {!isSeparateChart && hasTrendSeries ? (
+                          <label className="chart-legend-item chart-legend-trend-toggle">
+                            <input
+                              type="checkbox"
+                              checked={showTrendLine}
+                              onChange={(event) => setShowTrendLine(event.target.checked)}
+                            />
+                            <i className="chart-legend-swatch is-trend" aria-hidden="true" />
+                            <span>Тренд</span>
+                          </label>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {chartLegendVisible ? (
+                      <div
+                        className={`chart-series-legend-list${chartLegendCollapsible ? ' is-scrollable' : ''}`}
+                      >
+                        {chartSeries.map((series) => (
+                          <span className="chart-legend-item" key={series.key}>
+                            <i
+                              className="chart-legend-swatch"
+                              style={{ background: series.color }}
+                              aria-hidden="true"
+                            />
+                            <span title={series.label}>{series.label}</span>
+                          </span>
+                        ))}
+                      </div>
                     ) : null}
                   </div>
                   <ResponsiveContainer width="100%" height={280}>

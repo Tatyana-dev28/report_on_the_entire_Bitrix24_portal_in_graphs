@@ -492,12 +492,9 @@ def _model_to_api_source(source: CrmSource) -> dict:
         "title": source.title,
         "sourceLabel": source.source_label or source.title,
         "entityTypeName": entity_type_name,
-        "isAvailable": source.is_available,
-        "unavailableReason": (
-            None
-            if source.is_available
-            else (raw_data.get("_unavailableReason") or "Недоступно")
-        ),
+        # Availability probes were removed: sources stay selectable in pickers.
+        "isAvailable": True,
+        "unavailableReason": None,
         "rawData": raw_data,
     }
 

@@ -1,6 +1,7 @@
 import type { CSSProperties, RefObject } from 'react';
 import type { DateRange, MetricRow, Period, ReportPoint } from '../services/report/reportCatalog';
 import type { EmployeeMetricItem, SourceMetricsMetric } from '../services/report/reportTypes';
+import type { MetricDirection } from './config/metricDirections';
 
 export type SelectOption<T extends string> = {
   value: T;
@@ -189,6 +190,8 @@ export type SavedReportViewState = {
   mainThreshold: ThresholdValues;
   rowThresholds: Record<string, ThresholdValues>;
   employeeThresholdsByMetricId?: Record<string, ThresholdValues>;
+  /** F-09: user overrides for metric evaluation direction by metric/action id. */
+  metricDirectionsById?: Record<string, MetricDirection>;
   /** Applied employee selection per metric/action id. */
   appliedEmployeeIdsByMetricId?: Record<string, string[]>;
   /** Draft employee selection per metric/action id. */

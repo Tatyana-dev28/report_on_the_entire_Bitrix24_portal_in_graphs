@@ -73,6 +73,10 @@ import {
 } from '../utils/dateRanges';
 import { formatAxisTick, getChartDomain } from '../utils/reportCalculations';
 import {
+  METRIC_DIRECTION_OPTIONS,
+  type MetricDirection,
+} from '../config/metricDirections';
+import {
   calculateRecommendedThresholds,
   formatCorridorFieldValue,
   getAppliedThresholdItems,
@@ -874,6 +878,8 @@ export function ConfigureChartMenu({
   mainThreshold,
   mainRecommendedThreshold,
   calculationPeriodLabel,
+  mainDirection,
+  onMainDirectionChange,
   onApply,
   onDraftChange,
   onThresholdApply,
@@ -884,6 +890,8 @@ export function ConfigureChartMenu({
   mainThreshold: ThresholdValues;
   mainRecommendedThreshold: RecommendedThresholdValues;
   calculationPeriodLabel?: string;
+  mainDirection?: MetricDirection;
+  onMainDirectionChange?: (direction: MetricDirection) => void;
   onApply: (settings: ChartDraftSettings) => void;
   onDraftChange: (settings: ChartDraftSettings) => void;
   onThresholdApply: (value: ThresholdValues) => void;
@@ -1046,6 +1054,8 @@ export function ConfigureChartMenu({
               recommended={mainRecommendedThreshold}
               calculationPeriodLabel={calculationPeriodLabel}
               valueType={draftSettings.metricMode}
+              direction={mainDirection}
+              onDirectionChange={onMainDirectionChange}
               onApply={onThresholdApply}
               onReset={onThresholdReset}
               menuGroup={chartMenuGroup}
@@ -1077,6 +1087,8 @@ export function ThresholdEditor({
   recommended,
   calculationPeriodLabel,
   valueType,
+  direction = 'none',
+  onDirectionChange,
   onApply,
   onReset,
   onClose,
@@ -1086,6 +1098,8 @@ export function ThresholdEditor({
   /** Human-readable report period used for corridor calculation (same as display for now). */
   calculationPeriodLabel?: string;
   valueType?: CorridorValueType;
+  direction?: MetricDirection;
+  onDirectionChange?: (direction: MetricDirection) => void;
   onApply: (value: ThresholdValues) => void;
   onReset: () => void;
   onClose: () => void;
@@ -1205,6 +1219,23 @@ export function ThresholdEditor({
         <p className="threshold-period-hint">
           Период расчёта: {calculationPeriodLabel} (совпадает с периодом отчёта)
         </p>
+      ) : null}
+
+      {onDirectionChange ? (
+        <label className="threshold-field compact-threshold-field threshold-direction-field">
+          <span>Как оценивать показатель?</span>
+          <select
+            value={direction}
+            onChange={(event) => onDirectionChange(event.target.value as MetricDirection)}
+            aria-label="Как оценивать показатель?"
+          >
+            {METRIC_DIRECTION_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
       ) : null}
 
       <div className="threshold-mode-switch" role="tablist" aria-label="Режим коридора">
@@ -1328,6 +1359,8 @@ export function ThresholdMenu({
   recommended,
   calculationPeriodLabel,
   valueType,
+  direction,
+  onDirectionChange,
   onApply,
   onReset,
   menuGroup,
@@ -1337,6 +1370,8 @@ export function ThresholdMenu({
   recommended: RecommendedThresholdValues;
   calculationPeriodLabel?: string;
   valueType?: CorridorValueType;
+  direction?: MetricDirection;
+  onDirectionChange?: (direction: MetricDirection) => void;
   onApply: (value: ThresholdValues) => void;
   onReset: () => void;
   menuGroup?: string;
@@ -1399,13 +1434,15 @@ export function ThresholdMenu({
           open={open}
           className="settings-popover threshold-popover"
           expectedWidth={360}
-          expectedHeight={420}
+          expectedHeight={480}
         >
           <ThresholdEditor
             threshold={value}
             recommended={recommended}
             calculationPeriodLabel={calculationPeriodLabel}
             valueType={valueType}
+            direction={direction}
+            onDirectionChange={onDirectionChange}
             onApply={onApply}
             onReset={onReset}
             onClose={() => setOpen(false)}
@@ -1692,6 +1729,8 @@ export function RowActionsMenu({
   metricId,
   calculationPeriodLabel,
   valueType,
+  direction,
+  onDirectionChange,
 }: {
   employeesOpen: boolean;
   hasAppliedEmployees?: boolean;
@@ -1717,6 +1756,8 @@ export function RowActionsMenu({
   metricId?: string;
   calculationPeriodLabel?: string;
   valueType?: CorridorValueType;
+  direction?: MetricDirection;
+  onDirectionChange?: (direction: MetricDirection) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<'actions' | 'thresholds' | 'employeeThresholds' | 'employees'>('actions');
@@ -2091,6 +2132,8 @@ export function RowActionsMenu({
                 recommended={recommendedThreshold}
                 calculationPeriodLabel={calculationPeriodLabel}
                 valueType={valueType}
+                direction={direction}
+                onDirectionChange={onDirectionChange}
                 onApply={onThresholdChange}
                 onReset={() => onThresholdChange({ upper: '', lower: '', mode: null })}
                 onClose={() => setOpen(false)}
@@ -2116,6 +2159,8 @@ export function RowActionsMenu({
                 recommended={employeeRecommendedThreshold}
                 calculationPeriodLabel={calculationPeriodLabel}
                 valueType={valueType}
+                direction={direction}
+                onDirectionChange={onDirectionChange}
                 onApply={onEmployeeThresholdChange}
                 onReset={() => onEmployeeThresholdChange({ upper: '', lower: '', mode: null })}
                 onClose={() => setOpen(false)}

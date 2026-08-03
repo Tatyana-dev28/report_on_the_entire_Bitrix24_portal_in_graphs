@@ -116,6 +116,13 @@ import {
 } from './app/utils/bitrixNavigation';
 import { AUTOMATIC_REPORT_PRESET } from './app/config/automaticReportPreset';
 import {
+  MAIN_INDICATOR_DIRECTION_KEY,
+  isMetricDirection,
+  resolveMetricDirection,
+  resolveMetricDirectionForIds,
+  type MetricDirection,
+} from './app/config/metricDirections';
+import {
   buildAutomaticReportSummaryMessage,
   hasFilledCorridor,
 } from './app/utils/automaticReportSummary';
@@ -1272,6 +1279,8 @@ function App() {
   }, []);
   const [rowThresholds, setRowThresholds] = useState<Record<string, ThresholdValues>>({});
   const [employeeThresholdsByMetricId, setEmployeeThresholdsByMetricId] = useState<Record<string, ThresholdValues>>({});
+  // F-09: user overrides only; staff defaults come from resolveMetricDirection().
+  const [metricDirectionsById, setMetricDirectionsById] = useState<Record<string, MetricDirection>>({});
   const mainThresholdRef = useRef(mainThreshold);
   const rowThresholdsRef = useRef(rowThresholds);
   const employeeThresholdsRef = useRef(employeeThresholdsByMetricId);
@@ -1555,6 +1564,7 @@ function App() {
     setMainThreshold({ upper: '', lower: '', mode: null });
     setRowThresholds({});
     setEmployeeThresholdsByMetricId({});
+    setMetricDirectionsById({});
     setSavedViews([defaultSavedView]);
     setAppSettings(defaultAppSettings);
     setHasBuiltReport(false);
@@ -1732,6 +1742,16 @@ function App() {
               setEmployeeThresholdsByMetricId(
                 settings.employeeThresholdsByMetricId as Record<string, { upper: string; lower: string; mode: 'manual' | 'recommended' | null }>,
               );
+            }
+
+            if (settings.metricDirectionsById && typeof settings.metricDirectionsById === 'object') {
+              const restoredDirections: Record<string, MetricDirection> = {};
+              Object.entries(settings.metricDirectionsById as Record<string, unknown>).forEach(([metricId, value]) => {
+                if (isMetricDirection(value)) {
+                  restoredDirections[metricId] = value;
+                }
+              });
+              setMetricDirectionsById(restoredDirections);
             }
           }
 
@@ -4107,6 +4127,14 @@ function App() {
     }));
   }, [markUserSettingsChange]);
 
+  const updateMetricDirection = useCallback((metricId: string, direction: MetricDirection) => {
+    markUserSettingsChange();
+    setMetricDirectionsById((current) => ({
+      ...current,
+      [metricId]: direction,
+    }));
+  }, [markUserSettingsChange]);
+
   const moveMetricWithinSection = useCallback((sectionId: string, sourceMetricId: string, targetMetricId: string) => {
     if (sourceMetricId === targetMetricId) {
       return;
@@ -4448,6 +4476,7 @@ function App() {
       mainThreshold: { ...mainThreshold },
       rowThresholds: { ...rowThresholds },
       employeeThresholdsByMetricId: { ...employeeThresholdsByMetricId },
+      metricDirectionsById: { ...metricDirectionsById },
       appliedEmployeeIdsByMetricId: serializeSetRecord(appliedEmployeeIdsByMetricId),
       draftEmployeeIdsByMetricId: serializeSetRecord(draftEmployeeIdsByMetricId),
       employeeOrderByMetricId: serializeStringArrayRecord(employeeOrderByMetricId),
@@ -4469,6 +4498,7 @@ function App() {
       expandedEmployeeMetricIds,
       expandedSections,
       mainThreshold,
+      metricDirectionsById,
       metricOrderBySection,
       rowThresholds,
       sectionOrder,
@@ -4547,6 +4577,7 @@ function App() {
           mainThreshold: currentState.mainThreshold,
           rowThresholds: currentState.rowThresholds,
           employeeThresholdsByMetricId: currentState.employeeThresholdsByMetricId ?? {},
+          metricDirectionsById: currentState.metricDirectionsById ?? {},
         },
         savedViews: savedViews.filter((view) => !view.isSystem).map((view) => ({
           value: view.value,
@@ -4584,6 +4615,7 @@ function App() {
     mainThreshold,
     rowThresholds,
     employeeThresholdsByMetricId,
+    metricDirectionsById,
     savedViews,
     appSettings,
     tableSelectedSources,
@@ -4686,6 +4718,7 @@ function App() {
     setMainThreshold({ ...state.mainThreshold });
     setRowThresholds({ ...state.rowThresholds });
     setEmployeeThresholdsByMetricId({ ...(state.employeeThresholdsByMetricId ?? {}) });
+    setMetricDirectionsById({ ...(state.metricDirectionsById ?? {}) });
     const restoredAppliedEmployees = deserializeSetRecord(state.appliedEmployeeIdsByMetricId);
     const restoredDraftEmployees = state.draftEmployeeIdsByMetricId
       ? deserializeSetRecord(state.draftEmployeeIdsByMetricId)
@@ -4739,6 +4772,7 @@ function App() {
     setMainThreshold({ upper: '', lower: '', mode: null });
     setRowThresholds({});
     setEmployeeThresholdsByMetricId({});
+    setMetricDirectionsById({});
     setAppliedEmployeeIdsByMetricId({});
     setDraftEmployeeIdsByMetricId({});
     setEmployeeOrderByMetricId({});
@@ -5238,6 +5272,8 @@ function App() {
                   mainThreshold={mainThreshold}
                   mainRecommendedThreshold={mainRecommendedThreshold}
                   calculationPeriodLabel={corridorCalculationPeriodLabel}
+                  mainDirection={resolveMetricDirection(MAIN_INDICATOR_DIRECTION_KEY, metricDirectionsById)}
+                  onMainDirectionChange={(direction) => updateMetricDirection(MAIN_INDICATOR_DIRECTION_KEY, direction)}
                   onApply={applyChartSettings}
                   onDraftChange={updateChartDraftSettings}
                   onThresholdApply={(value) => {
@@ -5719,7 +5755,11 @@ function App() {
                             valueStates[point.key]?.[row.metric.id],
                           );
                           const thresholdClass = display.hasNumericValue
-                            ? getThresholdClass(value, employeeThreshold)
+                            ? getThresholdClass(
+                              value,
+                              employeeThreshold,
+                              resolveMetricDirection(row.metric.id, metricDirectionsById),
+                            )
                             : '';
 
                           return (
@@ -5888,6 +5928,10 @@ function App() {
                         onEmployeeThresholdChange={(value) => updateEmployeeThreshold(actionId, value)}
                         calculationPeriodLabel={corridorCalculationPeriodLabel}
                         valueType={valueType}
+                        direction={resolveMetricDirectionForIds(actionIds, metricDirectionsById)}
+                        onDirectionChange={(nextDirection) => {
+                          actionIds.forEach((id) => updateMetricDirection(id, nextDirection));
+                        }}
                       />
                     </div>
                     <div className="table-right-cell" role="cell">
@@ -5907,7 +5951,11 @@ function App() {
                               .find(Boolean),
                           );
                           const thresholdClass = display.hasNumericValue
-                            ? getThresholdClass(value, rowThreshold)
+                            ? getThresholdClass(
+                              value,
+                              rowThreshold,
+                              resolveMetricDirectionForIds(actionIds, metricDirectionsById),
+                            )
                             : '';
 
                           return (
@@ -6000,6 +6048,8 @@ function App() {
                       onEmployeeThresholdChange={(value) => updateEmployeeThreshold(metricRow.metric.id, value)}
                       calculationPeriodLabel={corridorCalculationPeriodLabel}
                       valueType={metricRow.metric.type}
+                      direction={resolveMetricDirection(metricRow.metric.id, metricDirectionsById)}
+                      onDirectionChange={(nextDirection) => updateMetricDirection(metricRow.metric.id, nextDirection)}
                     />
                   </div>
                   <div className="table-right-cell" role="cell">
@@ -6013,7 +6063,11 @@ function App() {
                           valueStates[point.key]?.[metricRow.metric.id],
                         );
                         const thresholdClass = display.hasNumericValue
-                          ? getThresholdClass(value, rowThreshold)
+                          ? getThresholdClass(
+                            value,
+                            rowThreshold,
+                            resolveMetricDirection(metricRow.metric.id, metricDirectionsById),
+                          )
                           : '';
 
                         return (

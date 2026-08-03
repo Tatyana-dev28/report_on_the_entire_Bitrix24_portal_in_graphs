@@ -1,4 +1,5 @@
 import type { MetricRow } from '../../services/report/reportCatalog';
+import type { MetricDirection } from '../config/metricDirections';
 import type { ChartMetricMode, RecommendedThresholdValues, ThresholdValues } from '../types';
 
 export const EMPTY_CORRIDOR_PLACEHOLDER = '—';
@@ -218,21 +219,48 @@ export const getAppliedThresholdItems = (threshold?: ThresholdValues) => {
   return items.filter((item): item is ThresholdTooltipItem => item !== null);
 };
 
-export const getThresholdClass = (value: number, threshold?: ThresholdValues) => {
+export const getThresholdClass = (
+  value: number,
+  threshold?: ThresholdValues,
+  direction: MetricDirection = 'none',
+) => {
   if (!threshold || !Number.isFinite(value)) {
     return '';
   }
 
   const upper = parseThreshold(threshold.upper);
   const lower = parseThreshold(threshold.lower);
+  const isAbove = upper !== null && value >= upper;
+  const isBelow = lower !== null && value < lower;
 
-  if (upper !== null && value >= upper) {
+  if (!isAbove && !isBelow) {
+    return '';
+  }
+
+  // Neutral: show corridor deviation without good/bad coloring.
+  if (direction === 'none') {
+    if (isAbove) {
+      return 'is-above-corridor-neutral';
+    }
+    return 'is-below-corridor-neutral';
+  }
+
+  if (direction === 'range_normal') {
+    // Outside the corridor is bad in either direction; inside stays unhighlighted.
+    return 'is-outside-range-threshold';
+  }
+
+  if (direction === 'lower_better') {
+    // High values are bad, low values are good.
+    if (isAbove) {
+      return 'is-below-threshold';
+    }
     return 'is-above-threshold';
   }
 
-  if (lower !== null && value < lower) {
-    return 'is-below-threshold';
+  // higher_better (default evaluative mode)
+  if (isAbove) {
+    return 'is-above-threshold';
   }
-
-  return '';
+  return 'is-below-threshold';
 };

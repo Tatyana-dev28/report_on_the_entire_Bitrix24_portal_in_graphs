@@ -5965,7 +5965,8 @@ function App() {
                 <div className="chart-wrap" ref={mainChartWrapRef}>
                   <div
                     className={`chart-series-legend${chartLegendCollapsible ? ' is-collapsible' : ''}`}
-                    aria-label="Легенда графика"
+                    style={{ paddingLeft: CHART_AXIS_WIDTH }}
+                    aria-label="Линии графика"
                   >
                     {chartLegendCollapsible ? (
                       <div className="chart-series-legend-toolbar">
@@ -5977,8 +5978,8 @@ function App() {
                         >
                           <span>
                             {chartLegendExpanded
-                              ? 'Свернуть легенду'
-                              : `Легенда · ${chartSeries.length}`}
+                              ? 'Свернуть'
+                              : `Линии · ${chartSeries.length}`}
                           </span>
                           {chartLegendExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                         </button>

@@ -920,7 +920,7 @@ button {
 
 .table-settings-popover {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 10px;
   max-height: min(680px, calc(100vh - 72px));
   overflow: hidden;
@@ -964,8 +964,18 @@ button {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 0 14px 12px;
+  padding: 0 0 12px;
   border-bottom: 1px solid #e7edf5;
+  min-height: 0;
+}
+
+.table-settings-popover .table-settings-group-title,
+.table-settings-popover .table-settings-group-hint {
+  margin-bottom: 0;
+}
+
+.table-settings-popover .table-settings-group-hint {
+  margin-bottom: 4px;
 }
 
 .table-settings-mode-options {
@@ -1033,9 +1043,14 @@ button {
 .table-settings-sources-block {
   display: flex;
   flex-direction: column;
+  gap: 8px;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+}
+
+.table-settings-sources-block .table-settings-group-title {
+  flex: 0 0 auto;
 }
 
 .table-settings-sources-block .multi-select-inline {
@@ -1670,6 +1685,7 @@ button {
   align-items: center;
   gap: 12px 16px;
   min-height: 24px;
+  box-sizing: border-box;
 }
 
 .chart-series-legend.is-collapsible {

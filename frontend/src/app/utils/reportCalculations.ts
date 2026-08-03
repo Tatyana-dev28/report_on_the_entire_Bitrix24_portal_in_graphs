@@ -319,9 +319,15 @@ export const getChartSumValue = (
   return sum;
 };
 
-export function buildTrend(values: number[]) {
-  if (values.length <= 1) {
-    return values;
+export const MIN_TREND_POINTS = 2;
+
+/**
+ * Linear trend over the visible period. Not a forecast — no future extension.
+ * Returns [] when there are too few points to draw a meaningful trend (F-11).
+ */
+export function buildTrend(values: number[]): number[] {
+  if (values.length < MIN_TREND_POINTS) {
+    return [];
   }
 
   const n = values.length;
@@ -333,7 +339,7 @@ export function buildTrend(values: number[]) {
   const denominator = n * sumXX - sumX * sumX;
 
   if (denominator === 0) {
-    return finiteValues;
+    return [];
   }
 
   const slope = (n * sumXY - sumX * sumY) / denominator;

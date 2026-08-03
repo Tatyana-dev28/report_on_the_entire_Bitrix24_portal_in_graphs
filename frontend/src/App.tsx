@@ -149,6 +149,7 @@ import {
   getChartDomain,
   getChartSeriesValue,
   getChartSumValue,
+  MIN_TREND_POINTS,
 } from './app/utils/reportCalculations';
 import { buildMainIndicatorCaption, hasResolvableMainChartSources } from './app/utils/mainIndicatorCaption';
 import {
@@ -1250,6 +1251,8 @@ function App() {
   const [appSettings, setAppSettings] = useState<AppSettings>(defaultAppSettings);
   const [newViewName, setNewViewName] = useState('');
   const [isPinned, setIsPinned] = useState(false);
+  // F-11: local UI toggle — does not affect saved report settings.
+  const [showTrendLine, setShowTrendLine] = useState(true);
   const [hasBuiltReport, setHasBuiltReport] = useState(false);
   const [buildMoment, setBuildMoment] = useState(0);
   const [autoSaveRequest, setAutoSaveRequest] = useState(0);
@@ -2561,6 +2564,14 @@ function App() {
     () => buildTrend(chartBaseValues),
     [chartBaseValues],
   );
+  const hasTrendSeries = useMemo(
+    () =>
+      !isSeparateChart
+      && trendValues.length >= MIN_TREND_POINTS
+      && trendValues.length === chartBaseValues.length,
+    [chartBaseValues.length, isSeparateChart, trendValues.length],
+  );
+  const showTrendOnChart = hasTrendSeries && showTrendLine;
   const chartData = useMemo(
     () =>
       chartReportData.map((point, index) => {
@@ -2582,7 +2593,7 @@ function App() {
           chartIndex: index,
           indicator: chartBaseValues[index] ?? 0,
           xIndex: index + 0.5,
-          trend: trendValues[index] ?? chartBaseValues[index] ?? 0,
+          ...(hasTrendSeries ? { trend: trendValues[index] ?? 0 } : {}),
         };
       }),
     [
@@ -2590,6 +2601,7 @@ function App() {
       chartBaseValues,
       chartReportData,
       chartSourceMetrics,
+      hasTrendSeries,
       isSeparateChart,
       selectedChartSources,
       trendValues,
@@ -2610,7 +2622,9 @@ function App() {
               getChartSeriesValue(point, source, appliedFilters.metricMode, chartSourceMetrics),
             ),
           )
-        : [...chartBaseValues, ...trendValues];
+        : showTrendOnChart
+          ? [...chartBaseValues, ...trendValues]
+          : [...chartBaseValues];
 
       return getChartDomain([...values, ...thresholdNumbers]);
     },
@@ -2621,6 +2635,7 @@ function App() {
       chartSourceMetrics,
       isSeparateChart,
       selectedChartSources,
+      showTrendOnChart,
       thresholdNumbers,
       trendValues,
     ],
@@ -2654,13 +2669,22 @@ function App() {
     }
 
     const activeValues = activeMainChartDataPoint as unknown as Record<string, number>;
-
-    return chartSeries.map((series) => ({
+    const items = chartSeries.map((series) => ({
       label: series.label,
       value: formatMainChartValue(Number(activeValues[series.key] ?? 0), appliedFilters.metricMode),
       color: series.color,
     }));
-  }, [activeMainChartDataPoint, appliedFilters.metricMode, chartSeries]);
+
+    if (showTrendOnChart && Number.isFinite(activeValues.trend)) {
+      items.push({
+        label: 'Тренд',
+        value: formatMainChartValue(Number(activeValues.trend), appliedFilters.metricMode),
+        color: 'rgba(34, 116, 255, 0.45)',
+      });
+    }
+
+    return items;
+  }, [activeMainChartDataPoint, appliedFilters.metricMode, chartSeries, showTrendOnChart]);
   const mainThresholdTooltipItems = useMemo(
     () => getAppliedThresholdItems(mainThreshold),
     [mainThreshold],
@@ -5348,6 +5372,25 @@ function App() {
                   </div>
                 ) : (
                 <div className="chart-wrap" ref={mainChartWrapRef}>
+                  {!isSeparateChart && (
+                    <div className="chart-series-legend" aria-label="Легенда графика">
+                      <span className="chart-legend-item">
+                        <i className="chart-legend-swatch is-actual" aria-hidden="true" />
+                        <span>{chartSeries[0]?.label ?? 'Показатель'}</span>
+                      </span>
+                      {hasTrendSeries && (
+                        <label className="chart-legend-item chart-legend-trend-toggle">
+                          <input
+                            type="checkbox"
+                            checked={showTrendLine}
+                            onChange={(event) => setShowTrendLine(event.target.checked)}
+                          />
+                          <i className="chart-legend-swatch is-trend" aria-hidden="true" />
+                          <span>Тренд</span>
+                        </label>
+                      )}
+                    </div>
+                  )}
                   <ResponsiveContainer width="100%" height={280}>
                     <LineChart
                       data={chartData}
@@ -5415,11 +5458,11 @@ function App() {
                           }}
                         />
                       )}
-                      {!isSeparateChart && (
+                      {showTrendOnChart && (
                         <Line
                           type="linear"
                           dataKey="trend"
-                          name="Линия тренда"
+                          name="Тренд"
                           stroke="#2274ff"
                           strokeOpacity={0.28}
                           strokeWidth={2}

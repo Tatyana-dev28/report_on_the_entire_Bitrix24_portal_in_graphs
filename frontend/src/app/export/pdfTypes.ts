@@ -49,6 +49,8 @@ export type ExportReportPdfInput = {
   portalLabel: string;
   periodOptionLabel: string;
   periodLabel: string;
+  /** F-17: export notes compact vs with_charts table display. */
+  tableRowChartsMode?: 'compact' | 'with_charts';
 };
 
 export type ExportReportPdfOptions = {
@@ -62,6 +64,7 @@ export type PdfPageChrome = {
   portalLabel: string;
   periodOptionLabel: string;
   periodLabel: string;
+  tableDisplayLabel?: string;
   generatedAt: string;
   currentViewLabel: string;
   pageNumber: number;

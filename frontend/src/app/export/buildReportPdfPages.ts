@@ -1,6 +1,7 @@
 import { formatMetricValue } from '../../services/report/reportCatalog';
 import type { MetricRow } from '../../services/report/reportCatalog';
-import { getThresholdAverage, getThresholdClass } from '../utils/thresholds';
+import { getThresholdClass, resolveDisplayedThresholdAverage } from '../utils/thresholds';
+import { getEmployeeFullName } from '../utils/employees';
 import {
   buildSourceMetricActionIds,
   chunk,
@@ -27,7 +28,41 @@ export type BuiltReportPdfPages = {
   portalLabel: string;
   periodOptionLabel: string;
   periodLabel: string;
+  tableDisplayLabel: string;
   generatedAt: string;
+};
+
+/** F-21: A4 for daily reports; A3 for hourly with employees (or dense hourly). */
+const resolvePageFormat = (
+  period: ExportReportPdfInput['appliedFilters']['period'],
+  periodCount: number,
+  hasEmployees: boolean,
+  rowCount: number,
+): PdfPageFormat => {
+  // Daily (and coarser) → A4 landscape. Hourly with employees → A3 landscape.
+  if (period === 'hours' && hasEmployees) {
+    return 'a3';
+  }
+
+  if (period === 'hours' && (periodCount > 12 || rowCount > 28)) {
+    return 'a3';
+  }
+
+  return 'a4';
+};
+
+const resolveMaxPeriodColumns = (format: PdfPageFormat, period: string) => {
+  if (format === 'a3') {
+    return period === 'hours' ? 14 : 12;
+  }
+
+  return period === 'hours' ? 10 : 8;
+};
+
+const resolveMaxRowsPerTablePage = (format: PdfPageFormat) => {
+  // Keep row height readable at 100% zoom: do not pack more rows than fit at MIN height.
+  // Content ≈ pageHeight − margins/chrome/footer; use conservative caps.
+  return format === 'a3' ? 22 : 16;
 };
 
 export const getPdfPageStyles = (
@@ -36,27 +71,75 @@ export const getPdfPageStyles = (
   pageHeight: number,
   pagePadding: number,
 ) => `
-  .pdf-page { width: ${pageWidth}px; height: ${pageHeight}px; padding: ${pagePadding}px; box-sizing: border-box; background: #fff; color: #202938; font-family: Arial, sans-serif; }
-  .pdf-header { display: flex; justify-content: space-between; gap: 18px; border-bottom: 1px solid #dfe7f1; padding-bottom: 14px; margin-bottom: 18px; }
-  .pdf-title { font-size: 26px; font-weight: 700; line-height: 1.15; }
-  .pdf-meta { margin-top: 7px; color: #5f6b7a; font-size: 14px; }
+  html, body { margin: 0; padding: 0; background: #ffffff !important; }
+  .pdf-page {
+    width: ${pageWidth}px;
+    height: ${pageHeight}px;
+    padding: ${pagePadding}px;
+    box-sizing: border-box;
+    background: #ffffff !important;
+    color: #202938;
+    font-family: Arial, Helvetica, sans-serif;
+    overflow: hidden;
+  }
+  .pdf-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    border-bottom: 1px solid #dfe7f1;
+    padding-bottom: 12px;
+    margin-bottom: 14px;
+    background: #ffffff;
+  }
+  .pdf-title { font-size: ${format === 'a3' ? 28 : 24}px; font-weight: 700; line-height: 1.15; color: #202938; }
+  .pdf-meta { margin-top: 6px; color: #5f6b7a; font-size: 13px; }
   .pdf-meta div + div { margin-top: 3px; }
-  .pdf-generated { color: #5f6b7a; font-size: 13px; text-align: right; white-space: nowrap; }
-  .pdf-content { height: ${pageHeight - pagePadding * 2 - 82}px; overflow: hidden; }
-  .pdf-section-title { margin: 18px 0 10px; font-size: 18px; font-weight: 700; }
-  .pdf-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-  .pdf-card { border: 1px solid #dfe7f1; border-radius: 10px; padding: 12px 14px; background: #fbfdff; }
-  .pdf-card-label { color: #6a7482; font-size: 13px; margin-bottom: 7px; }
-  .pdf-card-value { font-size: 18px; font-weight: 700; }
-  .pdf-attention { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .pdf-attention td { border-bottom: 1px solid #e7edf5; padding: 7px 8px; }
-  .pdf-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: ${format === 'a3' ? 13 : 12}px; }
-  .pdf-table th, .pdf-table td { border: 1px solid #dfe7f1; padding: 7px 8px; text-align: center; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pdf-table th { background: #eaf4ff; color: #2f3a4a; font-weight: 700; }
-  .pdf-table .pdf-label { text-align: left; width: ${format === 'a3' ? 280 : 235}px; }
-  .pdf-table .pdf-section { background: #f5f7fa; font-weight: 700; text-align: left; }
-  .pdf-table .pdf-employee { color: #4f5c6b; }
-  .pdf-footer { margin-top: 12px; border-top: 1px solid #dfe7f1; padding-top: 8px; color: #6a7482; font-size: 12px; display: flex; justify-content: space-between; }
+  .pdf-generated { color: #5f6b7a; font-size: 12px; text-align: right; white-space: nowrap; background: #ffffff; }
+  .pdf-content {
+    height: ${pageHeight - pagePadding * 2 - 86}px;
+    overflow: hidden;
+    background: #ffffff;
+  }
+  .pdf-block { break-inside: avoid; page-break-inside: avoid; background: #ffffff; }
+  .pdf-section-title { margin: 14px 0 8px; font-size: ${format === 'a3' ? 18 : 16}px; font-weight: 700; color: #202938; }
+  .pdf-section-title:first-child { margin-top: 0; }
+  .pdf-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .pdf-card {
+    border: 1px solid #dfe7f1;
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: #fbfdff !important;
+  }
+  .pdf-card-label { color: #6a7482; font-size: 12px; margin-bottom: 6px; }
+  .pdf-card-value { font-size: 16px; font-weight: 700; color: #202938; }
+  .pdf-attention { width: 100%; border-collapse: collapse; font-size: 12px; background: #ffffff; }
+  .pdf-attention th {
+    text-align: left;
+    border-bottom: 1px solid #dfe7f1;
+    padding: 6px 8px;
+    color: #5f6b7a;
+    font-weight: 700;
+    background: #ffffff;
+  }
+  .pdf-attention td { border-bottom: 1px solid #e7edf5; padding: 6px 8px; background: #ffffff; color: #202938; }
+  .pdf-chart-wrap {
+    background: #ffffff !important;
+    border: 1px solid #dfe7f1;
+    border-radius: 12px;
+    padding: 8px;
+    overflow: hidden;
+  }
+  .pdf-chart-wrap svg { display: block; background: #ffffff !important; }
+  .pdf-footer {
+    margin-top: 10px;
+    border-top: 1px solid #dfe7f1;
+    padding-top: 8px;
+    color: #6a7482;
+    font-size: 12px;
+    display: flex;
+    justify-content: space-between;
+    background: #ffffff;
+  }
 `;
 
 export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdfPages => {
@@ -74,26 +157,44 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
     portalLabel,
     periodOptionLabel,
     periodLabel,
+    tableRowChartsMode = 'compact',
   } = input;
 
   const generatedAt = new Intl.DateTimeFormat('ru-RU', {
     dateStyle: 'short',
     timeStyle: 'short',
   }).format(new Date());
-  const format: PdfPageFormat =
-    appliedFilters.period === 'hours' && (reportData.length > 12 || tableRows.length > 24) ? 'a3' : 'a4';
+  const tableDisplayLabel =
+    tableRowChartsMode === 'with_charts'
+      ? 'Отображение таблицы: с графиками'
+      : 'Отображение таблицы: компактное';
+
+  const hasEmployees = tableRows.some((row) => row.kind === 'employee');
+  const format = resolvePageFormat(
+    appliedFilters.period,
+    reportData.length,
+    hasEmployees,
+    tableRows.length,
+  );
   const pageWidth = format === 'a3' ? 1587 : 1123;
   const pageHeight = format === 'a3' ? 1123 : 794;
-  const maxPeriodColumns = format === 'a3' ? 12 : 8;
-  const maxRowsPerTablePage = format === 'a3' ? 24 : 17;
-  const pagePadding = 34;
+  const maxPeriodColumns = resolveMaxPeriodColumns(format, appliedFilters.period);
+  const maxRowsPerTablePage = resolveMaxRowsPerTablePage(format);
+  const pagePadding = format === 'a3' ? 36 : 32;
   const contentWidth = pageWidth - pagePadding * 2;
+  const ownerAttentionLimit = format === 'a3' ? 10 : 7;
+  const attentionPageSize = format === 'a3' ? 24 : 18;
 
   const getSourceMetricState = (pointKey: string, actionIds: string[]) =>
     actionIds.map((id) => valueStates[pointKey]?.[id]).find(Boolean);
 
+  // Charts are rendered on the owner/cover pages — skip empty chart stubs in the numbers table.
   const tablePdfRows: PdfTableRow[] = tableRows
-    .filter((row) => row.kind !== 'chart' && row.kind !== 'employee_chart')
+    .filter((row) => (
+      row.kind !== 'employee_sum_hint'
+      && row.kind !== 'chart'
+      && row.kind !== 'employee_chart'
+    ))
     .map((row) => {
       if (row.kind === 'section' || row.kind === 'source_section') {
         return {
@@ -105,7 +206,7 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
 
       if (row.kind === 'employee') {
         return {
-          label: `  ${row.employee.firstName} ${row.employee.lastName}`.trim(),
+          label: `  ${getEmployeeFullName(row.employee)}`.trim(),
           values: reportData.map((point) => {
             const value = hasBuiltReport ? getEmployeePeriodMetricValue(row.employee, point, row.metric.id) : 0;
             return getValueCellDisplayLabel(value, row.metric.type, valueStates[point.key]?.[row.metric.id]);
@@ -143,10 +244,15 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
       };
     });
 
+  const displayedAverage = resolveDisplayedThresholdAverage(mainThreshold);
   const thresholdSummary = [
-    { label: 'Верхняя граница', value: mainThreshold.upper },
-    { label: 'Средний уровень', value: getThresholdAverage(mainThreshold) ?? '' },
-    { label: 'Нижняя граница', value: mainThreshold.lower },
+    { label: 'Верхняя граница', value: mainThreshold.upper, color: '#1f9d55' },
+    {
+      label: 'Средний уровень',
+      value: displayedAverage !== null ? String(displayedAverage) : '',
+      color: '#d89a00',
+    },
+    { label: 'Нижняя граница', value: mainThreshold.lower, color: '#d64545' },
   ];
   const chartMetricType: MetricRow['type'] = appliedFilters.metricMode === 'money' ? 'money' : 'number';
   const chartValues = chartData.map((point) => Number(point.indicator) || 0);
@@ -155,7 +261,7 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
 
   const makeChartSvg = () => {
     const width = contentWidth - 18;
-    const height = format === 'a3' ? 300 : 230;
+    const height = format === 'a3' ? 280 : 210;
     const left = 62;
     const right = 20;
     const top = 18;
@@ -167,36 +273,41 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
     const xFor = (index: number) =>
       left + (chartValues.length <= 1 ? innerWidth / 2 : (index / (chartValues.length - 1)) * innerWidth);
     const points = chartValues.map((value, index) => `${xFor(index)},${yFor(value)}`).join(' ');
+
     const thresholdLines = thresholdSummary
-      .map((item) => Number(item.value))
-      .filter((value) => Number.isFinite(value))
-      .map((value) => {
-        const y = yFor(value);
-        return `<line x1="${left}" y1="${y}" x2="${width - right}" y2="${y}" stroke="#d89a00" stroke-width="1.5" stroke-dasharray="7 7" />`;
+      .map((item) => ({ value: Number(item.value), color: item.color }))
+      .filter((item) => Number.isFinite(item.value))
+      .map((item) => {
+        const y = yFor(item.value);
+        return `<line x1="${left}" y1="${y}" x2="${width - right}" y2="${y}" stroke="${item.color}" stroke-width="1.6" stroke-dasharray="7 6" />`;
       })
       .join('');
+
+    const labelStep = Math.max(1, Math.ceil(reportData.length / (format === 'a3' ? 10 : 8)));
     const labels = reportData
-      .filter((_point, index) => index === 0 || index === reportData.length - 1 || reportData.length <= 8)
-      .map((point, index, items) => {
-        const sourceIndex = reportData.findIndex((item) => item.key === point.key);
-        const x = xFor(sourceIndex);
-        const anchor = index === 0 ? 'start' : index === items.length - 1 ? 'end' : 'middle';
-        return `<text x="${x}" y="${height - 10}" text-anchor="${anchor}" font-size="13" fill="#5f6b7a">${escapeHtml(point.label)}</text>`;
+      .map((point, index) => ({ point, index }))
+      .filter(({ index }) => index === 0 || index === reportData.length - 1 || index % labelStep === 0)
+      .map(({ point, index }, labelIndex, items) => {
+        const x = xFor(index);
+        const anchor = labelIndex === 0 ? 'start' : labelIndex === items.length - 1 ? 'end' : 'middle';
+        return `<text x="${x}" y="${height - 10}" text-anchor="${anchor}" font-size="12" fill="#5f6b7a">${escapeHtml(point.label)}</text>`;
       })
       .join('');
 
     return `
-      <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
-        <rect x="0" y="0" width="${width}" height="${height}" rx="12" fill="#ffffff" stroke="#dfe7f1" />
-        <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}" stroke="#dfe7f1" />
-        <line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" stroke="#dfe7f1" />
-        <text x="18" y="${top + 6}" font-size="12" fill="#7b8794">${escapeHtml(formatMetricValue(chartMax, chartMetricType))}</text>
-        <text x="18" y="${height - bottom}" font-size="12" fill="#7b8794">${escapeHtml(formatMetricValue(chartMin, chartMetricType))}</text>
-        ${thresholdLines}
-        <polyline points="${points}" fill="none" stroke="#2274ff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
-        ${chartValues.map((value, index) => `<circle cx="${xFor(index)}" cy="${yFor(value)}" r="4" fill="#ffffff" stroke="#2274ff" stroke-width="3" />`).join('')}
-        ${labels}
-      </svg>
+      <div class="pdf-chart-wrap pdf-block">
+        <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" style="background:#ffffff">
+          <rect x="0" y="0" width="${width}" height="${height}" rx="8" fill="#ffffff" stroke="#dfe7f1" />
+          <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}" stroke="#dfe7f1" />
+          <line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" stroke="#dfe7f1" />
+          <text x="18" y="${top + 6}" font-size="12" fill="#7b8794">${escapeHtml(formatMetricValue(chartMax, chartMetricType))}</text>
+          <text x="18" y="${height - bottom}" font-size="12" fill="#7b8794">${escapeHtml(formatMetricValue(chartMin, chartMetricType))}</text>
+          ${thresholdLines}
+          <polyline points="${points}" fill="none" stroke="#2274ff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />
+          ${chartValues.map((value, index) => `<circle cx="${xFor(index)}" cy="${yFor(value)}" r="3.5" fill="#ffffff" stroke="#2274ff" stroke-width="2.5" />`).join('')}
+          ${labels}
+        </svg>
+      </div>
     `;
   };
 
@@ -246,69 +357,96 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
         }))
         .filter((item) => getThresholdClass(item.value, item.threshold));
     })
-    .slice(0, 12);
+    .slice(0, 36);
+
+  const renderAttentionTable = (
+    rows: typeof attentionRows,
+    emptyMessage = 'Показателей, требующих внимания, нет.',
+  ) => {
+    if (!rows.length) {
+      return `<div class="pdf-card pdf-block">${escapeHtml(emptyMessage)}</div>`;
+    }
+
+    return `
+      <table class="pdf-attention pdf-block">
+        <thead>
+          <tr>
+            <th>Показатель</th>
+            <th>Период</th>
+            <th>Значение</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows
+            .map(
+              (row) => `
+            <tr>
+              <td>${escapeHtml(row.label)}</td>
+              <td>${escapeHtml(row.period)}</td>
+              <td><b>${escapeHtml(formatMetricValue(row.value, row.type))}</b></td>
+            </tr>
+          `,
+            )
+            .join('')}
+        </tbody>
+      </table>
+    `;
+  };
 
   const pages: PdfPageSpec[] = [];
+
+  // F-21 owner brief: page 1 = main indicator + corridor + attention preview (keep chart with its title).
+  const ownerAttention = attentionRows.slice(0, ownerAttentionLimit);
+  const remainingAttention = attentionRows.slice(ownerAttentionLimit);
 
   pages.push({
     kind: 'html',
     title: currentViewLabel,
     buildBody: () => `
-      <div class="pdf-section-title">Главный показатель и основной график</div>
-      ${makeChartSvg()}
-      <div class="pdf-section-title">Текущий коридор</div>
-      <div class="pdf-grid">
-        ${thresholdSummary
-          .map(
-            (item) => `
-          <div class="pdf-card">
-            <div class="pdf-card-label">${escapeHtml(item.label)}</div>
-            <div class="pdf-card-value">${escapeHtml(item.value || '—')}</div>
-          </div>
-        `,
-          )
-          .join('')}
+      <div class="pdf-block">
+        <div class="pdf-section-title">Главный показатель и основной график</div>
+        <div class="pdf-meta" style="margin-bottom:8px">${escapeHtml(tableDisplayLabel)}</div>
+        ${makeChartSvg()}
+      </div>
+      <div class="pdf-block">
+        <div class="pdf-section-title">Текущий коридор</div>
+        <div class="pdf-grid">
+          ${thresholdSummary
+            .map(
+              (item) => `
+            <div class="pdf-card">
+              <div class="pdf-card-label">${escapeHtml(item.label)}</div>
+              <div class="pdf-card-value" style="color:${item.color}">${escapeHtml(item.value || '—')}</div>
+            </div>
+          `,
+            )
+            .join('')}
+        </div>
+      </div>
+      <div class="pdf-block">
+        <div class="pdf-section-title">Показатели, требующие внимания</div>
+        ${renderAttentionTable(ownerAttention)}
+        ${remainingAttention.length
+          ? `<div class="pdf-meta" style="margin-top:8px">Ещё ${remainingAttention.length} на следующих страницах.</div>`
+          : ''}
       </div>
     `,
   });
 
-  if (attentionRows.length) {
-    const attentionChunks = chunk(attentionRows, format === 'a3' ? 26 : 20);
-    attentionChunks.forEach((attentionChunk, attentionChunkIndex) => {
+  if (remainingAttention.length) {
+    chunk(remainingAttention, attentionPageSize).forEach((attentionChunk, attentionChunkIndex, allChunks) => {
       pages.push({
         kind: 'html',
-        title: `Показатели, требующие внимания${attentionChunks.length > 1 ? ` · ${attentionChunkIndex + 1}/${attentionChunks.length}` : ''}`,
+        title: `Показатели, требующие внимания · ${attentionChunkIndex + 1}/${allChunks.length}`,
         buildBody: () => `
           <div class="pdf-section-title">Показатели, требующие внимания</div>
-          <table class="pdf-attention">
-            <tbody>
-              ${attentionChunk
-                .map(
-                  (row) => `
-                <tr>
-                  <td>${escapeHtml(row.label)}</td>
-                  <td>${escapeHtml(row.period)}</td>
-                  <td><b>${escapeHtml(formatMetricValue(row.value, row.type))}</b></td>
-                </tr>
-              `,
-                )
-                .join('')}
-            </tbody>
-          </table>
+          ${renderAttentionTable(attentionChunk)}
         `,
       });
     });
-  } else {
-    pages.push({
-      kind: 'html',
-      title: 'Показатели, требующие внимания',
-      buildBody: () => `
-        <div class="pdf-section-title">Показатели, требующие внимания</div>
-        <div class="pdf-card">Показателей, требующих внимания, нет.</div>
-      `,
-    });
   }
 
+  // Full PDF body: selected metrics/employees with repeating timeline headers per page.
   const periodChunks = chunk(
     reportData.map((point, index) => ({ point, index })),
     maxPeriodColumns,
@@ -316,10 +454,14 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
   const rowChunks = chunk(tablePdfRows, maxRowsPerTablePage);
 
   periodChunks.forEach((periodChunk, periodChunkIndex) => {
-    rowChunks.forEach((rowChunk) => {
+    rowChunks.forEach((rowChunk, rowChunkIndex) => {
+      const periodPart =
+        periodChunks.length > 1 ? ` · шкала ${periodChunkIndex + 1}/${periodChunks.length}` : '';
+      const rowPart = rowChunks.length > 1 ? ` · блок ${rowChunkIndex + 1}/${rowChunks.length}` : '';
+
       pages.push({
         kind: 'table',
-        title: `Таблица выбранных показателей${periodChunks.length > 1 ? ` · ${periodChunkIndex + 1}/${periodChunks.length}` : ''}`,
+        title: `Таблица показателей${periodPart}${rowPart}`,
         headers: periodChunk.map(({ point }) => point.label),
         rows: rowChunk.map((row) => {
           if (row.kind === 'section') {
@@ -350,6 +492,7 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
     portalLabel,
     periodOptionLabel,
     periodLabel,
+    tableDisplayLabel,
     generatedAt,
   };
 };

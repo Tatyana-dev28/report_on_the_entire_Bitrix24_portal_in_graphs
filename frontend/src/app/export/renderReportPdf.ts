@@ -8,12 +8,12 @@ import type { ExportReportPdfOptions, PdfHtmlPageSpec } from './pdfTypes';
 
 const getRenderScale = (htmlPageCount: number) => {
   if (htmlPageCount > 6) {
-    return 1.15;
+    return 1.2;
   }
   if (htmlPageCount > 3) {
-    return 1.35;
+    return 1.4;
   }
-  return 1.7;
+  return 1.6;
 };
 
 const yieldToUi = () =>
@@ -26,6 +26,21 @@ const yieldToUi = () =>
 const releaseCanvas = (canvas: HTMLCanvasElement) => {
   canvas.width = 0;
   canvas.height = 0;
+};
+
+const forceWhiteBackgrounds = (root: ParentNode) => {
+  const elements = root.querySelectorAll<HTMLElement>('*');
+  elements.forEach((element) => {
+    const style = element.style;
+    if (!style) {
+      return;
+    }
+
+    // Prevent html2canvas from painting transparent/dark app chrome into the page.
+    if (!style.backgroundColor || style.backgroundColor === 'transparent') {
+      style.backgroundColor = '#ffffff';
+    }
+  });
 };
 
 const renderHtmlPage = async (
@@ -51,6 +66,7 @@ const renderHtmlPage = async (
 
   const page = document.createElement('section');
   page.className = 'pdf-page';
+  page.style.background = '#ffffff';
   page.innerHTML = `
     <div class="pdf-header">
       <div>
@@ -76,15 +92,31 @@ const renderHtmlPage = async (
       backgroundColor: '#ffffff',
       scale: renderScale,
       useCORS: true,
+      allowTaint: false,
+      logging: false,
       scrollX: 0,
       scrollY: 0,
       width: pageWidth,
       height: pageHeight,
       windowWidth: pageWidth,
       windowHeight: pageHeight,
+      onclone: (clonedDocument) => {
+        const clonedRoot = clonedDocument.body;
+        clonedRoot.style.background = '#ffffff';
+        clonedRoot.style.color = '#202938';
+        forceWhiteBackgrounds(clonedRoot);
+
+        clonedDocument.querySelectorAll('svg').forEach((svg) => {
+          svg.setAttribute('style', `${svg.getAttribute('style') ?? ''};background:#ffffff`);
+          if (!svg.getAttribute('fill')) {
+            svg.setAttribute('fill', 'none');
+          }
+        });
+      },
     });
 
-    pdf.addImage(canvas, 'JPEG', 0, 0, pdfWidth, pdfHeight, `page-${pageIndex}`, 'FAST');
+    // PNG avoids JPEG dark/black banding artifacts on white pages with thin chart lines.
+    pdf.addImage(canvas, 'PNG', 0, 0, pdfWidth, pdfHeight, `page-${pageIndex}`, 'FAST');
   } finally {
     if (canvas) {
       releaseCanvas(canvas);
@@ -108,6 +140,7 @@ export const renderReportPdf = async (
     periodOptionLabel,
     periodLabel,
     generatedAt,
+    tableDisplayLabel,
   } = built;
 
   const htmlPageCount = pages.filter((page) => page.kind === 'html').length;
@@ -120,6 +153,8 @@ export const renderReportPdf = async (
     exportRoot.style.top = '0';
     exportRoot.style.width = `${pageWidth}px`;
     exportRoot.style.background = '#ffffff';
+    exportRoot.style.color = '#202938';
+    exportRoot.setAttribute('data-pdf-export-root', 'true');
     exportRoot.innerHTML = `<style>${getPdfPageStyles(format, pageWidth, pageHeight, pagePadding)}</style>`;
     document.body.appendChild(exportRoot);
   }
@@ -128,6 +163,10 @@ export const renderReportPdf = async (
     const pdf = new jsPDF('l', 'mm', format);
     await ensurePdfCyrillicFont(pdf);
 
+    // Explicit white page fill before any drawing (guards against default dark themes).
+    pdf.setFillColor(255, 255, 255);
+    pdf.rect(0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight(), 'F');
+
     const renderScale = getRenderScale(htmlPageCount);
 
     for (let index = 0; index < pages.length; index += 1) {
@@ -135,6 +174,8 @@ export const renderReportPdf = async (
 
       if (index > 0) {
         pdf.addPage();
+        pdf.setFillColor(255, 255, 255);
+        pdf.rect(0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight(), 'F');
         await yieldToUi();
       }
 
@@ -149,6 +190,7 @@ export const renderReportPdf = async (
             portalLabel,
             periodOptionLabel,
             periodLabel,
+            tableDisplayLabel,
             generatedAt,
             currentViewLabel,
             pageNumber: index + 1,

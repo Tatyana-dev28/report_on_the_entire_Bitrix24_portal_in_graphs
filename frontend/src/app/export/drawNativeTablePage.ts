@@ -1,4 +1,5 @@
 import type { jsPDF } from 'jspdf';
+import { MIN_TABLE_ROW_HEIGHT_MM } from './pdfHelpers';
 import { PDF_FONT_FAMILY } from './pdfFonts';
 import type { PdfPageChrome, PdfPageFormat, PdfTablePageSpec } from './pdfTypes';
 
@@ -47,6 +48,10 @@ const drawPageChrome = (pdf: jsPDF, chrome: PdfPageChrome, format: PdfPageFormat
   pdf.setTextColor(...COLORS.meta);
   pdf.text(`Портал: ${chrome.portalLabel}`, margin, margin + 11);
   pdf.text(`${chrome.periodOptionLabel} · Период: ${chrome.periodLabel}`, margin, margin + 16);
+  const chromeBottom = chrome.tableDisplayLabel ? margin + 21 : margin + 16;
+  if (chrome.tableDisplayLabel) {
+    pdf.text(chrome.tableDisplayLabel, margin, margin + 21);
+  }
 
   pdf.setFontSize(8.5);
   const generatedLabel = 'Дата формирования';
@@ -61,7 +66,7 @@ const drawPageChrome = (pdf: jsPDF, chrome: PdfPageChrome, format: PdfPageFormat
 
   pdf.setDrawColor(...COLORS.border);
   pdf.setLineWidth(0.2);
-  pdf.line(margin, margin + 20, pageWidth - margin, margin + 20);
+  pdf.line(margin, chromeBottom + 4, pageWidth - margin, chromeBottom + 4);
 
   const footerY = pageHeight - margin;
   pdf.setDrawColor(...COLORS.border);
@@ -76,7 +81,7 @@ const drawPageChrome = (pdf: jsPDF, chrome: PdfPageChrome, format: PdfPageFormat
 
   return {
     margin,
-    contentTop: margin + 24,
+    contentTop: chromeBottom + 8,
     contentBottom: footerY - 10,
     contentWidth,
   };
@@ -96,7 +101,9 @@ export const drawNativeTablePage = (
   const valueWidth = Math.max(12, (contentWidth - labelWidth) / Math.max(1, page.headers.length));
   const fontSize = format === 'a3' ? 9 : 8.5;
   const rowCount = page.rows.length + 1;
-  const rowHeight = Math.min(9.5, availableHeight / rowCount);
+  // F-21: never shrink below readable height — upstream chunks rows to fit.
+  const fitted = availableHeight / Math.max(1, rowCount);
+  const rowHeight = Math.min(9.5, Math.max(MIN_TABLE_ROW_HEIGHT_MM, fitted));
 
   const columnX = (columnIndex: number) => {
     if (columnIndex === 0) {
@@ -121,6 +128,10 @@ export const drawNativeTablePage = (
   ) => {
     const x = columnX(columnIndex);
     const y = tableTop + rowIndex * rowHeight;
+    if (y + rowHeight > contentBottom + 0.5) {
+      return;
+    }
+
     const span = options.colspan ?? 1;
     let width = 0;
     for (let index = 0; index < span; index += 1) {
@@ -138,16 +149,17 @@ export const drawNativeTablePage = (
 
     const paddingX = 1.6;
     const maxTextWidth = Math.max(4, width - paddingX * 2);
-    const fitted = fitText(pdf, text, maxTextWidth);
+    const fittedText = fitText(pdf, text, maxTextWidth);
     const textY = y + rowHeight / 2 + fontSize * 0.28;
 
     if (options.align === 'center') {
-      pdf.text(fitted, x + width / 2, textY, { align: 'center' });
+      pdf.text(fittedText, x + width / 2, textY, { align: 'center' });
     } else {
-      pdf.text(fitted, x + paddingX, textY);
+      pdf.text(fittedText, x + paddingX, textY);
     }
   };
 
+  // Timeline / column headers repeat on every table page (F-21).
   drawCell(0, 0, 'Показатели', {
     fill: COLORS.headerBg,
     textColor: COLORS.headerText,

@@ -21,6 +21,9 @@ export const chunk = <T,>(items: T[], size: number) => {
   return result;
 };
 
+/** Minimum readable table row height in mm (F-21: no unreadable scaling). */
+export const MIN_TABLE_ROW_HEIGHT_MM = 6.8;
+
 export const readValuesByPeriod = (
   valuesByPeriod: Record<string, number> | undefined,
   periodKey: string,

@@ -7,6 +7,7 @@ from django.db import transaction
 
 from apps.bitrix.models import BitrixPortal
 from apps.bitrix.services.rest_client import BitrixRestClient, BitrixRestError
+from apps.reports.services.source_availability import annotate_sources_availability
 from apps.reports.catalog import METRIC_SECTIONS, METRICS, PERIOD_OPTIONS, REPORT_SOURCES
 from apps.reports.models import CrmSource
 
@@ -129,6 +130,8 @@ def load_sources_from_bitrix(portal: BitrixPortal) -> list[dict]:
         *_virtual_report_sources(),
     ]
 
+    annotate_sources_availability(portal=portal, client=client, sources=sources)
+
     return _sort_sources(_deduplicate_sources(
         disambiguate_duplicate_pipeline_labels(sources)
     ))
@@ -141,6 +144,13 @@ def sync_crm_sources(*, portal: BitrixPortal, sources: list[dict]) -> None:
     for source in sources:
         external_key = str(source["id"])
         seen_external_keys.add(external_key)
+        raw_data = dict(source.get("rawData") or {})
+        unavailable_reason = source.get("unavailableReason")
+        if unavailable_reason:
+            raw_data["_unavailableReason"] = unavailable_reason
+        else:
+            raw_data.pop("_unavailableReason", None)
+
         CrmSource.objects.update_or_create(
             portal=portal,
             external_key=external_key,
@@ -155,7 +165,7 @@ def sync_crm_sources(*, portal: BitrixPortal, sources: list[dict]) -> None:
                 "source_label": source["sourceLabel"],
                 "is_available": bool(source.get("isAvailable", True)),
                 "is_active": True,
-                "raw_data": source.get("rawData") or {},
+                "raw_data": raw_data,
             },
         )
 
@@ -483,6 +493,11 @@ def _model_to_api_source(source: CrmSource) -> dict:
         "sourceLabel": source.source_label or source.title,
         "entityTypeName": entity_type_name,
         "isAvailable": source.is_available,
+        "unavailableReason": (
+            None
+            if source.is_available
+            else (raw_data.get("_unavailableReason") or "Недоступно")
+        ),
         "rawData": raw_data,
     }
 

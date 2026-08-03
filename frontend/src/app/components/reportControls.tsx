@@ -470,8 +470,14 @@ export function MultiSelect({
     () => new Map(options.map((option) => [option.value, option.label])),
     [options],
   );
+  const availableOptions = useMemo(
+    () => options.filter((option) => !option.disabled),
+    [options],
+  );
   const label =
-    values.length === options.length
+    availableOptions.length > 0
+    && availableOptions.every((option) => values.includes(option.value))
+    && values.every((value) => availableOptions.some((option) => option.value === value))
       ? 'Все источники'
       : values.length
         ? values.map((value) => optionLabelByValue.get(value) ?? value).join(', ')
@@ -522,7 +528,15 @@ export function MultiSelect({
   };
 
   const toggleValue = (value: string) => {
-    if (values.includes(value)) {
+    const option = options.find((item) => item.value === value);
+    const isSelected = values.includes(value);
+
+    // Allow unchecking a previously selected unavailable source; block new selection.
+    if (option?.disabled && !isSelected) {
+      return;
+    }
+
+    if (isSelected) {
       onChange(values.filter((item) => item !== value));
       return;
     }
@@ -554,13 +568,22 @@ export function MultiSelect({
   };
 
   const renderOption = (option: SelectOption<string>) => (
-    <label className="multi-option" key={option.value}>
+    <label
+      className={`multi-option ${option.disabled ? 'is-disabled' : ''}`}
+      key={option.value}
+    >
       <input
         type="checkbox"
         checked={values.includes(option.value)}
+        disabled={Boolean(option.disabled) && !values.includes(option.value)}
         onChange={() => toggleValue(option.value)}
       />
-      <span>{option.label}</span>
+      <span className="multi-option-main">
+        <span>{option.label}</span>
+        {option.disabled && (
+          <span className="multi-option-hint">{option.hint || 'Недоступно'}</span>
+        )}
+      </span>
     </label>
   );
 
@@ -819,7 +842,11 @@ export function TableSettingsMenu({
               options={crmSourceOptions}
               onChange={onSourcesChange}
               onSelectAll={() =>
-                onSourcesChange(crmSourceOptions.map((option) => option.value))
+                onSourcesChange(
+                  crmSourceOptions
+                    .filter((option) => !option.disabled)
+                    .map((option) => option.value),
+                )
               }
               onReset={() => onSourcesChange([])}
               onApply={handleApply}
@@ -958,7 +985,9 @@ export function ConfigureChartMenu({
               onSelectAll={() =>
                 updateDraftSettings((current) => ({
                   ...current,
-                  selectedSources: crmSourceOptions.map((option) => option.value),
+                  selectedSources: crmSourceOptions
+                    .filter((option) => !option.disabled)
+                    .map((option) => option.value),
                 }))
               }
               onReset={() =>

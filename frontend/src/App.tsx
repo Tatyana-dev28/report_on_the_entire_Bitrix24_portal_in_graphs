@@ -30,8 +30,6 @@ import {
   PinOff,
   Plus,
   Play,
-  Settings2,
-  SlidersHorizontal,
   TrendingUp,
   GripVertical,
   X,
@@ -1231,6 +1229,9 @@ function App() {
   // After "Построить автоматически": pin this catalog source id (e.g. deal-0) as the
   // first block in the whole table. Cleared on regular build / reset — not used otherwise.
   const [tableLeadingSourceId, setTableLeadingSourceId] = useState<string | null>(null);
+  // F-05: independent build options for the single «Построить отчёт» button.
+  const [autoPickIndicators, setAutoPickIndicators] = useState(false);
+  const [highlightDeviations, setHighlightDeviations] = useState(false);
   const [sourceMetricOrderBySource, setSourceMetricOrderBySource] = useState<Record<string, string[]>>({});
   // Visibility of metrics inside source blocks (separate from CRM enabledMetricIdsBySection).
   const [enabledMetricKeysBySource, setEnabledMetricKeysBySource] = useState<Record<string, Set<string>>>({});
@@ -2180,9 +2181,8 @@ function App() {
   const crmSourceOptions = useMemo(
     () =>
       [...crmSources]
-        // Keep deal/smart pipelines visible even if Bitrix marks them unavailable —
-        // otherwise "Сделки" vanish from table/chart source pickers.
-        .filter((source) => source.isAvailable || source.type === 'deal' || source.type === 'smartProcess')
+        // Keep all known sources visible, including unavailable ones —
+        // they are shown grey with «Недоступно» in pickers.
         .sort((left, right) => {
           const groupDiff = getSourceGroupRank(left) - getSourceGroupRank(right);
 
@@ -2204,6 +2204,10 @@ function App() {
           value: source.id,
           label: source.sourceLabel || source.title || source.id,
           group: getSourceGroup(source),
+          disabled: source.isAvailable === false,
+          hint: source.isAvailable === false
+            ? (source.unavailableReason || 'Недоступно')
+            : undefined,
         })),
     [crmSources],
   );
@@ -3597,7 +3601,8 @@ function App() {
     buildReportFromDraft({ automaticThresholds: true });
   }, [buildReportFromDraft]);
 
-  const buildAutomaticReport = useCallback(() => {
+  const buildAutomaticReport = useCallback((options?: { automaticThresholds?: boolean }) => {
+    const automaticThresholds = options?.automaticThresholds ?? true;
     const preset = buildAutomaticReportPreset(crmSources, crmSourceIds, metricSections);
     if (!preset) {
       setNotification('Нет доступной воронки продаж.');
@@ -3614,7 +3619,7 @@ function App() {
     }
 
     // Do not persist this beginner preset into Pro saved settings.
-    // Keep skip active until this generation finishes applying thresholds after preview.
+    // Keep skip active until this generation finishes applying after preview.
     temporaryAutoReportModeRef.current = true;
     cancelPendingAutoSave();
     const generation = autoBuildGenerationRef.current + 1;
@@ -3642,8 +3647,12 @@ function App() {
     const nextEnabledMetrics = preset.enabledMetricIdsBySection;
     const nextSectionOrder = preset.sectionOrder;
 
-    applyAutomaticThresholdsRef.current = true;
+    applyAutomaticThresholdsRef.current = automaticThresholds;
     setEmployeeThresholdsByMetricId({});
+    if (!automaticThresholds) {
+      setMainThreshold({ upper: '', lower: '', mode: null });
+      setRowThresholds({});
+    }
 
     setAppliedFilters((current) => ({
       ...current,
@@ -3670,6 +3679,26 @@ function App() {
     setBuildMoment(Date.now());
     setReportBuildRequest((current) => current + 1);
   }, [cancelPendingAutoSave, crmSourceIds, crmSources, draftFilters.dateRange, draftFilters.period, metricSections]);
+
+  const runUnifiedReportBuild = useCallback(() => {
+    if (autoPickIndicators) {
+      buildAutomaticReport({ automaticThresholds: highlightDeviations });
+      return;
+    }
+
+    if (highlightDeviations) {
+      buildReportWithAutomaticThresholds();
+      return;
+    }
+
+    buildReport();
+  }, [
+    autoPickIndicators,
+    buildAutomaticReport,
+    buildReport,
+    buildReportWithAutomaticThresholds,
+    highlightDeviations,
+  ]);
 
   const openDetail = useCallback((
     metric: MetricRow,
@@ -4966,8 +4995,8 @@ function App() {
               <Crown size={18} className={`pro-crown-icon${!isProUser ? ' pro-crown-icon--promo' : ''}`} />
             </TooltipButton>
             <TooltipButton
-              label="Построить отчет"
-              onClick={buildReport}
+              label="Построить отчёт"
+              onClick={runUnifiedReportBuild}
               className="build-report-icon-button"
             >
               <Play size={18} />
@@ -5042,18 +5071,32 @@ function App() {
                   onApply={applyTableSettings}
                   trigger="text"
                 />
-                <button className="left-panel-action-button left-build-button" type="button" onClick={buildReport}>
-                  <Play size={16} />
-                  <span>{buttonLabels.build}</span>
-                </button>
-                <button className="left-panel-action-button left-auto-build-button" type="button" onClick={buildAutomaticReport}>
-                  <Settings2 size={16} />
-                  <span>Собрать отчёт автоматически</span>
-                </button>
-                <button className="left-panel-action-button left-threshold-build-button" type="button" onClick={buildReportWithAutomaticThresholds}>
-                  <SlidersHorizontal size={16} />
-                  <span>Построить с подсветкой отклонений</span>
-                </button>
+                <div className="left-build-controls">
+                  <label className={`left-build-toggle ${autoPickIndicators ? 'is-on' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={autoPickIndicators}
+                      onChange={(event) => setAutoPickIndicators(event.target.checked)}
+                    />
+                    <span>Подобрать показатели автоматически</span>
+                  </label>
+                  <label className={`left-build-toggle ${highlightDeviations ? 'is-on' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={highlightDeviations}
+                      onChange={(event) => setHighlightDeviations(event.target.checked)}
+                    />
+                    <span>Рассчитать коридоры и подсветить отклонения</span>
+                  </label>
+                  <button
+                    className="left-panel-action-button left-build-button"
+                    type="button"
+                    onClick={runUnifiedReportBuild}
+                  >
+                    <Play size={16} />
+                    <span>Построить отчёт</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -5446,7 +5489,7 @@ function App() {
                         className="drag-handle-button employee-drag-handle-button"
                         type="button"
                         draggable
-                        aria-label="РџРµСЂРµС‚Р°С‰РёС‚СЊ СЃРѕС‚СЂСѓРґРЅРёРєР°"
+                        aria-label="Перетащить сотрудника"
                         onDragStart={(event) => handleEmployeeDragStart(row.metric.id, row.employee.id, event)}
                         onDragEnd={() => {
                           draggedEmployeeRef.current = null;
@@ -5471,7 +5514,7 @@ function App() {
                       <button
                         className={`employee-chart-toggle-button ${employeeChartOpen ? 'is-active' : ''}`}
                         type="button"
-                        aria-label={employeeChartOpen ? 'РЎРєСЂС‹С‚СЊ РіСЂР°С„РёРє СЃРѕС‚СЂСѓРґРЅРёРєР°' : 'РџРѕРєР°Р·Р°С‚СЊ РіСЂР°С„РёРє СЃРѕС‚СЂСѓРґРЅРёРєР°'}
+                        aria-label={employeeChartOpen ? 'Скрыть график сотрудника' : 'Показать график сотрудника'}
                         onClick={() => toggleEmployeeChart(row.metric.id, row.employee.id)}
                       >
                         {employeeChartOpen ? <X size={14} /> : <TrendingUp size={14} />}

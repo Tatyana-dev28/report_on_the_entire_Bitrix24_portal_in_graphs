@@ -6,6 +6,8 @@ export type SelectOption<T extends string> = {
   value: T;
   label: string;
   group?: string;
+  disabled?: boolean;
+  hint?: string;
 };
 
 export type MockEmployee = {

@@ -39,7 +39,7 @@ export const LAST_AVAILABLE_MONTH_INDEX = currentDate.getFullYear() * 12 + curre
 export const isProUser = false;
 
 export const buttonLabels = {
-  build: 'Построить отчет',
+  build: 'Построить отчёт',
   download: 'Скачать Excel',
 };
 

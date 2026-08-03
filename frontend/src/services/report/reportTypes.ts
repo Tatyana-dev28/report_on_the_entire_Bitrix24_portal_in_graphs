@@ -26,6 +26,7 @@ export type CrmSource = {
   title: string;
   sourceLabel: string;
   isAvailable: boolean;
+  unavailableReason?: string | null;
 };
 
 export type ReportLoadFilters = {

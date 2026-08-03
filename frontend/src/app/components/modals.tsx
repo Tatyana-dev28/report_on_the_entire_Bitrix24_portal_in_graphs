@@ -367,7 +367,7 @@ export function InstructionModal({ onClose }: { onClose: () => void }) {
             <a href="#instruction-table">Как пользоваться таблицей</a>
             <a href="#instruction-settings">Выбрать показатели</a>
             <a href="#instruction-views">Сохраненные отображения</a>
-            <a href="#instruction-export">Excel Рё PDF</a>
+            <a href="#instruction-export">Excel и PDF</a>
             <a href="#instruction-pro">ПРО версия</a>
             <a href="#instruction-faq">Частые вопросы</a>
           </nav>
@@ -384,22 +384,31 @@ export function InstructionModal({ onClose }: { onClose: () => void }) {
             </p>
             <div className="instruction-demo demo-toolbar">
               <span className="demo-select">Обзор бизнеса</span>
-              <span className="demo-button demo-blue">Построить отчет</span>
+              <span className="demo-button demo-blue">Построить отчёт</span>
               <span className="demo-button demo-green">Скачать Excel</span>
               <span className="demo-button demo-purple">Скачать PDF</span>
             </div>
           </section>
 
           <section className="instruction-section" id="instruction-build">
-            <h2>Как построить отчет</h2>
+            <h2>Как построить отчёт</h2>
             <ol>
               <li>Выберите период в верхней панели.</li>
               <li>Нажмите кнопку <b>Выбрать главный показатель</b>.</li>
               <li>Выберите нужные воронки, лиды, счета или смарт-процессы.</li>
               <li>Выберите, что считать: деньги или количество.</li>
               <li>Нажмите <b>Применить</b>.</li>
-              <li>Нажмите <b>Построить отчет</b>.</li>
+              <li>
+                При необходимости включите переключатели:
+                <b> Подобрать показатели автоматически</b> и/или
+                <b> Рассчитать коридоры и подсветить отклонения</b>.
+              </li>
+              <li>Нажмите <b>Построить отчёт</b>.</li>
             </ol>
+            <p>
+              Переключатели независимы: автоподбор меняет только состав показателей,
+              расчёт коридоров — только границы и подсветку отклонений.
+            </p>
             <div className="instruction-demo demo-card">
               <span className="demo-button demo-soft">Выбрать главный показатель</span>
               <span className="demo-select">Воронка продажи</span>
@@ -517,7 +526,7 @@ export function InstructionModal({ onClose }: { onClose: () => void }) {
           </section>
 
           <section className="instruction-section" id="instruction-export">
-            <h2>Excel Рё PDF</h2>
+            <h2>Excel и PDF</h2>
             <p>
               Excel выгружает таблицу с видимыми разделами и показателями. Если вы скрыли раздел или показатель,
               он не попадет в файл.
@@ -543,7 +552,7 @@ export function InstructionModal({ onClose }: { onClose: () => void }) {
             <h3>Почему названия отличаются от инструкции?</h3>
             <p>Инструкция показывает примеры. В вашем портале воронки, лиды и смарт-процессы могут называться иначе.</p>
             <h3>Почему отчет пустой?</h3>
-            <p>Сначала выберите настройки и нажмите <b>Построить отчет</b>. Также проверьте выбранный период.</p>
+            <p>Сначала выберите настройки и нажмите <b>Построить отчёт</b>. Также проверьте выбранный период.</p>
             <h3>Как скачать отчет?</h3>
             <p>Нажмите <b>Скачать Excel</b> для таблицы или <b>Скачать PDF</b> для визуального отчета.</p>
             <h3>Как открыть детализацию?</h3>

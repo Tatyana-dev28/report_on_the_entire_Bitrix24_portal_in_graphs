@@ -58,6 +58,7 @@ def normalize_report_filters(payload: dict) -> dict:
         "selectedMetricIds": selected_metric_ids,
         "metricMode": payload.get("metricMode"),
         "chartDisplayMode": payload.get("chartDisplayMode"),
+        "schedule": _normalize_schedule(payload.get("schedule")),
     }
 
 
@@ -141,4 +142,52 @@ def _normalize_date_range(value: Any) -> dict:
     return {
         "from": value.get("from") or value.get("start") or value.get("startDate"),
         "to": value.get("to") or value.get("end") or value.get("endDate"),
+    }
+
+
+def _normalize_schedule(value: Any) -> dict:
+    if value is None:
+        return {
+            "workdayStart": "",
+            "workdayEnd": "",
+            "weekendDayIds": [],
+            "calendarWeekStart": 0,
+        }
+
+    if not isinstance(value, dict):
+        raise ReportPreviewSessionError("Поле schedule должно быть JSON-объектом.")
+
+    weekend_day_ids: list[int] = []
+    raw_weekend_days = value.get("weekendDayIds") or []
+
+    if not isinstance(raw_weekend_days, list):
+        raise ReportPreviewSessionError("Поле schedule.weekendDayIds должно быть массивом.")
+
+    for item in raw_weekend_days:
+        try:
+            day_id = int(item)
+        except (TypeError, ValueError) as error:
+            raise ReportPreviewSessionError(
+                "Поле schedule.weekendDayIds должно содержать числа 0–6.",
+            ) from error
+
+        if day_id < 0 or day_id > 6:
+            continue
+
+        if day_id not in weekend_day_ids:
+            weekend_day_ids.append(day_id)
+
+    try:
+        calendar_week_start = int(value.get("calendarWeekStart") or 0)
+    except (TypeError, ValueError):
+        calendar_week_start = 0
+
+    if calendar_week_start < 0 or calendar_week_start > 6:
+        calendar_week_start = 0
+
+    return {
+        "workdayStart": str(value.get("workdayStart") or ""),
+        "workdayEnd": str(value.get("workdayEnd") or ""),
+        "weekendDayIds": weekend_day_ids,
+        "calendarWeekStart": calendar_week_start,
     }

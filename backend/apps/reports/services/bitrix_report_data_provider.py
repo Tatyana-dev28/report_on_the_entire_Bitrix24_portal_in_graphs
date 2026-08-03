@@ -124,6 +124,7 @@ class BitrixReportDataProvider:
             date_from,
             date_to,
             portal=context.portal,
+            schedule=filters.get("schedule") or {},
         )
 
         selected_sources = resolve_selected_sources_for_portal(
@@ -1091,7 +1092,7 @@ def _value_state_for_bitrix_error(error: BitrixRestError) -> dict[str, str]:
 
     return {
         "reason": "load_error",
-        "message": "Не удалось загрузить данные",
+        "message": "Не удалось получить данные",
     }
 
 
@@ -1712,17 +1713,20 @@ def build_period_buckets(
     date_to: datetime,
     *,
     portal: Any | None = None,
+    schedule: dict | None = None,
 ) -> list[PeriodBucket]:
+    schedule = schedule or {}
+
     if period == "hours":
-        return _build_hour_buckets(date_from, date_to, portal=portal)
+        return _build_hour_buckets(date_from, date_to, portal=portal, schedule=schedule)
 
     if period == "weeks":
-        return _build_week_buckets(date_from, date_to, portal=portal)
+        return _build_week_buckets(date_from, date_to, portal=portal, schedule=schedule)
 
     if period == "months":
         return _build_month_buckets(date_from, date_to, portal=portal)
 
-    return _build_day_buckets(date_from, date_to, portal=portal)
+    return _build_day_buckets(date_from, date_to, portal=portal, schedule=schedule)
 
 
 def _build_bucket_values(
@@ -2041,12 +2045,25 @@ def _is_partial_interval(
     return start <= now < natural_end
 
 
+def _monday_based_day_id(value: datetime) -> int:
+    # Monday=0 … Sunday=6
+    return value.weekday()
+
+
+def _align_to_week_start(value: datetime, calendar_week_start: int) -> datetime:
+    week_start = calendar_week_start % 7
+    delta = (_monday_based_day_id(value) - week_start) % 7
+    return value - timedelta(days=delta)
+
+
 def _build_hour_buckets(
     date_from: datetime,
     date_to: datetime,
     *,
     portal: Any | None = None,
+    schedule: dict | None = None,
 ) -> list[PeriodBucket]:
+    del schedule  # Hour window is applied on the frontend so Apply works without rebuild.
     buckets = []
     cursor = date_from.replace(minute=0, second=0, microsecond=0)
 
@@ -2078,7 +2095,9 @@ def _build_day_buckets(
     date_to: datetime,
     *,
     portal: Any | None = None,
+    schedule: dict | None = None,
 ) -> list[PeriodBucket]:
+    del schedule  # Weekends are filtered on the frontend so Apply works without rebuild.
     buckets = []
     cursor = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -2110,9 +2129,14 @@ def _build_week_buckets(
     date_to: datetime,
     *,
     portal: Any | None = None,
+    schedule: dict | None = None,
 ) -> list[PeriodBucket]:
     buckets = []
-    cursor = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+    calendar_week_start = int((schedule or {}).get("calendarWeekStart") or 0)
+    cursor = _align_to_week_start(
+        date_from.replace(hour=0, minute=0, second=0, microsecond=0),
+        calendar_week_start,
+    )
 
     while cursor <= date_to:
         natural_end = cursor + timedelta(days=7) - timedelta(microseconds=1)

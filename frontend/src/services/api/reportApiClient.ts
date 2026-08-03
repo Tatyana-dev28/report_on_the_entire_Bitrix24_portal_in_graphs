@@ -41,6 +41,11 @@ export type PortalEmployeeItem = {
     firstName: string;
     lastName: string;
     avatarUrl: string | null;
+    isActive?: boolean;
+    isRobot?: boolean;
+    isTechnical?: boolean;
+    workPosition?: string | null;
+    department?: string | null;
 };
 
 export type PortalEmployeesResponse = {

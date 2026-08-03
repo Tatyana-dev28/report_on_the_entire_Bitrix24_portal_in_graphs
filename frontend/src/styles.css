@@ -18,7 +18,7 @@
   --row-height: 42px;
   --section-row-height: 44px;
   --employee-row-height: 40px;
-  --chart-row-height: 190px;
+  --chart-row-height: 210px;
   --indicator-row-height: 48px;
   --scrollbar-row-height: 15px;
   --indicator-row-bg: #eef6ff;
@@ -374,6 +374,22 @@ button {
   gap: 8px;
   color: #606875;
   font-size: 13px;
+}
+
+.schedule-field.has-error select {
+  border-color: #fca5a5;
+}
+
+.schedule-period-hint {
+  margin: 0;
+  color: #606875;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.schedule-apply-error {
+  display: block;
+  margin: 0 0 8px;
 }
 
 .threshold-field + .threshold-field {
@@ -944,6 +960,76 @@ button {
   padding-bottom: 8px;
 }
 
+.table-settings-display-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 14px 12px;
+  border-bottom: 1px solid #e7edf5;
+}
+
+.table-settings-mode-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.table-settings-mode-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #d9e2ef;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #30343b;
+  font-size: 13px;
+}
+
+.table-settings-mode-option.is-active {
+  border-color: #8bbcff;
+  background: #eef6ff;
+}
+
+.table-settings-mode-option input {
+  margin: 0;
+}
+
+.table-settings-chart-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.table-settings-chart-action {
+  border: 1px solid #d9e2ef;
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  color: #30343b;
+  font-size: 13px;
+}
+
+.table-settings-chart-action:hover,
+.table-settings-chart-action:focus-visible {
+  border-color: #8bbcff;
+  background: #f7fbff;
+}
+
+.row-chart-lazy-host {
+  width: 100%;
+  min-height: 150px;
+}
+
+.row-chart-lazy-placeholder {
+  width: 100%;
+  height: 150px;
+  background: linear-gradient(90deg, #f5f7fa 0%, #eef2f7 50%, #f5f7fa 100%);
+  border-radius: 6px;
+}
+
 .table-settings-sources-block {
   display: flex;
   flex-direction: column;
@@ -1068,7 +1154,8 @@ button {
   position: relative;
   display: grid;
   grid-template-columns: var(--left-column-width) minmax(0, 1fr);
-  overflow: hidden;
+  /* F-18: visible so sticky time header / first column can pin to the viewport. */
+  overflow: visible;
   border: 1px solid transparent;
   border-radius: 22px;
   background: #ffffff;
@@ -1667,6 +1754,47 @@ button {
   pointer-events: none;
 }
 
+.chart-tooltip > p {
+  margin: 0;
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chart-tooltip-summary {
+  margin: 6px 0 0 !important;
+  color: #334155 !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.row-chart-caption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 4px;
+  padding: 0 4px 0 0;
+}
+
+.row-chart-caption-title {
+  min-width: 0;
+  overflow: hidden;
+  color: #30343b;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-chart-caption-unit {
+  flex: 0 0 auto;
+  color: #6a7482;
+  font-size: 11px;
+}
+
 .chart-tooltip > span {
   display: block;
   margin-top: 4px;
@@ -1735,11 +1863,21 @@ button {
   color: #525a66;
 }
 
+/* F-18: keep the time scale visible while scrolling the table vertically. */
+.indicator-left,
+.indicator-viewport {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
 .indicator-left {
   display: flex;
   align-items: center;
   padding: 0 20px;
   line-height: 1;
+  z-index: 41;
+  box-shadow: 1px 0 0 var(--soft-line);
 }
 
 .period-grid {
@@ -1851,6 +1989,47 @@ button {
   color: #a33131;
 }
 
+.report-table-row.is-section-row.has-section-load-error {
+  height: auto;
+  min-height: var(--section-row-height);
+}
+
+.section-load-error {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-height: var(--section-row-height);
+  padding: 6px 12px;
+  color: #a33131;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.section-load-error-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 12px;
+  border: 1px solid #f0b4b4;
+  border-radius: 8px;
+  background: #fff;
+  color: #a33131;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.section-load-error-button:hover:not(:disabled) {
+  background: #fff5f5;
+}
+
+.section-load-error-button:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
 .report-table-row {
   display: grid;
   grid-template-columns: var(--left-column-width) minmax(0, 1fr);
@@ -1904,7 +2083,7 @@ button {
 
 .table-left-cell {
   position: relative;
-  z-index: 10;
+  z-index: 12;
   display: flex;
   height: 100%;
   min-width: 0;
@@ -1950,6 +2129,15 @@ button {
   text-decoration: none;
 }
 
+.employee-person-button.is-static {
+  cursor: default;
+}
+
+.employee-system-spacer {
+  width: 28px;
+  flex: 0 0 auto;
+}
+
 .employee-visibility-checkbox {
   width: 16px;
   height: 16px;
@@ -1965,7 +2153,33 @@ button {
   background: #eef3f8;
 }
 
+.employee-person-button.is-static:hover,
+.employee-person-button.is-static:focus-visible {
+  background: transparent;
+}
+
 .employee-person-button > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-table-row.is-employee-sum-hint {
+  background: #fffbeb;
+}
+
+.employee-sum-hint-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 14px 8px 20px;
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.employee-sum-hint-cell > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2038,6 +2252,13 @@ button {
   background: transparent;
   color: #8a94a3;
   padding: 0;
+}
+
+/* TooltipButton adds .icon-button (42px); keep row action icons compact. */
+.more-menu-button.icon-button {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
 }
 
 .drag-handle-button {
@@ -2224,7 +2445,7 @@ button {
 
 .row-employee-selector {
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
   gap: 8px;
   max-height: 600px;
   min-width: 0;
@@ -2284,10 +2505,36 @@ button {
   background: #188646;
 }
 
+.employee-selector-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #606875;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.employee-selector-inactive-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #4b5563;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.employee-selector-inactive-toggle input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--blue);
+}
+
 .employee-selector-list {
   display: grid;
   min-height: 0;
-  max-height: 460px;
+  max-height: 430px;
   overflow: auto;
   gap: 2px;
   padding-right: 2px;
@@ -2303,6 +2550,10 @@ button {
   padding: 8px;
 }
 
+.employee-selector-option.is-robot {
+  background: #f8fafc;
+}
+
 .employee-selector-option:hover {
   background: #f4f7fb;
 }
@@ -2315,11 +2566,81 @@ button {
   accent-color: var(--blue);
 }
 
-.employee-selector-option span {
+.employee-selector-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.employee-selector-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.employee-selector-option-text {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.employee-selector-option-name {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.employee-selector-option-name > span:first-child {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.employee-selector-option-meta {
+  min-width: 0;
+  overflow: hidden;
+  color: #6b7280;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.employee-selector-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.employee-selector-badge.is-robot {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.employee-selector-badge.is-technical {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+.employee-selector-badge.is-inactive {
+  background: #fff7ed;
+  color: #c2410c;
 }
 
 .employee-selector-empty {
@@ -2449,6 +2770,20 @@ button {
 .value-cell-button:hover,
 .value-cell-button:focus-visible {
   background: #f6f8fb;
+  cursor: pointer;
+}
+
+.value-cell-button.is-disabled,
+.value-cell-button:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.value-cell-button.is-disabled:hover,
+.value-cell-button:disabled:hover,
+.value-cell-button.is-disabled:focus-visible,
+.value-cell-button:disabled:focus-visible {
+  background: transparent;
 }
 
 .value-cell-button:hover .value-cell-badge,
@@ -2456,6 +2791,11 @@ button {
   text-decoration: underline;
   text-decoration-color: rgba(91, 105, 123, 0.55);
   text-underline-offset: 3px;
+}
+
+.value-cell-button.is-disabled:hover .value-cell-badge,
+.value-cell-button:disabled:hover .value-cell-badge {
+  text-decoration: none;
 }
 
 .value-cell-badge {
@@ -2712,6 +3052,14 @@ button {
     background 160ms ease,
     color 160ms ease,
     transform 160ms ease;
+}
+
+/* TooltipButton adds icon-button; keep scroll arrow chrome dominant. */
+.scroll-button.icon-button {
+  width: 38px;
+  height: 84px;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .scroll-forward-button {
@@ -3124,6 +3472,8 @@ button {
   color: #2b3038;
   padding: 0 10px;
   overflow-wrap: anywhere;
+  font: inherit;
+  cursor: pointer;
 }
 
 .demo-button.demo-blue {
@@ -3816,6 +4166,20 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.detail-unavailable-cell {
+  display: grid;
+  gap: 2px;
+  align-content: center;
+  color: #6b7280;
+}
+
+.detail-unavailable-cell em {
+  color: #b45309;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
 }
 
 .detail-filler-cell {

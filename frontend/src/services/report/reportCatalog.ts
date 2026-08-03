@@ -297,9 +297,25 @@ export const formatRangeLabel = (period: Period, range: DateRange) => {
     return `${formatShortDate(start)} - ${formatShortDate(end)}`;
 };
 
-const buildWeekPeriods = (start: Date, end: Date) => {
+/** Monday-based day id: 0=Mon … 6=Sun (matches calendarWeekStart). */
+const getMondayBasedDayId = (date: Date) => {
+    const day = date.getDay();
+
+    return day === 0 ? 6 : day - 1;
+};
+
+const alignToWeekStart = (date: Date, calendarWeekStart: number) => {
+    const normalizedStart = ((calendarWeekStart % 7) + 7) % 7;
+    const delta = (getMondayBasedDayId(date) - normalizedStart + 7) % 7;
+    const aligned = startOfDay(date);
+    aligned.setDate(aligned.getDate() - delta);
+
+    return aligned;
+};
+
+const buildWeekPeriods = (start: Date, end: Date, calendarWeekStart = 0) => {
     const periods: Array<{ start: Date; end: Date }> = [];
-    let cursor = startOfDay(start);
+    let cursor = alignToWeekStart(start, calendarWeekStart);
 
     while (!isAfter(cursor, end)) {
         const weekEnd = addDays(cursor, 6);
@@ -323,7 +339,11 @@ const formatWeekLabel = (start: Date, end: Date) => {
     return `${format(start, 'd MMM', { locale: ru })} - ${format(end, 'd MMM', { locale: ru })}`;
 };
 
-export const buildPeriodPoints = (period: Period, range: DateRange): PeriodPoint[] => {
+export const buildPeriodPoints = (
+    period: Period,
+    range: DateRange,
+    options?: { calendarWeekStart?: number },
+): PeriodPoint[] => {
     const { start, end } = normalizeDateRange(range);
 
     if (period === 'hours') {
@@ -338,7 +358,7 @@ export const buildPeriodPoints = (period: Period, range: DateRange): PeriodPoint
     }
 
     if (period === 'weeks') {
-        return buildWeekPeriods(start, end).map((week) => ({
+        return buildWeekPeriods(start, end, options?.calendarWeekStart ?? 0).map((week) => ({
             date: week.start,
             label: formatWeekLabel(week.start, week.end),
             tooltipLabel: `Неделя ${formatShortDate(week.start)} - ${formatShortDate(week.end)}`,
@@ -371,11 +391,9 @@ export const getMonthDateRange = (monthValue: string): DateRange => {
 };
 
 export const formatMoney = (value: number) =>
-    new Intl.NumberFormat('ru-RU', {
-        style: 'currency',
-        currency: 'RUB',
+    `${new Intl.NumberFormat('ru-RU', {
         maximumFractionDigits: 0,
-    }).format(value);
+    }).format(value)} RUB`;
 
 export const formatMetricValue = (value: number, type: MetricRow['type']) => {
     if (type === 'money') {
@@ -383,7 +401,9 @@ export const formatMetricValue = (value: number, type: MetricRow['type']) => {
     }
 
     if (type === 'percent') {
-        return `${value}%`;
+        return `${new Intl.NumberFormat('ru-RU', {
+            maximumFractionDigits: 2,
+        }).format(value)}%`;
     }
 
     return new Intl.NumberFormat('ru-RU').format(value);

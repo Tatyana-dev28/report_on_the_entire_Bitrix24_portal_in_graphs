@@ -14,7 +14,8 @@ import type {
 import { getDefaultRangeForPeriod } from './utils/dateRanges';
 
 export const PERIOD_COLUMN_WIDTH = 96;
-export const MIN_PERIOD_COLUMN_WIDTH = 36;
+/** F-18: keep period columns readable; allow horizontal scroll instead of crushing. */
+export const MIN_PERIOD_COLUMN_WIDTH = 56;
 export const MAX_PERIOD_COLUMN_WIDTH = 136;
 export const CHART_AXIS_WIDTH = 72;
 

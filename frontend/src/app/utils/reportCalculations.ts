@@ -1,5 +1,5 @@
 import { formatMoney, metrics, type MetricRow, type Period, type ReportPoint } from '../../services/report/reportCatalog';
-import type { SourceMetricsData } from '../../services/report/reportTypes';
+import type { SourceMetricsData, ValueStateMap } from '../../services/report/reportTypes';
 import type { ChartMetricMode, MockEmployee, ScheduleFilters } from '../types';
 
 /** Successful/won money metrics that may contribute to the main chart in "sum" mode. */
@@ -398,12 +398,48 @@ const getMondayBasedDayId = (date: Date) => {
   return day === 0 ? 6 : day - 1;
 };
 
+/** Empty start+end = no workday limit. Equal or inverted range is invalid (night shifts unsupported). */
+export const getWorkdayScheduleError = (schedule: ScheduleFilters): string | null => {
+  if (!schedule.workdayStart && !schedule.workdayEnd) {
+    return null;
+  }
+
+  const startMinutes = parseTimeToMinutes(schedule.workdayStart || '00:00');
+  const endMinutes = parseTimeToMinutes(schedule.workdayEnd || '00:00');
+
+  if (endMinutes <= startMinutes) {
+    return 'Конец рабочего дня должен быть позже начала. Ночные смены пока не поддерживаются.';
+  }
+
+  return null;
+};
+
+/** Inclusive start, exclusive end in minutes (05:00–19:00 → hour starts 05:00…18:00). */
+export const getWorkdayMinuteRange = (schedule: ScheduleFilters): { start: number; end: number } | null => {
+  if (!schedule.workdayStart && !schedule.workdayEnd) {
+    return null;
+  }
+
+  if (getWorkdayScheduleError(schedule)) {
+    return null;
+  }
+
+  return {
+    start: parseTimeToMinutes(schedule.workdayStart || '00:00'),
+    end: parseTimeToMinutes(schedule.workdayEnd || '00:00'),
+  };
+};
+
 export const applyScheduleToReportData = (
   data: ReportPoint[],
   period: Period,
   schedule: ScheduleFilters,
 ) => {
   if (period === 'days') {
+    if (schedule.weekendDayIds.length === 0) {
+      return data;
+    }
+
     return data.filter((point) => {
       const date = new Date(point.key);
 
@@ -415,21 +451,18 @@ export const applyScheduleToReportData = (
     return data;
   }
 
-  const startMinutes = parseTimeToMinutes(schedule.workdayStart);
-  const endMinutes = parseTimeToMinutes(schedule.workdayEnd);
+  const range = getWorkdayMinuteRange(schedule);
 
-  if (startMinutes === 0 && endMinutes === 0) {
+  if (!range) {
     return data;
   }
-
-  const minMinutes = Math.min(startMinutes, endMinutes);
-  const maxMinutes = Math.max(startMinutes, endMinutes);
 
   return data.filter((point) => {
     const date = new Date(point.key);
     const minutes = date.getHours() * 60 + date.getMinutes();
 
-    return minutes >= minMinutes && minutes <= maxMinutes;
+    // Hour columns are labeled by interval start; end is exclusive.
+    return minutes >= range.start && minutes < range.end;
   });
 };
 
@@ -439,6 +472,117 @@ export const getChartSeriesValue = (
   metricMode: ChartMetricMode,
   sourceMetrics?: Record<string, SourceMetricsData>,
 ) => getChartSourceContribution(point, source, metricMode, sourceMetrics).value;
+
+const periodHasAnyValueState = (
+  valueStates: ValueStateMap | undefined,
+  periodKey: string,
+  metricIds: string[],
+) => metricIds.some((id) => Boolean(valueStates?.[periodKey]?.[id]));
+
+const pipelineActionIdsForChart = (
+  source: string,
+  metricKey: string,
+  entry: SourceMetricsData,
+) =>
+  Array.from(
+    new Set(
+      [
+        `${source}::${metricKey}`,
+        `${entry.id}::${metricKey}`,
+        `${entry.sourceId}::${metricKey}`,
+        ...(entry.detailSourceIds ?? []).map((sourceId) => `${sourceId}::${metricKey}`),
+      ].filter(Boolean),
+    ),
+  );
+
+/** F-16: chart series value for corridor calc — 0 kept, «—» → NaN. */
+export const getChartSeriesCorridorValue = (
+  point: ReportPoint,
+  source: string,
+  metricMode: ChartMetricMode,
+  sourceMetrics: Record<string, SourceMetricsData> | undefined,
+  valueStates: ValueStateMap | undefined,
+): number => {
+  const contribution = getChartSourceContribution(point, source, metricMode, sourceMetrics);
+
+  if (contribution.kind === 'pipeline') {
+    const entry = findSourceMetricsEntry(sourceMetrics, source);
+    const metricKey = getSourceChartMetricKey(entry?.metrics, metricMode);
+
+    if (!entry || !metricKey) {
+      return contribution.value;
+    }
+
+    if (periodHasAnyValueState(valueStates, point.key, pipelineActionIdsForChart(source, metricKey, entry))) {
+      return Number.NaN;
+    }
+
+    return contribution.value;
+  }
+
+  if (!contribution.metricId) {
+    return contribution.value;
+  }
+
+  if (periodHasAnyValueState(valueStates, point.key, [contribution.metricId])) {
+    return Number.NaN;
+  }
+
+  return contribution.value;
+};
+
+/** F-16: chart sum for corridor calc — skips «—» contributions; 0 still counts. */
+export const getChartSumCorridorValue = (
+  point: ReportPoint,
+  sources: string[],
+  metricMode: ChartMetricMode,
+  sourceMetrics: Record<string, SourceMetricsData> | undefined,
+  valueStates: ValueStateMap | undefined,
+): number => {
+  const crmMetricIds = new Set<string>();
+  let pipelineSum = 0;
+  let hasFinitePart = false;
+
+  for (const source of sources) {
+    const contribution = getChartSourceContribution(point, source, metricMode, sourceMetrics);
+
+    if (contribution.kind === 'pipeline') {
+      const entry = findSourceMetricsEntry(sourceMetrics, source);
+      const metricKey = getSourceChartMetricKey(entry?.metrics, metricMode);
+
+      if (!entry || !metricKey) {
+        hasFinitePart = true;
+        pipelineSum += contribution.value;
+        continue;
+      }
+
+      if (periodHasAnyValueState(valueStates, point.key, pipelineActionIdsForChart(source, metricKey, entry))) {
+        continue;
+      }
+
+      hasFinitePart = true;
+      pipelineSum += contribution.value;
+      continue;
+    }
+
+    if (contribution.metricId) {
+      if (periodHasAnyValueState(valueStates, point.key, [contribution.metricId])) {
+        continue;
+      }
+
+      crmMetricIds.add(contribution.metricId);
+    }
+  }
+
+  let sum = pipelineSum;
+
+  for (const metricId of crmMetricIds) {
+    hasFinitePart = true;
+    sum += readMetricValue(point.values, metricId);
+  }
+
+  return hasFinitePart || crmMetricIds.size > 0 ? sum : Number.NaN;
+};
 export const formatMainChartValue = (value: number, metricMode: ChartMetricMode) => {
   if (metricMode === 'money') {
     return formatMoney(value);

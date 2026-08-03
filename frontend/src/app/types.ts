@@ -18,6 +18,11 @@ export type MockEmployee = {
   lastName: string;
   avatarUrl?: string;
   values?: Record<string, number>;
+  isActive?: boolean;
+  isRobot?: boolean;
+  isTechnical?: boolean;
+  workPosition?: string | null;
+  department?: string | null;
 };
 
 export type ReportEmployee = MockEmployee & EmployeeMetricItem;
@@ -46,6 +51,16 @@ export type TableRow =
       sourceId?: string;
       detailSourceIds?: string[];
       detailMetricIds?: string[];
+      /** Synthetic residual / unassigned rows are not removable via checkbox. */
+      isSystemDetail?: boolean;
+    }
+  | {
+      kind: 'employee_sum_hint';
+      rowId: string;
+      sectionId: string;
+      metric: MetricRow;
+      message: string;
+      sourceId?: string;
     }
   | {
       kind: 'chart';
@@ -99,6 +114,9 @@ export type RecommendedThresholdValues = {
 };
 
 export type ChartDisplayMode = 'sum' | 'separate';
+
+/** F-17: table row charts — compact (numbers only) vs charts under selected rows. */
+export type TableRowChartsMode = 'compact' | 'with_charts';
 
 export type ChartMetricMode = 'money' | 'count';
 
@@ -160,6 +178,8 @@ export type DetailRow = {
   navigationEntityId?: string | number;
   navigationEntityType?: BitrixEntityType;
   navigationEntityTypeId?: string | number;
+  /** Set when the entity cannot be opened in Bitrix24 after the report was built. */
+  availability?: 'ok' | 'unavailable' | 'access_denied';
 };
 
 export type DetailColumnKey = 'rowNumber' | 'entityId' | 'title' | 'responsibleName' | 'createdAt';
@@ -201,6 +221,8 @@ export type SavedReportViewState = {
   expandedEmployeeMetricIds?: string[];
   expandedChartMetricIds?: string[];
   expandedEmployeeChartIds?: string[];
+  /** F-17: compact table vs row charts under selected metrics/employees. */
+  tableRowChartsMode?: TableRowChartsMode;
 };
 
 export type SavedReportViewOption = SelectOption<string> & {

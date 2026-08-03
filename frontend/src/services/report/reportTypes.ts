@@ -37,6 +37,12 @@ export type ReportLoadFilters = {
   selectedMetricIds?: string[];
   metricMode?: 'money' | 'count';
   chartDisplayMode?: 'sum' | 'separate';
+  schedule?: {
+    workdayStart?: string;
+    workdayEnd?: string;
+    weekendDayIds?: number[];
+    calendarWeekStart?: number;
+  };
 };
 
 export type MetricDetailsRequest = {
@@ -94,6 +100,11 @@ export type EmployeeMetricItem = {
   values?: Record<string, number>;
   valuesByPeriod?: Record<string, Record<string, number>>;
   periodValues?: EmployeeMetricPeriodValue[];
+  isActive?: boolean;
+  isRobot?: boolean;
+  isTechnical?: boolean;
+  workPosition?: string | null;
+  department?: string | null;
 };
 
 export type ReportPreviewPayload = {

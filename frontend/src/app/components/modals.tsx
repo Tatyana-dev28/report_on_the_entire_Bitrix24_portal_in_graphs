@@ -14,9 +14,9 @@ import { formatMetricValue } from '../../services/report/reportCatalog';
 import { defaultDetailColumnWidths, detailColumnMinWidthSum, detailColumns } from '../constants';
 import type { AppSettings, DetailColumnKey, DetailContext, DetailRow, DetailSort, ReportEmployee } from '../types';
 import { TooltipButton, useOutsideClose } from './common';
-import { bitrixEntityLabels, getBitrixDetailRowPath, openBitrixDetailRow, openBitrixUser } from '../utils/bitrixNavigation';
+import { getBitrixDetailRowPath, openBitrixDetailRow, openBitrixUser } from '../utils/bitrixNavigation';
 import { normalizeDetailColumnWidths, resizeDetailColumnWidths, sumDetailColumnWidths } from '../utils/detailColumns';
-import { compareDetailValues } from '../utils/detailRows';
+import { compareDetailValues, formatDetailContextSummary } from '../utils/detailRows';
 import type { BillingPlan } from '../../services/api/billingApiClient';
 
 export function SaveViewModal({
@@ -347,18 +347,25 @@ export function ProVersionModal({
   );
 }
 
-export function InstructionModal({ onClose }: { onClose: () => void }) {
+export function InstructionModal({
+  onClose,
+  onStartTips,
+}: {
+  onClose: () => void;
+  onStartTips?: () => void;
+}) {
   return (
     <div className="modal-layer instruction-modal-layer" role="presentation">
-      <div className="modal-panel instruction-modal-panel" role="dialog" aria-modal="true">
+      <div className="modal-panel instruction-modal-panel" role="dialog" aria-modal="true" aria-label="Как читать отчёт">
         <div className="modal-head">
-          <p>Инструкция</p>
-          <button className="icon-button" type="button" aria-label="Закрыть окно" onClick={onClose}>
+          <p>Как читать отчёт</p>
+          <button className="icon-button" type="button" aria-label="Закрыть окно" title="Закрыть" onClick={onClose}>
             <X size={18} />
           </button>
         </div>
         <div className="instruction-content">
           <nav className="instruction-nav" aria-label="Разделы инструкции">
+            <a href="#instruction-tips">Короткие подсказки</a>
             <a href="#instruction-about">Что делает приложение</a>
             <a href="#instruction-build">Как построить отчет</a>
             <a href="#instruction-crm">Почему у всех разные воронки</a>
@@ -371,6 +378,35 @@ export function InstructionModal({ onClose }: { onClose: () => void }) {
             <a href="#instruction-pro">ПРО версия</a>
             <a href="#instruction-faq">Частые вопросы</a>
           </nav>
+
+          <section className="instruction-section" id="instruction-tips">
+            <h2>Короткие подсказки</h2>
+            <p>
+              Три шага помогают быстро понять отчёт: главный показатель, коридор с цветами и клик по числу
+              для детализации. Подсказки показываются один раз после первого построения и не перекрывают данные.
+            </p>
+            <ol>
+              <li><b>Главный показатель</b> — ключевая линия графика за выбранный период.</li>
+              <li><b>Коридор и цвета</b> — границы нормы и подсветка отклонений по направлению показателя.</li>
+              <li>
+                <b>Клик по числу</b> — откроет звонки, лиды или сделки, из которых сформировано значение.
+              </li>
+            </ol>
+            {onStartTips && (
+              <div className="instruction-demo demo-card">
+                <button
+                  className="demo-button demo-blue"
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onStartTips();
+                  }}
+                >
+                  Показать короткие подсказки
+                </button>
+              </div>
+            )}
+          </section>
 
           <section className="instruction-section" id="instruction-about">
             <h2>Что делает приложение</h2>
@@ -493,8 +529,8 @@ export function InstructionModal({ onClose }: { onClose: () => void }) {
               показать сотрудников, раскрыть график строки или настроить коридор показателя.
             </p>
             <p>
-              Нажмите на цифру, чтобы открыть детализацию. Если значение обрезано, наведите курсор — появится
-              подсказка с полным значением.
+              Нажмите на цифру, чтобы открыть детализацию: звонки, лиды или сделки, из которых она
+              сформирована. Если значение обрезано, наведите курсор — появится подсказка с полным значением.
             </p>
             <div className="instruction-demo demo-table-row">
               <span>Сумма успешных сделок</span>
@@ -773,6 +809,9 @@ export function DetailModal({
   const [columnWidths, setColumnWidths] = useState<Record<DetailColumnKey, number>>(
     () => ({ ...defaultDetailColumnWidths }),
   );
+  const [rowAvailability, setRowAvailability] = useState<
+    Record<string, 'ok' | 'unavailable' | 'access_denied'>
+  >({});
   const resizeStateRef = useRef<{
     key: DetailColumnKey;
     startX: number;
@@ -858,6 +897,10 @@ export function DetailModal({
     [],
   );
 
+  useEffect(() => {
+    setRowAvailability({});
+  }, [context.metric.id, context.point.key, context.employee?.id, context.sourceId]);
+
   const toggleSort = (key: DetailColumnKey) => {
     setSort((current) => ({
       key,
@@ -866,12 +909,7 @@ export function DetailModal({
   };
 
   const detailExportTitle = `Детализация: ${context.metric.label}`;
-  const detailExportSummary = [
-    context.point.label,
-    formatMetricValue(context.value, context.metric.type),
-    bitrixEntityLabels[context.entityType],
-    context.employee ? `${context.employee.firstName} ${context.employee.lastName}` : '',
-  ].filter(Boolean).join(' · ');
+  const detailExportSummary = formatDetailContextSummary(context);
   const detailExportFilenameBase = `detail-${context.metric.id}-${context.point.key}`
     .replace(/[\\/:*?"<>|]+/g, '-')
     .replace(/\s+/g, '-')
@@ -1075,10 +1113,7 @@ export function DetailModal({
         <div className="detail-head">
           <div>
             <p id="detail-title">Детализация: {context.metric.label}</p>
-            <span>
-              {context.point.label} · {formatMetricValue(context.value, context.metric.type)} · {bitrixEntityLabels[context.entityType]}
-              {context.employee ? ` · ${context.employee.firstName} ${context.employee.lastName}` : ''}
-            </span>
+            <span>{formatDetailContextSummary(context)}</span>
           </div>
           <div className="detail-head-actions">
             {hasRows && (
@@ -1126,35 +1161,65 @@ export function DetailModal({
             <div className="detail-filler-cell detail-header-filler" aria-hidden="true" />
 
             {sortedRows.map((row) => {
+              const rowKey = `${row.entityType}-${row.sourceId ?? 'source'}-${row.entityId}-${row.rowNumber}`;
               const entityPath = getBitrixDetailRowPath(row);
-              const canOpenEntity = Boolean(entityPath);
+              const availability: 'ok' | 'unavailable' | 'access_denied' =
+                rowAvailability[rowKey]
+                ?? row.availability
+                ?? (entityPath ? 'ok' : 'unavailable');
+              const canOpenEntity = availability === 'ok' && Boolean(entityPath);
               const canOpenResponsible = Number.isFinite(row.responsibleId) && row.responsibleId > 0;
               const entityLabel = row.entityRawId || row.entityId || '-';
+              const availabilityLabel =
+                availability === 'access_denied'
+                  ? 'Нет доступа'
+                  : availability === 'unavailable'
+                    ? 'Объект недоступен'
+                    : null;
+
+              const handleOpenEntity = () => {
+                openBitrixDetailRow(row, (result) => {
+                  if (result === 'opened') {
+                    return;
+                  }
+
+                  setRowAvailability((current) => ({
+                    ...current,
+                    [rowKey]: result,
+                  }));
+                });
+              };
 
               return (
-                <div className="detail-row-contents" role="row" key={`${row.entityType}-${row.sourceId ?? 'source'}-${row.entityId}-${row.rowNumber}`}>
+                <div className="detail-row-contents" role="row" key={rowKey}>
                   <div className="detail-cell">{row.rowNumber}</div>
                   {canOpenEntity ? (
                     <button
                       className="detail-cell detail-action-cell"
                       type="button"
-                      onClick={() => openBitrixDetailRow(row)}
+                      onClick={handleOpenEntity}
                     >
                       {entityLabel}
                     </button>
                   ) : (
-                    <div className="detail-cell">{entityLabel}</div>
+                    <div className="detail-cell detail-unavailable-cell" title={availabilityLabel ?? undefined}>
+                      {entityLabel}
+                      {availabilityLabel ? <em>{availabilityLabel}</em> : null}
+                    </div>
                   )}
                   {canOpenEntity ? (
                     <button
                       className="detail-cell detail-action-cell detail-title-cell"
                       type="button"
-                      onClick={() => openBitrixDetailRow(row)}
+                      onClick={handleOpenEntity}
                     >
                       {row.title}
                     </button>
                   ) : (
-                    <div className="detail-cell detail-title-cell">{row.title}</div>
+                    <div className="detail-cell detail-title-cell detail-unavailable-cell" title={availabilityLabel ?? undefined}>
+                      {row.title}
+                      {availabilityLabel ? <em>{availabilityLabel}</em> : null}
+                    </div>
                   )}
                   {canOpenResponsible ? (
                     <button
@@ -1177,7 +1242,11 @@ export function DetailModal({
         ) : (
           <div className="detail-empty-state">
             <p>По этому значению нет строк для просмотра</p>
-            <span>Сейчас здесь нечего раскрывать: за выбранный период и показатель нет отдельных CRM-элементов. Если значение больше нуля, нажмите на него в таблице отчета.</span>
+            <span>
+              {context.value > 0
+                ? 'Число в отчёте сохраняется до явного перестроения. Сущности могли быть удалены или недоступны по правам («Нет доступа»).'
+                : 'За выбранный период и показатель нет отдельных CRM-элементов.'}
+            </span>
           </div>
         )}
       </section>

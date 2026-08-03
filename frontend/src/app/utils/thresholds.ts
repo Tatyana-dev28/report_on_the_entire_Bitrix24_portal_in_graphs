@@ -1,8 +1,28 @@
 import type { MetricRow } from '../../services/report/reportCatalog';
+import type { ValueState } from '../../services/report/reportTypes';
 import type { MetricDirection } from '../config/metricDirections';
 import type { ChartMetricMode, RecommendedThresholdValues, ThresholdValues } from '../types';
 
 export const EMPTY_CORRIDOR_PLACEHOLDER = '—';
+
+/**
+ * F-16: map a cell to corridor input.
+ * 0 is a real observation and must participate; «—» (state / non-finite) becomes NaN and is dropped.
+ */
+export const toCorridorValue = (
+  value: number | undefined | null,
+  state?: ValueState | null,
+): number => {
+  if (state) {
+    return Number.NaN;
+  }
+
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return Number.NaN;
+  }
+
+  return value;
+};
 
 export function parseThreshold(value: string) {
   if (!value.trim()) {
@@ -125,7 +145,7 @@ export const calculateRecommendedThresholds = (
   values: number[],
   type: MetricRow['type'] | ChartMetricMode = 'number',
 ): RecommendedThresholdValues => {
-  // Zero is a real value and must participate; only drop non-finite.
+  // F-16: 0 participates in the corridor; NaN/«—» (via toCorridorValue) do not.
   const validValues = values.filter((value) => Number.isFinite(value));
 
   if (!validValues.length) {
@@ -296,6 +316,67 @@ export const getThresholdDeviationTooltip = (
   return null;
 };
 
+/** F-19: evaluation wording for chart/cell tooltips when direction is set. */
+export const getDeviationEvaluationLabel = (
+  side: ThresholdDeviationSide | null,
+  direction: MetricDirection = 'none',
+): string | null => {
+  if (!side || direction === 'none') {
+    return null;
+  }
+
+  if (direction === 'range_normal') {
+    return 'вне нормального диапазона';
+  }
+
+  if (direction === 'higher_better') {
+    return side === 'above' ? 'положительное отклонение' : 'отрицательное отклонение';
+  }
+
+  if (direction === 'lower_better') {
+    return side === 'below' ? 'положительное отклонение' : 'отрицательное отклонение';
+  }
+
+  return null;
+};
+
+/**
+ * F-19 chart point note: «выше верхней границы 78,88; положительное отклонение».
+ */
+export const formatChartCorridorTooltipNote = (
+  value: number,
+  threshold: ThresholdValues | undefined,
+  direction: MetricDirection,
+  formatValue: (value: number) => string,
+): string | null => {
+  const side = getThresholdDeviationSide(value, threshold);
+  const upper = parseThreshold(threshold?.upper ?? '');
+  const lower = parseThreshold(threshold?.lower ?? '');
+
+  if (side === 'above') {
+    const bound = upper !== null ? ` ${formatValue(upper)}` : '';
+    const evaluation = getDeviationEvaluationLabel(side, direction);
+    return evaluation
+      ? `выше верхней границы${bound}; ${evaluation}`
+      : `выше верхней границы${bound}`;
+  }
+
+  if (side === 'below') {
+    const bound = lower !== null ? ` ${formatValue(lower)}` : '';
+    const evaluation = getDeviationEvaluationLabel(side, direction);
+    return evaluation
+      ? `ниже нижней границы${bound}; ${evaluation}`
+      : `ниже нижней границы${bound}`;
+  }
+
+  if (direction === 'range_normal' && upper !== null && lower !== null
+    && Number.isFinite(value) && value >= lower && value <= upper) {
+    return 'внутри нормального диапазона';
+  }
+
+  return null;
+};
+
 export const getThresholdClass = (
   value: number,
   threshold?: ThresholdValues,
@@ -351,11 +432,17 @@ export const appendThresholdTooltip = (
   threshold?: ThresholdValues,
   direction: MetricDirection = 'none',
 ) => {
-  const reason = getThresholdDeviationTooltip(value, threshold, direction);
-  if (!reason) {
+  const note = formatChartCorridorTooltipNote(
+    value,
+    threshold,
+    direction,
+    (bound) => new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(bound),
+  ) ?? getThresholdDeviationTooltip(value, threshold, direction);
+
+  if (!note) {
     return baseTooltip;
   }
 
   const base = (baseTooltip ?? '').trim();
-  return base ? `${base} · ${reason}` : reason;
+  return base ? `${base} · ${note}` : note;
 };

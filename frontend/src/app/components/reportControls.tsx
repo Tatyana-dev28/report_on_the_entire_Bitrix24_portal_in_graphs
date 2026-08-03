@@ -56,6 +56,7 @@ import type {
   SavedReportViewOption,
   ScheduleFilters,
   SelectOption,
+  TableRowChartsMode,
   ThresholdValues,
 } from '../types';
 import { ChartPointTooltip, HoverChartDot } from './charts';
@@ -71,7 +72,16 @@ import {
   monthIndex,
   toMonthInputValue,
 } from '../utils/dateRanges';
-import { formatAxisTick, getChartDomain } from '../utils/reportCalculations';
+import {
+  formatAxisTick,
+  getChartDomain,
+  getWorkdayScheduleError,
+} from '../utils/reportCalculations';
+import {
+  getEmployeeFullName,
+  getEmployeeInitials,
+  getEmployeeSecondaryLabel,
+} from '../utils/employees';
 import {
   METRIC_DIRECTION_OPTIONS,
   type MetricDirection,
@@ -82,6 +92,7 @@ import {
   getAppliedThresholdItems,
   getThresholdAverage,
   getThresholdLineLabel,
+  formatChartCorridorTooltipNote,
   hasCorridorValidationErrors,
   isManualThreshold,
   parseThreshold,
@@ -223,6 +234,7 @@ export function SavedViewsSelect({
                       className="saved-view-more-button"
                       type="button"
                       aria-label="Действия отображения"
+                      title="Действия отображения"
                       onClick={(event) => {
                         event.stopPropagation();
                         setActionsOpenFor((current) => (current === option.value ? null : option.value));
@@ -789,12 +801,20 @@ export function TableSettingsMenu({
   crmSourceOptions,
   onSourcesChange,
   onApply,
+  tableRowChartsMode = 'compact',
+  onTableRowChartsModeChange,
+  onExpandAllRowCharts,
+  onCollapseAllRowCharts,
   trigger = 'icon',
 }: {
   selectedSources: string[];
   crmSourceOptions: SelectOption<string>[];
   onSourcesChange: (values: string[]) => void;
   onApply: () => void;
+  tableRowChartsMode?: TableRowChartsMode;
+  onTableRowChartsModeChange?: (mode: TableRowChartsMode) => void;
+  onExpandAllRowCharts?: () => void;
+  onCollapseAllRowCharts?: () => void;
   trigger?: 'icon' | 'text';
 }) {
   const [open, setOpen] = useState(false);
@@ -810,7 +830,7 @@ export function TableSettingsMenu({
     <div className={`menu-button-shell ${open ? 'is-open' : ''}`} ref={ref}>
       {trigger === 'icon' ? (
         <TooltipButton
-          label="Выбрать показатели"
+          label="Настройки таблицы"
           onClick={() => setOpen((current) => !current)}
           className={open ? 'active-pin' : ''}
         >
@@ -824,7 +844,7 @@ export function TableSettingsMenu({
           onClick={() => setOpen((current) => !current)}
         >
           <Settings2 size={16} />
-          <span>Выбрать показатели</span>
+          <span>Настройки таблицы</span>
         </button>
       )}
       {open && (
@@ -834,20 +854,67 @@ export function TableSettingsMenu({
           open={open}
           className="settings-popover table-settings-popover"
           expectedWidth={300}
-          expectedHeight={660}
+          expectedHeight={760}
         >
           <div className="table-settings-head">
-            <p>Выбрать показатели</p>
+            <p>Настройки таблицы</p>
             <button
               className="row-menu-close"
               type="button"
-              aria-label="Закрыть выбор показателей"
+              aria-label="Закрыть настройки таблицы"
               onClick={() => setOpen(false)}
             >
               <X size={14} />
             </button>
           </div>
+          <div className="table-settings-display-block">
+            <p className="table-settings-group-title">Отображение строк</p>
+            <p className="table-settings-group-hint">
+              Компактный — только числа. С графиками — графики под выбранными строками.
+            </p>
+            <div className="table-settings-mode-options" role="radiogroup" aria-label="Режим отображения таблицы">
+              <label className={`table-settings-mode-option ${tableRowChartsMode === 'compact' ? 'is-active' : ''}`}>
+                <input
+                  type="radio"
+                  name="table-row-charts-mode"
+                  checked={tableRowChartsMode === 'compact'}
+                  onChange={() => onTableRowChartsModeChange?.('compact')}
+                />
+                <span>Компактный</span>
+              </label>
+              <label className={`table-settings-mode-option ${tableRowChartsMode === 'with_charts' ? 'is-active' : ''}`}>
+                <input
+                  type="radio"
+                  name="table-row-charts-mode"
+                  checked={tableRowChartsMode === 'with_charts'}
+                  onChange={() => onTableRowChartsModeChange?.('with_charts')}
+                />
+                <span>С графиками</span>
+              </label>
+            </div>
+            <div className="table-settings-chart-actions">
+              <button
+                className="table-settings-chart-action"
+                type="button"
+                onClick={() => {
+                  onExpandAllRowCharts?.();
+                }}
+              >
+                Развернуть все графики
+              </button>
+              <button
+                className="table-settings-chart-action"
+                type="button"
+                onClick={() => {
+                  onCollapseAllRowCharts?.();
+                }}
+              >
+                Свернуть все графики
+              </button>
+            </div>
+          </div>
           <div className="table-settings-sources-block">
+            <p className="table-settings-group-title">Выбрать показатели</p>
             <MultiSelect
               variant="inline"
               values={selectedSources}
@@ -899,6 +966,7 @@ export function ConfigureChartMenu({
 }) {
   const chartMenuGroup = 'configure-chart';
   const [open, setOpen] = useState(false);
+  const [scheduleApplyError, setScheduleApplyError] = useState('');
   const [draftSettings, setDraftSettings] = useState<ChartDraftSettings>(() => ({
     selectedSources: [...filters.selectedSources],
     chartDisplayMode: filters.chartDisplayMode,
@@ -932,6 +1000,7 @@ export function ConfigureChartMenu({
   };
 
   const openMenu = () => {
+    setScheduleApplyError('');
     setDraftSettings({
       selectedSources: [...filters.selectedSources],
       chartDisplayMode: filters.chartDisplayMode,
@@ -945,6 +1014,15 @@ export function ConfigureChartMenu({
   };
 
   const applySettings = ({ closeMenu = true }: { closeMenu?: boolean } = {}) => {
+    const workdayError =
+      filters.period === 'hours' ? getWorkdayScheduleError(draftSettings.schedule) : null;
+
+    if (workdayError) {
+      setScheduleApplyError(workdayError);
+      return;
+    }
+
+    setScheduleApplyError('');
     onApply({
       selectedSources: [...draftSettings.selectedSources],
       chartDisplayMode: draftSettings.chartDisplayMode,
@@ -1063,16 +1141,21 @@ export function ConfigureChartMenu({
             />
             <ScheduleMenu
               schedule={draftSettings.schedule}
-              onChange={(schedule) =>
+              period={filters.period}
+              onChange={(schedule) => {
+                setScheduleApplyError('');
                 updateDraftSettings((current) => ({
                   ...current,
                   schedule,
-                }))
-              }
+                }));
+              }}
               menuGroup={chartMenuGroup}
               menuKey="schedule"
             />
           </div>
+          {scheduleApplyError ? (
+            <em className="threshold-field-error schedule-apply-error">{scheduleApplyError}</em>
+          ) : null}
           <button className="configure-chart-apply blue-button" type="button" onClick={() => applySettings()}>
             Применить
           </button>
@@ -1455,11 +1538,13 @@ export function ThresholdMenu({
 
 export function ScheduleMenu({
   schedule,
+  period,
   onChange,
   menuGroup,
   menuKey,
 }: {
   schedule: ScheduleFilters;
+  period: Period;
   onChange: (schedule: ScheduleFilters) => void;
   menuGroup?: string;
   menuKey?: string;
@@ -1467,6 +1552,16 @@ export function ScheduleMenu({
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
+  const showWorkdayFields = period === 'hours';
+  const showWeekendFields = period === 'days' || period === 'weeks';
+  const showWeekStartFields = period === 'days' || period === 'weeks';
+  const workdayError = showWorkdayFields ? getWorkdayScheduleError(schedule) : null;
+  const expectedHeight =
+    90
+    + (showWorkdayFields ? 140 : 0)
+    + (showWeekendFields ? 110 : 0)
+    + (showWeekStartFields ? 110 : 0)
+    + (workdayError ? 36 : 0);
 
   useEffect(() => {
     if (!menuGroup || !menuKey) {
@@ -1539,99 +1634,113 @@ export function ScheduleMenu({
           open={open}
           className="settings-popover schedule-popover"
           expectedWidth={320}
-          expectedHeight={430}
+          expectedHeight={expectedHeight}
         >
           <p>Рабочий календарь</p>
           <div className="schedule-form">
-            <label className="schedule-field">
-              <span>Рабочий день с</span>
-              <select
-                value={schedule.workdayStart}
-                onChange={(event) =>
-                  updateSchedule({
-                    ...schedule,
-                    workdayStart: event.target.value,
-                  })
-                }
-              >
-                <option value="">00:00</option>
-                {scheduleTimeOptions.filter((time) => time !== '00:00').map((time) => (
-                  <option value={time} key={time}>
-                    {time}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="schedule-field">
-              <span>Рабочий день до</span>
-              <select
-                value={schedule.workdayEnd}
-                onChange={(event) =>
-                  updateSchedule({
-                    ...schedule,
-                    workdayEnd: event.target.value,
-                  })
-                }
-              >
-                <option value="">00:00</option>
-                {scheduleTimeOptions.filter((time) => time !== '00:00').map((time) => (
-                  <option value={time} key={time}>
-                    {time}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="schedule-field">
-              <span>Выходные дни</span>
-              <div className="schedule-day-grid">
-                {weekDayOptions.map((day) => {
-                  const selected = schedule.weekendDayIds.includes(day.id);
+            {showWorkdayFields && (
+              <>
+                <label className={`schedule-field ${workdayError ? 'has-error' : ''}`}>
+                  <span>Рабочий день с</span>
+                  <select
+                    value={schedule.workdayStart}
+                    onChange={(event) =>
+                      updateSchedule({
+                        ...schedule,
+                        workdayStart: event.target.value,
+                      })
+                    }
+                  >
+                    <option value="">00:00</option>
+                    {scheduleTimeOptions.filter((time) => time !== '00:00').map((time) => (
+                      <option value={time} key={time}>
+                        {time}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className={`schedule-field ${workdayError ? 'has-error' : ''}`}>
+                  <span>Рабочий день до</span>
+                  <select
+                    value={schedule.workdayEnd}
+                    onChange={(event) =>
+                      updateSchedule({
+                        ...schedule,
+                        workdayEnd: event.target.value,
+                      })
+                    }
+                  >
+                    <option value="">00:00</option>
+                    {scheduleTimeOptions.filter((time) => time !== '00:00').map((time) => (
+                      <option value={time} key={time}>
+                        {time}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {workdayError ? <em className="threshold-field-error">{workdayError}</em> : null}
+              </>
+            )}
+            {showWeekendFields && (
+              <div className="schedule-field">
+                <span>Выходные дни</span>
+                <div className="schedule-day-grid">
+                  {weekDayOptions.map((day) => {
+                    const selected = schedule.weekendDayIds.includes(day.id);
 
-                  return (
-                    <button
-                      className={`schedule-day-button ${selected ? 'is-selected' : ''}`}
-                      type="button"
-                      key={day.id}
-                      onClick={() => toggleWeekendDay(day.id)}
-                    >
-                      <span>{day.label}</span>
-                      {selected && <Check size={13} />}
-                    </button>
-                  );
-                })}
+                    return (
+                      <button
+                        className={`schedule-day-button ${selected ? 'is-selected' : ''}`}
+                        type="button"
+                        key={day.id}
+                        onClick={() => toggleWeekendDay(day.id)}
+                      >
+                        <span>{day.label}</span>
+                        {selected && <Check size={13} />}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-            <div className="schedule-field">
-              <span>Неделя начинается с</span>
-              <div className="schedule-day-grid">
-                {weekDayOptions.map((day) => {
-                  const selected = schedule.calendarWeekStart === day.id;
+            )}
+            {showWeekStartFields && (
+              <div className="schedule-field">
+                <span>Неделя начинается с</span>
+                <div className="schedule-day-grid">
+                  {weekDayOptions.map((day) => {
+                    const selected = schedule.calendarWeekStart === day.id;
 
-                  return (
-                    <button
-                      className={`schedule-day-button ${selected ? 'is-selected' : ''}`}
-                      type="button"
-                      key={day.id}
-                      onClick={() =>
-                        updateSchedule({
-                          ...schedule,
-                          calendarWeekStart: day.id,
-                        })
-                      }
-                    >
-                      <span>{day.label}</span>
-                      {selected && <Check size={13} />}
-                    </button>
-                  );
-                })}
+                    return (
+                      <button
+                        className={`schedule-day-button ${selected ? 'is-selected' : ''}`}
+                        type="button"
+                        key={day.id}
+                        onClick={() =>
+                          updateSchedule({
+                            ...schedule,
+                            calendarWeekStart: day.id,
+                          })
+                        }
+                      >
+                        <span>{day.label}</span>
+                        {selected && <Check size={13} />}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
+            {!showWorkdayFields && !showWeekendFields && !showWeekStartFields ? (
+              <p className="schedule-period-hint">
+                Для текущей группировки настройки календаря не применяются.
+              </p>
+            ) : null}
             <button
               className="popover-reset-button"
               type="button"
               onClick={() => updateSchedule(createDefaultSchedule())}
             >
-              Сбросить
+              Вернуть настройки по умолчанию
             </button>
           </div>
         </FloatingPopover>
@@ -1722,6 +1831,10 @@ export function RowActionsMenu({
   onSelectAllEmployees,
   onResetEmployees,
   onApplyEmployees,
+  onDiscardEmployees,
+  onExpandAllEmployeeCharts,
+  onCollapseAllEmployeeCharts,
+  employeeChartsExpanded,
   onToggleChart,
   onThresholdChange,
   onEmployeeThresholdChange,
@@ -1747,6 +1860,10 @@ export function RowActionsMenu({
   onSelectAllEmployees?: (employeeIds: string[]) => void;
   onResetEmployees?: () => void;
   onApplyEmployees?: () => void;
+  onDiscardEmployees?: () => void;
+  onExpandAllEmployeeCharts?: () => void;
+  onCollapseAllEmployeeCharts?: () => void;
+  employeeChartsExpanded?: boolean;
   onToggleChart: () => void;
   onThresholdChange: (value: ThresholdValues) => void;
   onEmployeeThresholdChange: (value: ThresholdValues) => void;
@@ -1762,11 +1879,17 @@ export function RowActionsMenu({
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<'actions' | 'thresholds' | 'employeeThresholds' | 'employees'>('actions');
   const [employeeSearch, setEmployeeSearch] = useState('');
+  const [showInactiveEmployees, setShowInactiveEmployees] = useState(false);
   const [employeeSelectorAnchorRect, setEmployeeSelectorAnchorRect] = useState<DOMRect | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const employeeSelectorListRef = useRef<HTMLDivElement>(null);
   const pendingEmployeeScrollTopRef = useRef<number | null>(null);
-  const ref = useOutsideClose<HTMLDivElement>(open && mode !== 'employees', () => setOpen(false), [popoverRef]);
+  const ref = useOutsideClose<HTMLDivElement>(open && mode !== 'employees', () => {
+    if (mode === 'employees') {
+      onDiscardEmployees?.();
+    }
+    setOpen(false);
+  }, [popoverRef]);
 
   const resolveEmployeeListAnchorRect = useCallback((): DOMRect | null => {
     const reportCard = ref.current?.closest('.report-card');
@@ -1797,18 +1920,24 @@ export function RowActionsMenu({
 
     return null;
   }, [metricId, ref]);
+  const selectableEmployees = useMemo(
+    () => (showInactiveEmployees ? employees : employees.filter((employee) => employee.isActive !== false)),
+    [employees, showInactiveEmployees],
+  );
   const filteredEmployees = useMemo(() => {
     const query = employeeSearch.trim().toLocaleLowerCase('ru-RU');
 
     if (!query) {
-      return employees;
+      return selectableEmployees;
     }
 
-    return employees.filter((employee) =>
+    return selectableEmployees.filter((employee) =>
       [
         employee.firstName,
         employee.lastName,
         employee.name,
+        employee.department,
+        employee.workPosition,
         employee.id,
       ]
         .filter(Boolean)
@@ -1816,7 +1945,23 @@ export function RowActionsMenu({
         .toLocaleLowerCase('ru-RU')
         .includes(query),
     );
-  }, [employeeSearch, employees]);
+  }, [employeeSearch, selectableEmployees]);
+  const duplicateNameKeys = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    filteredEmployees.forEach((employee) => {
+      const key = getEmployeeFullName(employee).toLocaleLowerCase('ru-RU');
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+
+    return new Set(
+      Array.from(counts.entries())
+        .filter(([, count]) => count > 1)
+        .map(([key]) => key),
+    );
+  }, [filteredEmployees]);
+  const selectedCount = selectedEmployeeIds?.size ?? 0;
+  const hasInactiveEmployees = employees.some((employee) => employee.isActive === false);
 
   useEffect(() => {
     if (!open || mode !== 'employees') {
@@ -1913,6 +2058,7 @@ export function RowActionsMenu({
       }
 
       if (target.closest(interactiveSelector)) {
+        onDiscardEmployees?.();
         setOpen(false);
       }
     };
@@ -1922,7 +2068,18 @@ export function RowActionsMenu({
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown);
     };
-  }, [mode, open, ref]);
+  }, [mode, onDiscardEmployees, open, ref]);
+
+  const closeEmployeeSelector = (options?: { discard?: boolean }) => {
+    if (options?.discard !== false) {
+      onDiscardEmployees?.();
+    }
+    setEmployeeSelectorAnchorRect(null);
+    setEmployeeSearch('');
+    setShowInactiveEmployees(false);
+    setMode('actions');
+    setOpen(false);
+  };
 
   const openActions = () => {
     setMode('actions');
@@ -1933,6 +2090,7 @@ export function RowActionsMenu({
   const openEmployees = (anchorElement?: HTMLElement) => {
     onOpenEmployeeSelector?.();
     setEmployeeSearch('');
+    setShowInactiveEmployees(false);
     const listRect = resolveEmployeeListAnchorRect();
     setEmployeeSelectorAnchorRect(listRect ?? anchorElement?.getBoundingClientRect() ?? null);
     setMode('employees');
@@ -1949,7 +2107,10 @@ export function RowActionsMenu({
   };
 
   const returnToActions = () => {
+    onDiscardEmployees?.();
     setEmployeeSelectorAnchorRect(null);
+    setEmployeeSearch('');
+    setShowInactiveEmployees(false);
     setMode('actions');
   };
 
@@ -1958,17 +2119,21 @@ export function RowActionsMenu({
     onToggleEmployee?.(employeeId);
   };
 
+  const applyEmployeesAndClose = () => {
+    onApplyEmployees?.();
+    closeEmployeeSelector({ discard: false });
+  };
+
   return (
     <div className={`row-actions-shell ${open ? 'is-open' : ''}`} ref={ref}>
-      <button
-        className="more-menu-button"
-        type="button"
-        aria-label="Действия показателя"
-        aria-expanded={open}
+      <TooltipButton
+        label="Действия показателя"
+        className={`more-menu-button ${open ? 'is-open' : ''}`}
         onClick={openActions}
+        ariaPressed={open}
       >
         <MoreVertical size={16} />
-      </button>
+      </TooltipButton>
       {open && (
         <FloatingPopover
           anchorRef={ref}
@@ -2024,6 +2189,26 @@ export function RowActionsMenu({
                   </button>
                 </div>
               )}
+              {showEmployees && hasAppliedEmployees && employeesOpen ? (
+                <button
+                  className="row-action-menu-item"
+                  type="button"
+                  onClick={() => {
+                    if (employeeChartsExpanded) {
+                      onCollapseAllEmployeeCharts?.();
+                    } else {
+                      onExpandAllEmployeeCharts?.();
+                    }
+                    setOpen(false);
+                  }}
+                >
+                  <span>
+                    {employeeChartsExpanded
+                      ? 'Свернуть графики сотрудников'
+                      : 'Развернуть графики сотрудников'}
+                  </span>
+                </button>
+              ) : null}
               <button
                 className={`row-action-menu-item ${chartOpen ? 'is-active' : ''}`}
                 type="button"
@@ -2060,7 +2245,7 @@ export function RowActionsMenu({
                   className="row-menu-close"
                   type="button"
                   aria-label="Закрыть меню"
-                  onClick={() => setOpen(false)}
+                  onClick={() => closeEmployeeSelector()}
                 >
                   <X size={14} />
                 </button>
@@ -2075,7 +2260,7 @@ export function RowActionsMenu({
               <div className="employee-selector-actions">
                 <button
                   type="button"
-                  onClick={() => onSelectAllEmployees?.(employees.map((employee) => employee.id))}
+                  onClick={() => onSelectAllEmployees?.(selectableEmployees.map((employee) => employee.id))}
                 >
                   Выбрать всех
                 </button>
@@ -2085,23 +2270,71 @@ export function RowActionsMenu({
                 <button
                   className="employee-selector-apply"
                   type="button"
-                  onClick={() => onApplyEmployees?.()}
+                  onClick={applyEmployeesAndClose}
                 >
                   Применить
                 </button>
               </div>
+              <div className="employee-selector-meta">
+                <span>Выбрано: {selectedCount}</span>
+                {hasInactiveEmployees ? (
+                  <label className="employee-selector-inactive-toggle">
+                    <input
+                      type="checkbox"
+                      checked={showInactiveEmployees}
+                      onChange={(event) => setShowInactiveEmployees(event.currentTarget.checked)}
+                    />
+                    <span>Неактивные</span>
+                  </label>
+                ) : null}
+              </div>
               <div className="employee-selector-list" ref={employeeSelectorListRef}>
                 {filteredEmployees.map((employee) => {
-                  const fullName = `${employee.firstName} ${employee.lastName}`.trim() || employee.name || employee.id;
+                  const fullName = getEmployeeFullName(employee);
+                  const nameKey = fullName.toLocaleLowerCase('ru-RU');
+                  const secondaryLabel = getEmployeeSecondaryLabel(employee, {
+                    forceDisambiguation: duplicateNameKeys.has(nameKey),
+                  });
+                  const badgeLabel = employee.isRobot
+                    ? 'Робот'
+                    : employee.isTechnical
+                      ? 'Техн.'
+                      : null;
 
                   return (
-                    <label className="employee-selector-option" key={employee.id}>
+                    <label
+                      className={`employee-selector-option ${employee.isRobot || employee.isTechnical ? 'is-robot' : ''}`}
+                      key={employee.id}
+                      title={secondaryLabel ? `${fullName} · ${secondaryLabel}` : fullName}
+                    >
                       <input
                         type="checkbox"
                         checked={selectedEmployeeIds?.has(employee.id) ?? false}
                         onChange={() => toggleEmployeeWithoutScrollJump(employee.id)}
                       />
-                      <span>{fullName}</span>
+                      <span className="employee-selector-avatar" aria-hidden="true">
+                        {employee.avatarUrl ? (
+                          <img src={employee.avatarUrl} alt="" />
+                        ) : (
+                          getEmployeeInitials(employee)
+                        )}
+                      </span>
+                      <span className="employee-selector-option-text">
+                        <span className="employee-selector-option-name">
+                          <span>{fullName}</span>
+                          {badgeLabel ? (
+                            <em className={`employee-selector-badge ${employee.isRobot ? 'is-robot' : 'is-technical'}`}>
+                              {badgeLabel}
+                            </em>
+                          ) : null}
+                          {employee.isActive === false ? (
+                            <em className="employee-selector-badge is-inactive">Неактивен</em>
+                          ) : null}
+                        </span>
+                        {secondaryLabel ? (
+                          <span className="employee-selector-option-meta">{secondaryLabel}</span>
+                        ) : null}
+                      </span>
                     </label>
                   );
                 })}
@@ -2178,12 +2411,72 @@ export function RowMetricChart({
   reportData,
   threshold,
   valuesByPeriod,
+  direction = 'none',
 }: {
   metric: MetricRow;
   reportData: ReportPoint[];
   threshold?: ThresholdValues;
   /** When set, chart reads these period values instead of point.values[metric.id]. */
   valuesByPeriod?: Record<string, number>;
+  direction?: MetricDirection;
+}) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || isVisible) {
+      return undefined;
+    }
+
+    if (typeof IntersectionObserver === 'undefined') {
+      setIsVisible(true);
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { root: null, rootMargin: '160px 0px', threshold: 0.01 },
+    );
+
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [isVisible]);
+
+  return (
+    <div className="row-chart-lazy-host" ref={hostRef}>
+      {isVisible ? (
+        <RowMetricChartContent
+          metric={metric}
+          reportData={reportData}
+          threshold={threshold}
+          valuesByPeriod={valuesByPeriod}
+          direction={direction}
+        />
+      ) : (
+        <div className="row-chart-lazy-placeholder" aria-hidden="true" />
+      )}
+    </div>
+  );
+}
+
+function RowMetricChartContent({
+  metric,
+  reportData,
+  threshold,
+  valuesByPeriod,
+  direction = 'none',
+}: {
+  metric: MetricRow;
+  reportData: ReportPoint[];
+  threshold?: ThresholdValues;
+  valuesByPeriod?: Record<string, number>;
+  direction?: MetricDirection;
 }) {
   const chartWrapRef = useRef<HTMLDivElement>(null);
   const [activePoint, setActivePoint] = useState<ActiveChartPoint | null>(null);
@@ -2243,9 +2536,29 @@ export function RowMetricChart({
   const average = threshold ? resolveDisplayedThresholdAverage(threshold) : null;
   const activeDataPoint = activePoint ? chartData[activePoint.index] : null;
   const thresholdItems = getAppliedThresholdItems(threshold);
+  const tooltipSummary = activeDataPoint
+    ? (() => {
+        const formattedValue = formatMetricValue(activeDataPoint.value, metric.type);
+        const metricLabel = metric.label.toLocaleLowerCase('ru-RU');
+        const valuePart = `${formattedValue} ${metricLabel}`;
+        const corridorNote = formatChartCorridorTooltipNote(
+          activeDataPoint.value,
+          threshold,
+          direction,
+          (bound) => formatMetricValue(bound, metric.type),
+        );
+        return corridorNote ? `${valuePart}; ${corridorNote}` : valuePart;
+      })()
+    : undefined;
 
   return (
     <div className="row-chart-wrap" ref={chartWrapRef}>
+      <div className="row-chart-caption" aria-hidden="true">
+        <span className="row-chart-caption-title">{metric.label}</span>
+        <span className="row-chart-caption-unit">
+          {metric.type === 'money' ? 'RUB' : metric.type === 'percent' ? '%' : 'шт.'}
+        </span>
+      </div>
       <ResponsiveContainer width="100%" height={150}>
         <LineChart
           data={chartData}
@@ -2319,6 +2632,7 @@ export function RowMetricChart({
           thresholdItems={thresholdItems}
           containerRef={chartWrapRef}
           valueFormatter={(value) => formatMetricValue(value, metric.type)}
+          summary={tooltipSummary}
         />
       )}
     </div>

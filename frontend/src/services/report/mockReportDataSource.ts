@@ -35,11 +35,15 @@ export const mockReportDataSource: ReportDataSource = {
   },
 
   async loadReportData(filters: ReportLoadFilters): Promise<ReportPoint[]> {
-    return buildReportData(filters.period, filters.dateRange);
+    return buildReportData(filters.period, filters.dateRange, {
+      calendarWeekStart: filters.schedule?.calendarWeekStart,
+    });
   },
 
   async loadReportPreview(filters: ReportLoadFilters) {
-    const data = buildReportData(filters.period, filters.dateRange);
+    const data = buildReportData(filters.period, filters.dateRange, {
+      calendarWeekStart: filters.schedule?.calendarWeekStart,
+    });
 
     return {
       data,
@@ -66,6 +70,8 @@ export const mockReportDataSource: ReportDataSource = {
   },
 
   getInitialReportData(filters: ReportLoadFilters): ReportPoint[] {
-    return buildReportData(filters.period, filters.dateRange);
+    return buildReportData(filters.period, filters.dateRange, {
+      calendarWeekStart: filters.schedule?.calendarWeekStart,
+    });
   },
 };

@@ -188,9 +188,14 @@ function getFuelLevel(progress: number, isRefueling: boolean, refuelProgress: nu
 
 type ReportBuildLoaderProps = {
   className?: string;
+  /** Visible build stage shown to the user (F-20). */
+  stageLabel?: string;
 };
 
-export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderProps) {
+export default function ReportBuildLoader({
+  className = '',
+  stageLabel = 'Получаем данные',
+}: ReportBuildLoaderProps) {
   const routeRef = useRef<SVGPathElement | null>(null);
   const traceRef = useRef<SVGPathElement | null>(null);
   const sceneRef = useRef<HTMLDivElement | null>(null);
@@ -432,10 +437,11 @@ export default function ReportBuildLoader({ className = '' }: ReportBuildLoaderP
   const chartAreaPath = `${routePath} L${lastRoutePoint.x} ${baselineY} L${firstRoutePoint.x} ${baselineY} Z`;
 
   return (
-    <div className={rootClassName} role="status" aria-live="polite" aria-label="Строим отчет">
+    <div className={rootClassName} role="status" aria-live="polite" aria-label={stageLabel}>
       <div className="report-loader__card">
+        <p className="report-loader__stage-label">{stageLabel}</p>
         <span className="report-loader__sr-status" aria-live="polite">
-          Строим отчет
+          {stageLabel}
         </span>
         <div className="report-loader__stage" aria-hidden="true">
           <div className="report-loader__scene" ref={sceneRef}>

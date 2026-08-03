@@ -30,11 +30,13 @@ import {
   PinOff,
   Plus,
   Play,
+  RotateCcw,
   TrendingUp,
   GripVertical,
   X,
 } from 'lucide-react';
 import ReportBuildLoader from './app/components/ReportBuildLoader';
+import ReportOnboarding from './app/components/ReportOnboarding';
 import {
   CartesianGrid,
   Line,
@@ -44,7 +46,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import ExcelJS from 'exceljs';
 import {
   formatMetricValue,
   formatRangeLabel,
@@ -106,6 +107,7 @@ import type {
   ScheduleFilters,
   SelectOption,
   TableRow,
+  TableRowChartsMode,
   ThresholdValues,
 } from './app/types';
 import {
@@ -147,14 +149,36 @@ import {
   formatMainAxisTick,
   formatMainChartValue,
   getChartDomain,
+  getWorkdayScheduleError,
+  getChartSeriesCorridorValue,
   getChartSeriesValue,
+  getChartSumCorridorValue,
   getChartSumValue,
   MIN_TREND_POINTS,
 } from './app/utils/reportCalculations';
+import { enrichEmployeesWithDirectory, detectRobotByName, getEmployeeFullName, isSystemEmployeeRow, resolveEmployeeDetailList, UNAVAILABLE_EMPLOYEE_ID } from './app/utils/employees';
+import { formatOpenDetailTooltip } from './app/utils/detailRows';
 import { buildMainIndicatorCaption, hasResolvableMainChartSources } from './app/utils/mainIndicatorCaption';
+import {
+  clearReportOnboardingCompleted,
+  isReportOnboardingCompleted,
+  markReportOnboardingCompleted,
+} from './app/utils/reportOnboarding';
+import {
+  mergeDetailsForMetrics,
+  mergeEmployeesForMetrics,
+  mergeReportPointsForMetrics,
+  mergeValueStatesForMetrics,
+  resolveReportBuildStage,
+  SECTION_LOAD_ERROR_MESSAGE,
+  SECTION_LOAD_RETRY_LABEL,
+  sectionHasLoadError,
+  type ReportBuildStageLabel,
+} from './app/utils/reportLoadStates';
 import {
   calculateRecommendedThresholds,
   appendThresholdTooltip,
+  formatChartCorridorTooltipNote,
   getAppliedThresholdItems,
   getThresholdClass,
   getThresholdLineLabel,
@@ -162,6 +186,7 @@ import {
   parseThreshold,
   resolveDisplayedThresholdAverage,
   thresholdLineColors,
+  toCorridorValue,
 } from './app/utils/thresholds';
 import {
   BrandLogo,
@@ -201,6 +226,7 @@ import {
   TableSettingsMenu,
 } from './app/components/reportControls';
 import { exportReportPdf } from './app/export/exportReportPdf';
+import { exportReportExcel } from './app/export/exportReportExcel';
 
 const splitEmployeeName = (name: string) => {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -478,10 +504,20 @@ const ZERO_VALUE_TOOLTIP = 'За этот период в системе не з
 
 const valueStateTooltipByReason = {
   no_data: 'Данные за этот период отсутствуют',
-  load_error: 'Не удалось загрузить данные',
+  load_error: 'Не удалось получить данные',
   access_denied: 'Нет доступа к данным показателя',
   not_applicable: 'Показатель неприменим',
 } as const;
+
+const resolvePeriodValueState = (
+  valueStates: ValueStateMap | undefined,
+  periodKey: string,
+  metricIds: string | string[],
+) => {
+  const ids = Array.isArray(metricIds) ? metricIds : [metricIds];
+
+  return ids.map((id) => valueStates?.[periodKey]?.[id]).find(Boolean);
+};
 
 const getValueCellDisplay = (
   value: number | undefined,
@@ -493,6 +529,7 @@ const getValueCellDisplay = (
       label: '—',
       tooltip: state.message || valueStateTooltipByReason[state.reason],
       hasNumericValue: false,
+      accessDenied: state.reason === 'access_denied',
     };
   }
 
@@ -501,6 +538,7 @@ const getValueCellDisplay = (
       label: '—',
       tooltip: valueStateTooltipByReason.no_data,
       hasNumericValue: false,
+      accessDenied: false,
     };
   }
 
@@ -508,7 +546,38 @@ const getValueCellDisplay = (
     label: formatMetricValue(value, metricType),
     tooltip: value === 0 ? ZERO_VALUE_TOOLTIP : undefined,
     hasNumericValue: true,
+    accessDenied: false,
   };
+};
+
+const getValueCellOpenTooltip = (
+  value: number | undefined,
+  metricLabel: string,
+  metricType: MetricRow['type'],
+  display: ReturnType<typeof getValueCellDisplay>,
+  threshold?: ThresholdValues,
+  direction: MetricDirection = 'none',
+) => {
+  // F-16: 0 and «—» keep distinct tooltips; never infer presence/absence at work.
+  if (display.accessDenied) {
+    return 'Нет доступа';
+  }
+
+  if (!display.hasNumericValue) {
+    return display.tooltip ?? valueStateTooltipByReason.no_data;
+  }
+
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return display.tooltip ?? valueStateTooltipByReason.no_data;
+  }
+
+  if (value === 0) {
+    return appendThresholdTooltip(ZERO_VALUE_TOOLTIP, value, threshold, direction) ?? ZERO_VALUE_TOOLTIP;
+  }
+
+  const openTooltip = formatOpenDetailTooltip(value, metricLabel, metricType);
+
+  return appendThresholdTooltip(openTooltip, value, threshold, direction) ?? openTooltip;
 };
 
 const getEmployeePeriodMetricValue = (
@@ -552,6 +621,8 @@ const buildEmployeeThresholdValues = (
   employees: ReportEmployee[],
   selectedEmployeeIds: Set<string> | undefined,
   reportData: ReportPoint[],
+  valueStates?: ValueStateMap,
+  stateMetricIds: string[] = [metricId],
 ) => {
   if (!selectedEmployeeIds || selectedEmployeeIds.size === 0) {
     return [];
@@ -560,7 +631,12 @@ const buildEmployeeThresholdValues = (
   return employees
     .filter((employee) => selectedEmployeeIds.has(employee.id))
     .flatMap((employee) =>
-      reportData.map((point) => getEmployeePeriodMetricValue(employee, point, metricId)),
+      reportData.map((point) =>
+        toCorridorValue(
+          getEmployeePeriodMetricValue(employee, point, metricId),
+          resolvePeriodValueState(valueStates, point.key, stateMetricIds),
+        ),
+      ),
     );
 };
 
@@ -637,6 +713,11 @@ const buildSourceMetricEmployees = (
       lastName: known?.lastName || lastName,
       avatarUrl: known?.avatarUrl,
       valuesByPeriod: entry.valuesByPeriod,
+      isActive: known?.isActive,
+      isRobot: known?.isRobot ?? detectRobotByName(entry.name),
+      isTechnical: known?.isTechnical,
+      workPosition: known?.workPosition,
+      department: known?.department,
     } satisfies ReportEmployee;
   });
 };
@@ -840,6 +921,52 @@ const ENTITY_SOURCE_ID_TO_SECTION_ID = Object.fromEntries(
     sourceIds.map((sourceId) => [sourceId, sectionId]),
   ),
 );
+
+const resolveRetrySourceIdsForSection = (
+  sectionId: string,
+  crmSources: CrmSource[],
+  selectedSourceIds: string[],
+): string[] => {
+  const selected = new Set(selectedSourceIds);
+  const matched = new Set<string>();
+  const defaults = SECTION_ID_TO_ENTITY_SOURCE_IDS[sectionId] ?? [];
+
+  defaults.forEach((sourceId) => {
+    matched.add(sourceId);
+  });
+
+  if (sectionId === 'messages' || sectionId === 'email') {
+    matched.add('activity-default');
+  }
+
+  crmSources.forEach((source) => {
+    if (!selected.has(source.id) && !defaults.includes(source.id)) {
+      return;
+    }
+
+    const mappedSection = CRM_SOURCE_TYPE_TO_SECTION_ID[source.type];
+    if (mappedSection === sectionId) {
+      matched.add(source.id);
+      return;
+    }
+
+    if (sectionId === 'deals' && source.type === 'deal') {
+      matched.add(source.id);
+      return;
+    }
+
+    if (
+      (sectionId === 'contracts' || sectionId === 'smart_processes' || sectionId === 'activities')
+      && source.type === 'smartProcess'
+      && selected.has(source.id)
+    ) {
+      matched.add(source.id);
+    }
+  });
+
+  const preferred = [...matched].filter((sourceId) => selected.has(sourceId));
+  return preferred.length > 0 ? preferred : [...matched];
+};
 
 const isDealEntitySource = (source: CrmSource) => (
   source.id === 'deal-default'
@@ -1228,10 +1355,15 @@ function App() {
   const [catalogError, setCatalogError] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
   const [reportElapsed, setReportElapsed] = useState('');
+  const [reportBuildStage, setReportBuildStage] = useState<ReportBuildStageLabel>('Получаем данные');
   const [reportError, setReportError] = useState('');
+  const [sectionRetryingId, setSectionRetryingId] = useState<string | null>(null);
   const [isSaveOpen, setIsSaveOpen] = useState(false);
   const [isProOpen, setIsProOpen] = useState(false);
   const [isInstructionOpen, setIsInstructionOpen] = useState(false);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [onboardingStepIndex, setOnboardingStepIndex] = useState(0);
+  const onboardingAutoShownRef = useRef(false);
   const [isAppSettingsOpen, setIsAppSettingsOpen] = useState(false);
   const [isFreeLimitOpen, setIsFreeLimitOpen] = useState(false);
   const [billingHasPro, setBillingHasPro] = useState(false);
@@ -1277,6 +1409,7 @@ function App() {
   const [employeeOrderByMetricId, setEmployeeOrderByMetricId] = useState<Record<string, string[]>>({});
   const [expandedChartMetricIds, setExpandedChartMetricIds] = useState<Set<string>>(() => new Set());
   const [expandedEmployeeChartIds, setExpandedEmployeeChartIds] = useState<Set<string>>(() => new Set());
+  const [tableRowChartsMode, setTableRowChartsMode] = useState<TableRowChartsMode>('compact');
 
   const suppressNextReportSettingsTouch = useCallback(() => {
     suppressReportSettingsTouchRef.current = true;
@@ -1340,8 +1473,18 @@ function App() {
             ...employee,
             userId: Number(employee.id) || 0,
             avatarUrl: employee.avatarUrl ?? undefined,
+            isActive: employee.isActive ?? true,
+            isRobot: employee.isRobot ?? false,
+            isTechnical: employee.isTechnical ?? false,
+            workPosition: employee.workPosition ?? null,
+            department: employee.department ?? null,
           }))
         : reportEmployees,
+    [portalEmployees, reportEmployees],
+  );
+
+  const availableEmployees = useMemo<ReportEmployee[]>(
+    () => enrichEmployeesWithDirectory(reportEmployees, portalEmployees),
     [portalEmployees, reportEmployees],
   );
 
@@ -1351,6 +1494,11 @@ function App() {
   const chartContentRef = useRef<HTMLDivElement>(null);
   const periodContentRef = useRef<HTMLDivElement>(null);
   const tableContentRef = useRef<HTMLDivElement>(null);
+  const detailScrollSnapshotRef = useRef<{
+    horizontal: number;
+    reportCard: number;
+    windowY: number;
+  } | null>(null);
   const autoScrollFrameRef = useRef<number | null>(null);
   const scrollSyncFrameRef = useRef<number | null>(null);
   const pendingScrollLeftRef = useRef(0);
@@ -1365,6 +1513,9 @@ function App() {
   const draggedSourceMetricRef = useRef<{ sourceId: string; metricKey: string } | null>(null);
   const draggedEmployeeRef = useRef<{ metricId: string; employeeId: string } | null>(null);
   const reportStartTimeRef = useRef<number>(0);
+  const reportLoadingRef = useRef(false);
+  const sectionRetryInFlightRef = useRef(false);
+  const hasExistingReportDataRef = useRef(false);
   const cancelPendingAutoSave = useCallback(() => {
     if (!autoSaveTimerRef.current) {
       return;
@@ -1376,6 +1527,8 @@ function App() {
   const resetTemporaryReportUiState = useCallback(() => {
     setExpandedEmployeeMetricIds(new Set());
     setExpandedChartMetricIds(new Set());
+    setExpandedEmployeeChartIds(new Set());
+    setTableRowChartsMode('compact');
     setDetailContext(null);
     setTableLeadingSourceId(null);
   }, []);
@@ -1402,8 +1555,23 @@ function App() {
   }, [notification, pdfExporting]);
 
   useEffect(() => {
+    reportLoadingRef.current = reportLoading;
+  }, [reportLoading]);
+
+  const closeReportOnboarding = useCallback(() => {
+    setIsOnboardingOpen(false);
+    markReportOnboardingCompleted();
+  }, []);
+
+  const startReportOnboarding = useCallback(() => {
+    setOnboardingStepIndex(0);
+    setIsOnboardingOpen(true);
+  }, []);
+
+  useEffect(() => {
     if (!reportLoading) {
       setReportElapsed('');
+      setReportBuildStage('Получаем данные');
       return undefined;
     }
 
@@ -1415,6 +1583,7 @@ function App() {
       const seconds = totalSeconds % 60;
       const padded = (n: number) => String(n).padStart(2, '0');
       setReportElapsed(`${padded(hours)}:${padded(minutes)}:${padded(seconds)}`);
+      setReportBuildStage(resolveReportBuildStage(elapsed));
     };
 
     tick();
@@ -1580,6 +1749,8 @@ function App() {
         window.localStorage.removeItem('sapp24-saved-report-views');
         window.localStorage.removeItem('sapp24-app-settings');
         window.localStorage.removeItem('sapp24-detail-column-widths-v2');
+        clearReportOnboardingCompleted();
+        onboardingAutoShownRef.current = false;
       } catch {
         // ignore storage errors
       }
@@ -2058,6 +2229,12 @@ function App() {
       selectedMetricIds,
       metricMode: appliedFilters.metricMode,
       chartDisplayMode: appliedFilters.chartDisplayMode,
+      schedule: {
+        workdayStart: appliedFilters.schedule.workdayStart,
+        workdayEnd: appliedFilters.schedule.workdayEnd,
+        weekendDayIds: [...appliedFilters.schedule.weekendDayIds],
+        calendarWeekStart: appliedFilters.schedule.calendarWeekStart,
+      },
     };
 
     setReportLoading(true);
@@ -2074,6 +2251,10 @@ function App() {
           setSourceMetrics(preview.sourceMetrics ?? {});
           setChartSourceMetrics(preview.chartSourceMetrics ?? preview.sourceMetrics ?? {});
           setValueStates(preview.valueStates ?? {});
+          hasExistingReportDataRef.current =
+            (preview.data?.length ?? 0) > 0
+            || Object.keys(preview.sourceMetrics ?? {}).length > 0
+            || Object.keys(preview.valueStates ?? {}).length > 0;
 
           if (applyAutomaticThresholdsRef.current) {
             const scheduledData = applyScheduleToReportData(preview.data, filters.period, appliedFilters.schedule);
@@ -2102,12 +2283,14 @@ function App() {
             }
 
             // Main chart sum = successful money for locked chart sources only (Sales won_sum).
+            const previewValueStates = preview.valueStates ?? {};
             const mainValues = scheduledChartData.map((point) =>
-              getChartSumValue(
+              getChartSumCorridorValue(
                 point,
                 chartSourcesForAutoBuild,
                 metricMode,
                 preview.chartSourceMetrics ?? preview.sourceMetrics ?? {},
+                previewValueStates,
               ),
             );
             const mainRecommended = calculateRecommendedThresholds(mainValues, metricMode);
@@ -2138,7 +2321,12 @@ function App() {
 
               try {
                 const recommended = calculateRecommendedThresholds(
-                  scheduledData.map((point) => point.values[metricId]),
+                  scheduledData.map((point) =>
+                    toCorridorValue(
+                      point.values[metricId],
+                      resolvePeriodValueState(previewValueStates, point.key, metricId),
+                    ),
+                  ),
                   metric.type,
                 );
 
@@ -2168,8 +2356,14 @@ function App() {
                       : metricData.valueType === 'percent'
                         ? 'percent'
                         : 'number';
+                  const actionIds = buildSourceMetricActionIds(sourceKey, metricKey, sourceData);
                   const recommended = calculateRecommendedThresholds(
-                    scheduledData.map((point) => readValuesByPeriod(metricData.valuesByPeriod, point.key)),
+                    scheduledData.map((point) =>
+                      toCorridorValue(
+                        readValuesByPeriod(metricData.valuesByPeriod, point.key),
+                        resolvePeriodValueState(previewValueStates, point.key, actionIds),
+                      ),
+                    ),
                     valueType,
                   );
 
@@ -2283,8 +2477,7 @@ function App() {
         console.warn('[Report data source] report data were not loaded', error);
         if (isActive) {
           const message = error instanceof Error ? error.message : 'Не удалось построить отчет.';
-          if (isBitrixAuthErrorMessage(message)) {
-            setReportError(BITRIX_AUTH_EXPIRED_MESSAGE);
+          const clearReportState = () => {
             setRawReportData([]);
             setRawChartReportData([]);
             setReportEmployees([]);
@@ -2292,6 +2485,12 @@ function App() {
             setValueStates({});
             setSourceMetrics({});
             setChartSourceMetrics({});
+            hasExistingReportDataRef.current = false;
+          };
+
+          if (isBitrixAuthErrorMessage(message)) {
+            setReportError(BITRIX_AUTH_EXPIRED_MESSAGE);
+            clearReportState();
             applyAutomaticThresholdsRef.current = false;
             autoBuildChartSourcesRef.current = null;
             autoBuildTableSourcesRef.current = null;
@@ -2308,14 +2507,11 @@ function App() {
             return;
           }
 
+          // F-20: keep a previously built report visible on total failure.
           setReportError(message);
-          setRawReportData([]);
-          setRawChartReportData([]);
-          setReportEmployees([]);
-          setReportDetails([]);
-          setValueStates({});
-          setSourceMetrics({});
-          setChartSourceMetrics({});
+          if (!hasExistingReportDataRef.current) {
+            clearReportState();
+          }
           applyAutomaticThresholdsRef.current = false;
           autoBuildChartSourcesRef.current = null;
           autoBuildTableSourcesRef.current = null;
@@ -2356,6 +2552,114 @@ function App() {
     reportBuildRequest,
   ]);
 
+  const canStartReportBuild = useCallback(() => (
+    !reportLoadingRef.current && !sectionRetryInFlightRef.current
+  ), []);
+
+  const requestReportBuild = useCallback(() => {
+    if (!canStartReportBuild()) {
+      return;
+    }
+    setReportBuildRequest((current) => current + 1);
+  }, [canStartReportBuild]);
+
+  const retrySectionLoad = useCallback(async (sectionId: string) => {
+    if (!canStartReportBuild() || sectionRetryingId === sectionId) {
+      return;
+    }
+
+    const section = metricSections.find((item) => item.id === sectionId);
+    if (!section) {
+      return;
+    }
+
+    const enabledMetricIds = appliedEnabledMetricIdsBySection[sectionId];
+    const metricIds = !enabledMetricIds
+      ? section.metricIds
+      : section.metricIds.filter((metricId) => enabledMetricIds.has(metricId));
+
+    if (!metricIds.length) {
+      return;
+    }
+
+    const tableSourceIds = [...tableSelectedSources, ...tableEntitySourceIds];
+    const retrySourceIds = resolveRetrySourceIdsForSection(sectionId, crmSources, tableSourceIds);
+
+    if (!retrySourceIds.length) {
+      setNotification('Не удалось определить источник для повторной загрузки.');
+      return;
+    }
+
+    const metricIdSet = new Set(metricIds);
+    sectionRetryInFlightRef.current = true;
+    setSectionRetryingId(sectionId);
+
+    const filters: ReportLoadFilters = {
+      period: appliedFilters.period,
+      dateRange: appliedFilters.dateRange,
+      selectedSources: retrySourceIds,
+      chartSelectedSources: [],
+      selectedMetricIds: metricIds,
+      metricMode: appliedFilters.metricMode,
+      chartDisplayMode: appliedFilters.chartDisplayMode,
+      schedule: {
+        workdayStart: appliedFilters.schedule.workdayStart,
+        workdayEnd: appliedFilters.schedule.workdayEnd,
+        weekendDayIds: [...appliedFilters.schedule.weekendDayIds],
+        calendarWeekStart: appliedFilters.schedule.calendarWeekStart,
+      },
+    };
+
+    try {
+      const preview = await reportDataSource.loadReportPreview(filters);
+      setRawReportData((previous) => mergeReportPointsForMetrics(previous, preview.data, metricIdSet));
+      setValueStates((previous) => mergeValueStatesForMetrics(previous, preview.valueStates ?? {}, metricIdSet));
+      setReportDetails((previous) => mergeDetailsForMetrics(previous, preview.details ?? [], metricIdSet));
+      setReportEmployees((previous) => mergeEmployeesForMetrics(
+        previous,
+        (preview.employees ?? []).map(toReportEmployee),
+        metricIdSet,
+      ));
+      setSourceMetrics((previous) => {
+        const next = { ...previous };
+        Object.entries(preview.sourceMetrics ?? {}).forEach(([sourceKey, sourceData]) => {
+          if (retrySourceIds.includes(sourceKey)) {
+            next[sourceKey] = sourceData;
+          }
+        });
+        return next;
+      });
+      hasExistingReportDataRef.current = true;
+      setReportError('');
+    } catch (error) {
+      console.warn('[Report data source] section retry failed', sectionId, error);
+      const message = error instanceof Error ? error.message : 'Не удалось получить данные.';
+      if (isBitrixAuthErrorMessage(message)) {
+        setReportError(BITRIX_AUTH_EXPIRED_MESSAGE);
+      } else {
+        setNotification(`${SECTION_LOAD_ERROR_MESSAGE} ${SECTION_LOAD_RETRY_LABEL} не выполнен.`);
+      }
+    } finally {
+      sectionRetryInFlightRef.current = false;
+      setSectionRetryingId(null);
+    }
+  }, [
+    appliedEnabledMetricIdsBySection,
+    appliedFilters.chartDisplayMode,
+    appliedFilters.dateRange,
+    appliedFilters.metricMode,
+    appliedFilters.period,
+    appliedFilters.schedule.calendarWeekStart,
+    appliedFilters.schedule.weekendDayIds,
+    appliedFilters.schedule.workdayEnd,
+    appliedFilters.schedule.workdayStart,
+    canStartReportBuild,
+    crmSources,
+    sectionRetryingId,
+    tableEntitySourceIds,
+    tableSelectedSources,
+  ]);
+
   const appliedReportData = useMemo(
     () => applyScheduleToReportData(rawReportData, appliedFilters.period, appliedFilters.schedule),
     [appliedFilters.period, appliedFilters.schedule, rawReportData],
@@ -2368,6 +2672,26 @@ function App() {
     () => (hasBuiltReport ? appliedReportData : createZeroReportData(appliedReportData)),
     [appliedReportData, hasBuiltReport],
   );
+
+  // F-23: show 3 short tips once after the first successful report build.
+  useEffect(() => {
+    if (
+      !hasBuiltReport
+      || reportLoading
+      || Boolean(reportError)
+      || reportData.length === 0
+      || isOnboardingOpen
+      || onboardingAutoShownRef.current
+      || isReportOnboardingCompleted()
+    ) {
+      return;
+    }
+
+    onboardingAutoShownRef.current = true;
+    setOnboardingStepIndex(0);
+    setIsOnboardingOpen(true);
+  }, [hasBuiltReport, isOnboardingOpen, reportData.length, reportError, reportLoading]);
+
   const chartReportData = useMemo(
     () => (hasBuiltReport ? appliedChartReportData : createZeroReportData(appliedChartReportData)),
     [appliedChartReportData, hasBuiltReport],
@@ -2548,11 +2872,32 @@ function App() {
       isSeparateChart
         ? chartReportData.flatMap((point) =>
             selectedChartSources.map((source) =>
-              getChartSeriesValue(point, source, appliedFilters.metricMode, chartSourceMetrics),
+              getChartSeriesCorridorValue(
+                point,
+                source,
+                appliedFilters.metricMode,
+                chartSourceMetrics,
+                valueStates,
+              ),
             ),
           )
-        : chartBaseValues,
-    [appliedFilters.metricMode, chartBaseValues, isSeparateChart, chartReportData, selectedChartSources, chartSourceMetrics],
+        : chartReportData.map((point) =>
+            getChartSumCorridorValue(
+              point,
+              selectedChartSources,
+              appliedFilters.metricMode,
+              chartSourceMetrics,
+              valueStates,
+            ),
+          ),
+    [
+      appliedFilters.metricMode,
+      chartReportData,
+      chartSourceMetrics,
+      isSeparateChart,
+      selectedChartSources,
+      valueStates,
+    ],
   );
   const mainRecommendedThreshold = useMemo(
     () =>
@@ -2689,6 +3034,36 @@ function App() {
     () => getAppliedThresholdItems(mainThreshold),
     [mainThreshold],
   );
+  const mainChartDirection = useMemo(
+    () => resolveMetricDirection(MAIN_INDICATOR_DIRECTION_KEY, metricDirectionsById),
+    [metricDirectionsById],
+  );
+  const mainChartTooltipSummary = useMemo(() => {
+    if (!activeMainChartDataPoint) {
+      return undefined;
+    }
+
+    const activeValues = activeMainChartDataPoint as unknown as Record<string, number>;
+    const primarySeries = chartSeries[0];
+    const primaryValue = Number(activeValues[primarySeries?.key ?? 'indicator'] ?? 0);
+    const formattedValue = formatMainChartValue(primaryValue, appliedFilters.metricMode);
+    const metricLabel = (primarySeries?.label ?? 'показатель').toLocaleLowerCase('ru-RU');
+    const valuePart = `${formattedValue} ${metricLabel}`;
+    const corridorNote = formatChartCorridorTooltipNote(
+      primaryValue,
+      mainThreshold,
+      mainChartDirection,
+      (bound) => formatMainChartValue(bound, appliedFilters.metricMode),
+    );
+
+    return corridorNote ? `${valuePart}; ${corridorNote}` : valuePart;
+  }, [
+    activeMainChartDataPoint,
+    appliedFilters.metricMode,
+    chartSeries,
+    mainChartDirection,
+    mainThreshold,
+  ]);
   const metricMap = useMemo(
     () => new Map(metrics.map((metric) => [metric.id, metric])),
     [metrics],
@@ -2711,10 +3086,6 @@ function App() {
   const visibleSections = useMemo(
     () => orderedSections.filter((section) => visibleSectionIds.has(section.id)),
     [orderedSections, visibleSectionIds],
-  );
-  const availableEmployees = useMemo<ReportEmployee[]>(
-    () => reportEmployees,
-    [reportEmployees],
   );
   const tableRows = useMemo<TableRow[]>(
     () => {
@@ -2768,41 +3139,56 @@ function App() {
               availableEmployees.map((employee) => employee.id),
             );
             const employeesById = new Map(availableEmployees.map((employee) => [employee.id, employee]));
+            const selectedEmployees = orderedEmployeeIds
+              .filter((employeeId) => appliedEmployeeIds.has(employeeId))
+              .map((employeeId) => employeesById.get(employeeId))
+              .filter((employee): employee is ReportEmployee => Boolean(employee));
 
-            orderedEmployeeIds
-              .forEach((employeeId, employeeIndex) => {
-                if (!appliedEmployeeIds.has(employeeId)) {
-                  return;
-                }
+            const detailResolution = resolveEmployeeDetailList({
+              selectedEmployees,
+              allEmployees: availableEmployees,
+              metricId: metric.id,
+              metricType: metric.type,
+              reportData,
+              readMetricTotal: (point) => point.values[metric.id] ?? 0,
+              readEmployeeValue: getEmployeePeriodMetricValue,
+            });
 
-                const employee = employeesById.get(employeeId);
+            detailResolution.employees.forEach((employee, employeeIndex) => {
+              rows.push({
+                kind: 'employee',
+                rowId: `employee-${metric.id}-${employee.id}`,
+                sectionId: section.id,
+                metric,
+                employee,
+                employeeIndex,
+                isSystemDetail: isSystemEmployeeRow(employee.id),
+              });
 
-                if (!employee) {
-                  return;
-                }
-
+              if (tableRowChartsMode === 'with_charts'
+                && expandedEmployeeChartIds.has(buildEmployeeChartId(metric.id, employee.id))) {
                 rows.push({
-                  kind: 'employee',
-                  rowId: `employee-${metric.id}-${employee.id}`,
+                  kind: 'employee_chart',
+                  rowId: `employee-chart-${metric.id}-${employee.id}`,
                   sectionId: section.id,
                   metric,
                   employee,
-                  employeeIndex,
                 });
+              }
+            });
 
-                if (expandedEmployeeChartIds.has(buildEmployeeChartId(metric.id, employee.id))) {
-                  rows.push({
-                    kind: 'employee_chart',
-                    rowId: `employee-chart-${metric.id}-${employee.id}`,
-                    sectionId: section.id,
-                    metric,
-                    employee,
-                  });
-                }
+            if (detailResolution.mismatchHint) {
+              rows.push({
+                kind: 'employee_sum_hint',
+                rowId: `employee-sum-hint-${metric.id}`,
+                sectionId: section.id,
+                metric,
+                message: detailResolution.mismatchHint,
               });
+            }
           }
 
-          if (expandedChartMetricIds.has(metric.id)) {
+          if (tableRowChartsMode === 'with_charts' && expandedChartMetricIds.has(metric.id)) {
             rows.push({
               kind: 'chart',
               rowId: `chart-${metric.id}`,
@@ -2965,45 +3351,67 @@ function App() {
                 sourceMetricEmployees.map((employee) => employee.id),
               );
               const employeesById = new Map(sourceMetricEmployees.map((employee) => [employee.id, employee]));
+              const selectedEmployees = orderedEmployeeIds
+                .filter((employeeId) => appliedEmployeeIds.has(employeeId))
+                .map((employeeId) => employeesById.get(employeeId))
+                .filter((employee): employee is ReportEmployee => Boolean(employee))
+                .map((employee) => remapEmployeeValuesToMetricId(employee, detailMetricIds, actionId));
 
-              orderedEmployeeIds
-                .forEach((employeeId, employeeIndex) => {
-                  if (!appliedEmployeeIds.has(employeeId)) {
-                    return;
-                  }
+              const remappedAll = sourceMetricEmployees.map((employee) =>
+                remapEmployeeValuesToMetricId(employee, detailMetricIds, actionId),
+              );
 
-                  const employee = employeesById.get(employeeId);
+              const detailResolution = resolveEmployeeDetailList({
+                selectedEmployees,
+                allEmployees: remappedAll,
+                metricId: actionId,
+                metricType: valueType,
+                reportData,
+                readMetricTotal: (point) =>
+                  readValuesByPeriod(metric.valuesByPeriod, point.key) ?? 0,
+                readEmployeeValue: getEmployeePeriodMetricValue,
+              });
 
-                  if (!employee) {
-                    return;
-                  }
+              detailResolution.employees.forEach((employee, employeeIndex) => {
+                sourceSectionRows.push({
+                  kind: 'employee',
+                  rowId: `employee-${actionId}-${employee.id}`,
+                  sectionId: sourceKey,
+                  metric: syntheticMetric,
+                  employee,
+                  employeeIndex,
+                  sourceId: sourceKey,
+                  detailSourceIds,
+                  detailMetricIds,
+                  isSystemDetail: isSystemEmployeeRow(employee.id),
+                });
 
+                if (tableRowChartsMode === 'with_charts'
+                  && expandedEmployeeChartIds.has(buildEmployeeChartId(actionId, employee.id))) {
                   sourceSectionRows.push({
-                    kind: 'employee',
-                    rowId: `employee-${actionId}-${employee.id}`,
+                    kind: 'employee_chart',
+                    rowId: `employee-chart-${actionId}-${employee.id}`,
                     sectionId: sourceKey,
                     metric: syntheticMetric,
-                    employee: remapEmployeeValuesToMetricId(employee, detailMetricIds, actionId),
-                    employeeIndex,
+                    employee,
                     sourceId: sourceKey,
-                    detailSourceIds,
-                    detailMetricIds,
                   });
+                }
+              });
 
-                  if (expandedEmployeeChartIds.has(buildEmployeeChartId(actionId, employee.id))) {
-                    sourceSectionRows.push({
-                      kind: 'employee_chart',
-                      rowId: `employee-chart-${actionId}-${employee.id}`,
-                      sectionId: sourceKey,
-                      metric: syntheticMetric,
-                      employee: remapEmployeeValuesToMetricId(employee, detailMetricIds, actionId),
-                      sourceId: sourceKey,
-                    });
-                  }
+              if (detailResolution.mismatchHint) {
+                sourceSectionRows.push({
+                  kind: 'employee_sum_hint',
+                  rowId: `employee-sum-hint-${actionId}`,
+                  sectionId: sourceKey,
+                  metric: syntheticMetric,
+                  message: detailResolution.mismatchHint,
+                  sourceId: sourceKey,
                 });
+              }
             }
 
-            if (expandedChartMetricIds.has(actionId)) {
+            if (tableRowChartsMode === 'with_charts' && expandedChartMetricIds.has(actionId)) {
               sourceSectionRows.push({
                 kind: 'chart',
                 rowId: `chart-${actionId}`,
@@ -3045,6 +3453,7 @@ function App() {
         expandedEmployeeMetricIds,
         expandedEmployeeChartIds,
         expandedChartMetricIds,
+        tableRowChartsMode,
         crmSources,
         sourceMetrics,
         reportDetails,
@@ -3541,6 +3950,13 @@ function App() {
   // Does not rebuild the report: data load stays on «Построить отчёт» / «Построить автоматически».
   const applyChartSettings = useCallback((settings: ChartDraftSettings) => {
     markUserSettingsChange();
+    if (
+      draftFilters.period === 'hours'
+      && getWorkdayScheduleError(settings.schedule)
+    ) {
+      return;
+    }
+
     const nextSources = [...settings.selectedSources];
     const nextSchedule = {
       ...settings.schedule,
@@ -3564,7 +3980,7 @@ function App() {
         weekendDayIds: [...nextSchedule.weekendDayIds],
       },
     }));
-  }, [markUserSettingsChange]);
+  }, [draftFilters.period, markUserSettingsChange]);
 
   // Table Apply — commits table source/section selection only.
   // Does not rebuild the report: data load stays on «Построить отчёт» / «Построить автоматически».
@@ -3725,6 +4141,10 @@ function App() {
     selectedSources: string[],
     overrides: Partial<Pick<ReportFilters, 'period' | 'dateRange'>> = {},
   ) => {
+    if (!canStartReportBuild()) {
+      return;
+    }
+
     markUserSettingsChange();
     const period = overrides.period ?? draftFilters.period;
     const dateRange = overrides.dateRange ?? draftFilters.dateRange;
@@ -3752,8 +4172,8 @@ function App() {
       },
     }));
     setBuildMoment(Date.now());
-    setReportBuildRequest((current) => current + 1);
-  }, [draftFilters, markUserSettingsChange]);
+    requestReportBuild();
+  }, [canStartReportBuild, draftFilters, markUserSettingsChange, requestReportBuild]);
 
   const buildReportFromDraft = useCallback((options?: { automaticThresholds?: boolean }) => {
     const automaticThresholds = options?.automaticThresholds ?? false;
@@ -3818,6 +4238,10 @@ function App() {
   }, [buildReportFromDraft]);
 
   const buildAutomaticReport = useCallback((options?: { automaticThresholds?: boolean }) => {
+    if (!canStartReportBuild()) {
+      return;
+    }
+
     const automaticThresholds = options?.automaticThresholds ?? true;
     const preset = buildAutomaticReportPreset(crmSources, crmSourceIds, metricSections);
     if (!preset) {
@@ -3903,13 +4327,21 @@ function App() {
     setSourceSectionOrder([]);
     setTableLeadingSourceId(salesSource.id);
     setExpandedSections(new Set(nextEnabledSectionIds));
+    setExpandedChartMetricIds(new Set());
+    setExpandedEmployeeChartIds(new Set());
+    setExpandedEmployeeMetricIds(new Set());
+    setTableRowChartsMode('compact');
 
     setHasBuiltReport(true);
     setBuildMoment(Date.now());
-    setReportBuildRequest((current) => current + 1);
-  }, [cancelPendingAutoSave, crmSourceIds, crmSources, draftFilters.dateRange, draftFilters.period, metricSections]);
+    requestReportBuild();
+  }, [cancelPendingAutoSave, canStartReportBuild, crmSourceIds, crmSources, draftFilters.dateRange, draftFilters.period, metricSections, requestReportBuild]);
 
   const runUnifiedReportBuild = useCallback(() => {
+    if (!canStartReportBuild()) {
+      return;
+    }
+
     if (autoPickIndicators) {
       buildAutomaticReport({ automaticThresholds: highlightDeviations });
       return;
@@ -3926,6 +4358,7 @@ function App() {
     buildAutomaticReport,
     buildReport,
     buildReportWithAutomaticThresholds,
+    canStartReportBuild,
     highlightDeviations,
   ]);
 
@@ -3939,6 +4372,12 @@ function App() {
     detailSourceIds?: string[],
     detailMetricIds?: string[],
   ) => {
+    detailScrollSnapshotRef.current = {
+      horizontal: horizontalScrollbarRef.current?.scrollLeft ?? 0,
+      reportCard: reportCardRef.current?.scrollTop ?? 0,
+      windowY: window.scrollY,
+    };
+
     setDetailContext({
       metric,
       point,
@@ -3950,6 +4389,30 @@ function App() {
       detailMetricIds,
     });
   }, []);
+
+  const closeDetail = useCallback(() => {
+    setDetailContext(null);
+
+    const snapshot = detailScrollSnapshotRef.current;
+    if (!snapshot) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      const scrollbar = horizontalScrollbarRef.current;
+      if (scrollbar) {
+        scrollbar.scrollLeft = snapshot.horizontal;
+        applySyncedScroll(snapshot.horizontal);
+        updateScrollButtonState(snapshot.horizontal);
+      }
+
+      if (reportCardRef.current) {
+        reportCardRef.current.scrollTop = snapshot.reportCard;
+      }
+
+      window.scrollTo({ top: snapshot.windowY });
+    });
+  }, [applySyncedScroll, updateScrollButtonState]);
   const detailRows = useMemo(
     () => (detailContext ? buildBackendDetailRows(reportDetails, detailContext) : []),
     [detailContext, reportDetails],
@@ -3976,6 +4439,13 @@ function App() {
         [metricId]: new Set(appliedEmployeeIdsByMetricId[metricId] ?? []),
       };
     });
+  }, [appliedEmployeeIdsByMetricId]);
+
+  const discardEmployeeSelectorDraft = useCallback((metricId: string) => {
+    setDraftEmployeeIdsByMetricId((current) => ({
+      ...current,
+      [metricId]: new Set(appliedEmployeeIdsByMetricId[metricId] ?? []),
+    }));
   }, [appliedEmployeeIdsByMetricId]);
 
   const toggleDraftMetricEmployee = useCallback((metricId: string, employeeId: string) => {
@@ -4114,6 +4584,7 @@ function App() {
         next.delete(metricId);
       } else {
         next.add(metricId);
+        setTableRowChartsMode('with_charts');
       }
 
       return next;
@@ -4130,10 +4601,88 @@ function App() {
         next.delete(chartId);
       } else {
         next.add(chartId);
+        setTableRowChartsMode('with_charts');
       }
 
       return next;
     });
+  }, []);
+
+  const expandAllEmployeeCharts = useCallback((metricId: string, employeeIds: string[]) => {
+    setTableRowChartsMode('with_charts');
+    setExpandedEmployeeChartIds((current) => {
+      const next = new Set(current);
+      employeeIds.forEach((employeeId) => {
+        next.add(buildEmployeeChartId(metricId, employeeId));
+      });
+      return next;
+    });
+  }, []);
+
+  const collapseAllEmployeeCharts = useCallback((metricId: string) => {
+    const prefix = `${metricId}::`;
+
+    setExpandedEmployeeChartIds((current) => {
+      const next = new Set<string>();
+      current.forEach((chartId) => {
+        if (!chartId.startsWith(prefix)) {
+          next.add(chartId);
+        }
+      });
+      return next;
+    });
+  }, []);
+
+  const setTableRowChartsModeAndSync = useCallback((mode: TableRowChartsMode) => {
+    setTableRowChartsMode(mode);
+    if (mode === 'compact') {
+      setExpandedChartMetricIds(new Set());
+      setExpandedEmployeeChartIds(new Set());
+    }
+  }, []);
+
+  const expandAllRowCharts = useCallback(() => {
+    setTableRowChartsMode('with_charts');
+
+    const metricChartIds = new Set<string>();
+    Object.values(appliedEnabledMetricIdsBySection).forEach((metricIds) => {
+      metricIds.forEach((metricId) => metricChartIds.add(metricId));
+    });
+
+    Object.entries(sourceMetrics).forEach(([sourceKey, sourceData]) => {
+      const activeKeys = appliedEnabledMetricKeysBySource[sourceKey] ?? enabledMetricKeysBySource[sourceKey];
+      const metricKeys = activeKeys
+        ? Array.from(activeKeys)
+        : Object.keys(sourceData.metrics ?? {});
+
+      metricKeys.forEach((metricKey) => {
+        metricChartIds.add(buildSourceMetricActionId(sourceKey, metricKey));
+      });
+    });
+
+    setExpandedChartMetricIds(metricChartIds);
+
+    const employeeChartIds = new Set<string>();
+    expandedEmployeeMetricIds.forEach((metricId) => {
+      const employeeIds = appliedEmployeeIdsByMetricId[metricId];
+      employeeIds?.forEach((employeeId) => {
+        employeeChartIds.add(buildEmployeeChartId(metricId, employeeId));
+      });
+    });
+    setExpandedEmployeeChartIds(employeeChartIds);
+  }, [
+    appliedEmployeeIdsByMetricId,
+    appliedEnabledMetricIdsBySection,
+    appliedEnabledMetricKeysBySource,
+    enabledMetricKeysBySource,
+    expandedEmployeeMetricIds,
+    sourceMetrics,
+  ]);
+
+  const collapseAllRowCharts = useCallback(() => {
+    setExpandedChartMetricIds(new Set());
+    setExpandedEmployeeChartIds(new Set());
+    setTableRowChartsMode('compact');
   }, []);
 
   const updateRowThreshold = useCallback((metricId: string, value: ThresholdValues) => {
@@ -4508,6 +5057,7 @@ function App() {
       expandedEmployeeMetricIds: [...expandedEmployeeMetricIds],
       expandedChartMetricIds: [...expandedChartMetricIds],
       expandedEmployeeChartIds: [...expandedEmployeeChartIds],
+      tableRowChartsMode,
     }),
     [
       appliedEmployeeIdsByMetricId,
@@ -4529,6 +5079,7 @@ function App() {
       sectionOrder,
       sourceMetricOrderBySource,
       sourceSectionOrder,
+      tableRowChartsMode,
       tableSelectedSources,
     ],
   );
@@ -4754,6 +5305,9 @@ function App() {
     setExpandedEmployeeMetricIds(new Set(state.expandedEmployeeMetricIds ?? []));
     setExpandedChartMetricIds(new Set(state.expandedChartMetricIds ?? []));
     setExpandedEmployeeChartIds(new Set(state.expandedEmployeeChartIds ?? []));
+    setTableRowChartsMode(
+      state.tableRowChartsMode === 'with_charts' ? 'with_charts' : 'compact',
+    );
     setHasBuiltReport(true);
     setBuildMoment(Date.now());
     // Trigger report build for the restored view state
@@ -4804,6 +5358,7 @@ function App() {
     setExpandedEmployeeMetricIds(new Set());
     setExpandedChartMetricIds(new Set());
     setExpandedEmployeeChartIds(new Set());
+    setTableRowChartsMode('compact');
     setHasBuiltReport(true);
     setBuildMoment(Date.now());
     setReportBuildRequest((current) => current + 1);
@@ -4992,124 +5547,87 @@ function App() {
   }, []);
 
   const exportExcel = useCallback(async () => {
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = 'САПП';
-    workbook.created = new Date();
-    const worksheet = workbook.addWorksheet('Отчет', {
-      views: [{ state: 'frozen', xSplit: 1, ySplit: 2 }],
-    });
-    const header = ['Показатели', ...reportData.map((point) => point.label)];
-    const periodLabel = `${periodOptions.find((option) => option.value === appliedFilters.period)?.label ?? 'Период'}: ${formatRangeLabel(appliedFilters.period, appliedFilters.dateRange)}`;
+    if (!hasBuiltReport || !reportData.length) {
+      return;
+    }
 
-    worksheet.addRow([periodLabel]);
-    worksheet.mergeCells(1, 1, 1, header.length);
-    const periodRow = worksheet.getRow(1);
-    periodRow.height = 24;
-    periodRow.font = { bold: true, color: { argb: 'FF30343B' } };
-    periodRow.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFEFF6FF' },
-    };
-    periodRow.alignment = { vertical: 'middle' };
+    const currentViewLabel = savedViews.find((view) => view.value === selectedView)?.label ?? 'Обзор бизнеса';
+    const params = new URLSearchParams(window.location.search);
+    const portalLabel = params.get('DOMAIN') || params.get('domain') || 'Портал Bitrix24';
+    const periodOptionLabel = periodOptions.find((option) => option.value === appliedFilters.period)?.label ?? 'Группировка';
+    const periodLabel = formatRangeLabel(appliedFilters.period, appliedFilters.dateRange);
 
-    const headerRow = worksheet.addRow(header);
-    headerRow.font = { bold: true, color: { argb: 'FF30343B' } };
-    headerRow.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFEAF4FF' },
-    };
-    headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
-
-    tableRows
-      .filter((row) => row.kind !== 'chart' && row.kind !== 'employee_chart')
-      .forEach((row) => {
-        if (row.kind === 'section') {
-          const sectionRow = worksheet.addRow([row.label, ...reportData.map(() => '')]);
-          sectionRow.font = { bold: true, color: { argb: 'FF30343B' } };
-          sectionRow.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFF3F5F8' },
-          };
-          return;
-        }
-
-        if (row.kind === 'source_section') {
-          const sectionRow = worksheet.addRow([row.label, ...reportData.map(() => '')]);
-          sectionRow.font = { bold: true, color: { argb: 'FF30343B' } };
-          sectionRow.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFF3F5F8' },
-          };
-          return;
-        }
-
-        if (row.kind === 'employee') {
-          const employeeRow = worksheet.addRow([
-            `  ${row.employee.firstName} ${row.employee.lastName}`,
-            ...reportData.map((point) =>
-              formatMetricValue(
-                hasBuiltReport ? getEmployeePeriodMetricValue(row.employee, point, row.metric.id) : 0,
-                row.metric.type,
-              ),
-            ),
-          ]);
-          employeeRow.getCell(1).font = { bold: true, color: { argb: 'FF4D5866' } };
-          return;
-        }
-
-        if (row.kind === 'source_metric') {
-          const sourceData = sourceMetrics[row.sourceId];
-          const metricData = sourceData?.metrics[row.metricKey];
-          const valueType = row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number';
-          const metricRow = worksheet.addRow([
-            `  ${row.metricLabel}`,
-            ...reportData.map((point) => {
-              const value = readValuesByPeriod(metricData?.valuesByPeriod, point.key);
-              return formatMetricValue(value, valueType);
-            }),
-          ]);
-          metricRow.getCell(1).font = { bold: true, color: { argb: 'FF4D5866' } };
-          return;
-        }
-
-        const metricRow = worksheet.addRow([
-          row.metric.label,
-          ...reportData.map((point) => formatMetricValue(point.values[row.metric.id], row.metric.type)),
-        ]);
-        metricRow.getCell(1).font = { bold: true, color: { argb: 'FF30343B' } };
+    try {
+      await exportReportExcel({
+        hasBuiltReport,
+        reportData,
+        chartData,
+        tableRows: tableRows.filter((row) => row.kind !== 'chart' && row.kind !== 'employee_chart'),
+        reportDetails,
+        sourceMetrics,
+        valueStates,
+        appliedFilters: {
+          period: appliedFilters.period,
+          dateRange: appliedFilters.dateRange,
+          metricMode: appliedFilters.metricMode,
+          chartDisplayMode: appliedFilters.chartDisplayMode,
+          selectedSources: appliedFilters.selectedSources,
+          enabledSectionIds: appliedFilters.enabledSectionIds,
+          schedule: {
+            workdayStart: appliedFilters.schedule.workdayStart,
+            workdayEnd: appliedFilters.schedule.workdayEnd,
+            weekendDayIds: [...appliedFilters.schedule.weekendDayIds],
+            calendarWeekStart: appliedFilters.schedule.calendarWeekStart,
+          },
+        },
+        mainThreshold,
+        rowThresholds,
+        employeeThresholdsByMetricId,
+        metricDirectionsById,
+        crmSources,
+        tableSelectedSources,
+        tableEntitySourceIds,
+        currentViewLabel,
+        portalLabel,
+        periodOptionLabel,
+        periodLabel,
+        tableRowChartsMode,
       });
-
-    worksheet.columns = [
-      { width: 34 },
-      ...reportData.map(() => ({ width: 16 })),
-    ];
-    worksheet.eachRow((row) => {
-      row.eachCell((cell, colNumber) => {
-        cell.border = {
-          top: { style: 'thin', color: { argb: 'FFE6E9EE' } },
-          left: { style: 'thin', color: { argb: 'FFE6E9EE' } },
-          bottom: { style: 'thin', color: { argb: 'FFE6E9EE' } },
-          right: { style: 'thin', color: { argb: 'FFE6E9EE' } },
-        };
-        cell.alignment = {
-          vertical: 'middle',
-          horizontal: colNumber === 1 ? 'left' : 'center',
-        };
-      });
-    });
-
-    const buffer = await workbook.xlsx.writeBuffer();
-    downloadBlob(
-      new Blob([buffer], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      }),
-      'bitrix24-report.xlsx',
-    );
-  }, [appliedFilters.dateRange, appliedFilters.period, downloadBlob, hasBuiltReport, reportData, tableRows, sourceMetrics]);
+    } catch (error) {
+      console.warn('[Excel export] report Excel was not generated', error);
+      setNotification('Не удалось скачать Excel. Попробуйте уменьшить период или количество строк.');
+    }
+  }, [
+    appliedFilters.chartDisplayMode,
+    appliedFilters.dateRange,
+    appliedFilters.enabledSectionIds,
+    appliedFilters.metricMode,
+    appliedFilters.period,
+    appliedFilters.schedule.calendarWeekStart,
+    appliedFilters.schedule.weekendDayIds,
+    appliedFilters.schedule.workdayEnd,
+    appliedFilters.schedule.workdayStart,
+    appliedFilters.selectedSources,
+    chartData,
+    crmSources,
+    employeeThresholdsByMetricId,
+    formatRangeLabel,
+    hasBuiltReport,
+    mainThreshold,
+    metricDirectionsById,
+    periodOptions,
+    reportData,
+    reportDetails,
+    rowThresholds,
+    savedViews,
+    selectedView,
+    sourceMetrics,
+    tableEntitySourceIds,
+    tableRowChartsMode,
+    tableRows,
+    tableSelectedSources,
+    valueStates,
+  ]);
 
   const exportPdf = useCallback(async () => {
     if (!hasBuiltReport || !reportData.length || pdfExporting) {
@@ -5121,6 +5639,13 @@ function App() {
     const portalLabel = params.get('DOMAIN') || params.get('domain') || 'Портал Bitrix24';
     const periodOptionLabel = periodOptions.find((option) => option.value === appliedFilters.period)?.label ?? 'Группировка';
     const periodLabel = formatRangeLabel(appliedFilters.period, appliedFilters.dateRange);
+    const exportMode = tableRowChartsMode === 'with_charts' ? 'with_charts' : 'compact';
+    // PDF cannot embed every row mini-chart; offer compact numbers table when charts mode is on.
+    const includeRowChartsInPdf =
+      exportMode === 'with_charts'
+      && window.confirm(
+        'Сейчас открыт режим «С графиками».\n\nOK — PDF как на экране (раскрытые строки; строковые графики в PDF не рисуются).\nОтмена — компактная таблица только с числами.',
+      );
 
     setPdfExporting(true);
     setNotification('Формируем PDF…');
@@ -5130,7 +5655,9 @@ function App() {
         {
           hasBuiltReport,
           reportData,
-          tableRows,
+          tableRows: includeRowChartsInPdf
+            ? tableRows
+            : tableRows.filter((row) => row.kind !== 'chart' && row.kind !== 'employee_chart'),
           chartData,
           appliedFilters: {
             period: appliedFilters.period,
@@ -5145,6 +5672,7 @@ function App() {
           portalLabel,
           periodOptionLabel,
           periodLabel,
+          tableRowChartsMode: includeRowChartsInPdf ? 'with_charts' : 'compact',
         },
         {
           onProgress: (current, total) => {
@@ -5174,6 +5702,7 @@ function App() {
     savedViews,
     selectedView,
     sourceMetrics,
+    tableRowChartsMode,
     tableRows,
     valueStates,
   ]);
@@ -5211,6 +5740,10 @@ function App() {
               crmSourceOptions={crmSourceOptions}
               onSourcesChange={handleTableSelectedSourcesChange}
               onApply={applyTableSettings}
+              tableRowChartsMode={tableRowChartsMode}
+              onTableRowChartsModeChange={setTableRowChartsModeAndSync}
+              onExpandAllRowCharts={expandAllRowCharts}
+              onCollapseAllRowCharts={collapseAllRowCharts}
             />
             <TooltipButton
               label="Настроить приложение"
@@ -5219,7 +5752,7 @@ function App() {
               <Cog size={18} />
             </TooltipButton>
             <TooltipButton
-              label="Инструкция"
+              label="Как читать отчёт"
               onClick={() => setIsInstructionOpen(true)}
             >
               <BookOpen size={18} />
@@ -5241,6 +5774,7 @@ function App() {
               label="Построить отчёт"
               onClick={runUnifiedReportBuild}
               className="build-report-icon-button"
+              disabled={reportLoading || Boolean(sectionRetryingId)}
             >
               <Play size={18} />
             </TooltipButton>
@@ -5266,7 +5800,7 @@ function App() {
           <div className={`report-status-bar ${catalogError || reportError ? 'is-error' : ''}`}>
             {catalogLoading && <span>Загружаем настройки отчета из backend...</span>}
             {catalogError && <span>{catalogError}</span>}
-            {reportLoading && <span>Отчет формируется {reportElapsed}</span>}
+            {reportLoading && <span>{reportBuildStage}… {reportElapsed}</span>}
             {reportError && <span>{reportError}</span>}
             {hasBuiltReport && !reportLoading && !reportError && reportData.length === 0 && (
               <span>По выбранным фильтрам данных нет. Измените период, источники или метрики и постройте отчет заново.</span>
@@ -5315,6 +5849,10 @@ function App() {
                   crmSourceOptions={crmSourceOptions}
                   onSourcesChange={handleTableSelectedSourcesChange}
                   onApply={applyTableSettings}
+                  tableRowChartsMode={tableRowChartsMode}
+                  onTableRowChartsModeChange={setTableRowChartsModeAndSync}
+                  onExpandAllRowCharts={expandAllRowCharts}
+                  onCollapseAllRowCharts={collapseAllRowCharts}
                   trigger="text"
                 />
                 <div className="left-build-controls">
@@ -5338,6 +5876,7 @@ function App() {
                     className="left-panel-action-button left-build-button"
                     type="button"
                     onClick={runUnifiedReportBuild}
+                    disabled={reportLoading || Boolean(sectionRetryingId)}
                   >
                     <Play size={16} />
                     <span>Построить отчёт</span>
@@ -5354,7 +5893,7 @@ function App() {
             <div className="sync-viewport chart-viewport">
               {reportLoading && (
                 <div className="chart-loading-overlay">
-                  <ReportBuildLoader />
+                  <ReportBuildLoader stageLabel={reportBuildStage} />
                 </div>
               )}
               <div className="sync-content chart-sync-content" style={syncedContentStyle} ref={chartContentRef}>
@@ -5372,25 +5911,29 @@ function App() {
                   </div>
                 ) : (
                 <div className="chart-wrap" ref={mainChartWrapRef}>
-                  {!isSeparateChart && (
-                    <div className="chart-series-legend" aria-label="Легенда графика">
-                      <span className="chart-legend-item">
-                        <i className="chart-legend-swatch is-actual" aria-hidden="true" />
-                        <span>{chartSeries[0]?.label ?? 'Показатель'}</span>
+                  <div className="chart-series-legend" aria-label="Легенда графика">
+                    {chartSeries.map((series) => (
+                      <span className="chart-legend-item" key={series.key}>
+                        <i
+                          className="chart-legend-swatch"
+                          style={{ background: series.color }}
+                          aria-hidden="true"
+                        />
+                        <span title={series.label}>{series.label}</span>
                       </span>
-                      {hasTrendSeries && (
-                        <label className="chart-legend-item chart-legend-trend-toggle">
-                          <input
-                            type="checkbox"
-                            checked={showTrendLine}
-                            onChange={(event) => setShowTrendLine(event.target.checked)}
-                          />
-                          <i className="chart-legend-swatch is-trend" aria-hidden="true" />
-                          <span>Тренд</span>
-                        </label>
-                      )}
-                    </div>
-                  )}
+                    ))}
+                    {!isSeparateChart && hasTrendSeries ? (
+                      <label className="chart-legend-item chart-legend-trend-toggle">
+                        <input
+                          type="checkbox"
+                          checked={showTrendLine}
+                          onChange={(event) => setShowTrendLine(event.target.checked)}
+                        />
+                        <i className="chart-legend-swatch is-trend" aria-hidden="true" />
+                        <span>Тренд</span>
+                      </label>
+                    ) : null}
+                  </div>
                   <ResponsiveContainer width="100%" height={280}>
                     <LineChart
                       data={chartData}
@@ -5501,6 +6044,7 @@ function App() {
                       thresholdItems={mainThresholdTooltipItems}
                       containerRef={mainChartWrapRef}
                       valueFormatter={(value) => formatMainChartValue(value, appliedFilters.metricMode)}
+                      summary={mainChartTooltipSummary}
                     />
                   )}
                 </div>
@@ -5508,7 +6052,7 @@ function App() {
               </div>
               <div className="chart-zoom-controls" aria-label="Масштаб графика">
                 <TooltipButton
-                  label="Увеличить масштаб графика"
+                  label="Увеличить масштаб"
                   onClick={() =>
                     setPeriodColumnWidth((current) =>
                       Math.min(MAX_PERIOD_COLUMN_WIDTH, current + 8),
@@ -5519,7 +6063,7 @@ function App() {
                   <Plus size={16} />
                 </TooltipButton>
                 <TooltipButton
-                  label="Уменьшить масштаб графика"
+                  label="Уменьшить масштаб"
                   onClick={() =>
                     setPeriodColumnWidth((current) =>
                       Math.max(MIN_PERIOD_COLUMN_WIDTH, current - 8),
@@ -5528,6 +6072,13 @@ function App() {
                   className="zoom-icon-button"
                 >
                   <Minus size={16} />
+                </TooltipButton>
+                <TooltipButton
+                  label="Сбросить масштаб"
+                  onClick={() => setPeriodColumnWidth(PERIOD_COLUMN_WIDTH)}
+                  className="zoom-icon-button"
+                >
+                  <RotateCcw size={16} />
                 </TooltipButton>
               </div>
             </div>
@@ -5577,6 +6128,7 @@ function App() {
                 row.kind === 'source_metric' ? 'is-metric-row' : '',
                 isActiveMetricRow ? 'is-active-metric-row' : '',
                 row.kind === 'employee' ? 'is-employee-row' : '',
+                row.kind === 'employee_sum_hint' ? 'is-employee-sum-hint' : '',
                 row.kind === 'chart' || row.kind === 'employee_chart' ? 'is-chart-row' : '',
               ].filter(Boolean).join(' ');
               const leftCellClassName = [
@@ -5586,18 +6138,34 @@ function App() {
                 row.kind === 'metric' ? 'metric-left-cell' : '',
                 row.kind === 'source_metric' ? 'metric-left-cell' : '',
                 row.kind === 'employee' ? 'employee-left-cell' : '',
+                row.kind === 'employee_sum_hint' ? 'employee-sum-hint-cell' : '',
                 row.kind === 'chart' || row.kind === 'employee_chart' ? 'chart-left-cell' : '',
               ].filter(Boolean).join(' ');
 
               if (row.kind === 'section') {
                 const section = sectionMap.get(row.sectionId);
-                const enabledMetricIds =
+                const menuEnabledMetricIds =
                   enabledMetricIdsBySection[row.sectionId] ??
                   new Set(section?.metricIds ?? []);
+                const tableEnabledMetricIds = (
+                  hasBuiltReport
+                    ? appliedEnabledMetricIdsBySection[row.sectionId]
+                    : enabledMetricIdsBySection[row.sectionId]
+                ) ?? new Set<string>();
+                const visibleMetricIds = section
+                  ? section.metricIds.filter((metricId) => tableEnabledMetricIds.has(metricId))
+                  : [];
+                const periodKeys = reportData.map((point) => point.key);
+                const showSectionLoadError = sectionHasLoadError(
+                  visibleMetricIds,
+                  valueStates,
+                  periodKeys,
+                );
+                const isSectionRetrying = sectionRetryingId === row.sectionId;
 
                 return (
                   <div
-                    className={rowClassName}
+                    className={`${rowClassName}${showSectionLoadError ? ' has-section-load-error' : ''}`}
                     key={row.rowId}
                     role="row"
                     data-row-id={row.rowId}
@@ -5610,6 +6178,7 @@ function App() {
                         type="button"
                         draggable
                         aria-label="Перетащить раздел"
+                        title="Перетащить раздел"
                         onDragStart={(event) => handleSectionDragStart(row.sectionId, event)}
                         onDragEnd={() => {
                           draggedSectionRef.current = null;
@@ -5621,16 +6190,17 @@ function App() {
                         className={`section-toggle ${expandedSections.has(row.sectionId) ? '' : 'is-collapsed'}`}
                         type="button"
                         aria-expanded={expandedSections.has(row.sectionId)}
+                        title={expandedSections.has(row.sectionId) ? 'Свернуть раздел' : 'Развернуть раздел'}
                         onClick={() => toggleSection(row.sectionId)}
                       >
                         <ChevronDown size={16} />
-                        <span>{row.label}</span>
+                        <span title={row.label}>{row.label}</span>
                       </button>
                       {section && (
                         <SectionMetricsMenu
                           section={section}
                           metricMap={metricMap}
-                          enabledMetricIds={enabledMetricIds}
+                          enabledMetricIds={menuEnabledMetricIds}
                           onToggleMetric={(metricId) => toggleEnabledMetric(row.sectionId, metricId)}
                           onSelectAll={() => selectAllSectionMetrics(row.sectionId)}
                           onReset={() => resetSectionMetrics(row.sectionId)}
@@ -5639,12 +6209,28 @@ function App() {
                       )}
                     </div>
                     <div className="table-right-cell" role="cell">
-                      <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
-                        <div className="value-axis-gutter" aria-hidden="true" />
-                        {reportData.map((point) => (
-                          <div className="value-cell" key={`${row.rowId}-${point.key}`} />
-                        ))}
-                      </div>
+                      {showSectionLoadError ? (
+                        <div className="section-load-error" role="status">
+                          <span>{SECTION_LOAD_ERROR_MESSAGE}</span>
+                          <button
+                            className="section-load-error-button"
+                            type="button"
+                            disabled={isSectionRetrying || reportLoading || Boolean(sectionRetryingId)}
+                            onClick={() => {
+                              void retrySectionLoad(row.sectionId);
+                            }}
+                          >
+                            {isSectionRetrying ? 'Загрузка…' : SECTION_LOAD_RETRY_LABEL}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
+                          <div className="value-axis-gutter" aria-hidden="true" />
+                          {reportData.map((point) => (
+                            <div className="value-cell" key={`${row.rowId}-${point.key}`} />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -5690,6 +6276,7 @@ function App() {
                         type="button"
                         draggable
                         aria-label="Перетащить раздел"
+                        title="Перетащить раздел"
                         onDragStart={(event) => handleSourceSectionDragStart(row.sourceId, event)}
                         onDragEnd={() => {
                           draggedSourceSectionRef.current = null;
@@ -5701,10 +6288,11 @@ function App() {
                         className={`section-toggle ${expandedSourceSections.has(row.sourceId) ? '' : 'is-collapsed'}`}
                         type="button"
                         aria-expanded={expandedSourceSections.has(row.sourceId)}
+                        title={expandedSourceSections.has(row.sourceId) ? 'Свернуть раздел' : 'Развернуть раздел'}
                         onClick={() => toggleSourceSection(row.sourceId)}
                       >
                         <ChevronDown size={16} />
-                        <span>{row.label}</span>
+                        <span title={row.label}>{row.label}</span>
                       </button>
                       {sourceData && (
                         <SectionMetricsMenu
@@ -5739,6 +6327,8 @@ function App() {
                   buildEmployeeChartId(row.metric.id, row.employee.id),
                 );
                 const employeeThreshold = employeeThresholdsByMetricId[row.metric.id];
+                const employeeFullName = getEmployeeFullName(row.employee);
+                const isSystemDetail = row.isSystemDetail || isSystemEmployeeRow(row.employee.id);
 
                 return (
                   <div
@@ -5746,44 +6336,60 @@ function App() {
                     key={row.rowId}
                     role="row"
                     data-row-id={row.rowId}
-                    onDragOver={(event) => handleEmployeeDragOver(row.metric.id, event)}
-                    onDrop={(event) => handleEmployeeDrop(row.metric.id, row.employee.id, event)}
+                    onDragOver={isSystemDetail ? undefined : (event) => handleEmployeeDragOver(row.metric.id, event)}
+                    onDrop={isSystemDetail ? undefined : (event) => handleEmployeeDrop(row.metric.id, row.employee.id, event)}
                   >
                     <div className={leftCellClassName} role="rowheader">
-                      <button
-                        className="drag-handle-button employee-drag-handle-button"
-                        type="button"
-                        draggable
-                        aria-label="Перетащить сотрудника"
-                        onDragStart={(event) => handleEmployeeDragStart(row.metric.id, row.employee.id, event)}
-                        onDragEnd={() => {
-                          draggedEmployeeRef.current = null;
-                        }}
-                      >
-                        <GripVertical size={15} />
-                      </button>
+                      {!isSystemDetail ? (
+                        <button
+                          className="drag-handle-button employee-drag-handle-button"
+                          type="button"
+                          draggable
+                          aria-label="Перетащить сотрудника"
+                          title="Перетащить сотрудника"
+                          onDragStart={(event) => handleEmployeeDragStart(row.metric.id, row.employee.id, event)}
+                          onDragEnd={() => {
+                            draggedEmployeeRef.current = null;
+                          }}
+                        >
+                          <GripVertical size={15} />
+                        </button>
+                      ) : (
+                        <span className="employee-system-spacer" aria-hidden="true" />
+                      )}
                       <input
                         className="employee-visibility-checkbox"
                         type="checkbox"
-                        checked
-                        aria-label="Скрыть сотрудника из списка"
-                        onChange={() => hideAppliedMetricEmployee(row.metric.id, row.employee.id)}
-                      />
-                      <button
-                        className="employee-person-button"
-                        type="button"
-                        onClick={() => openBitrixUser(row.employee.userId)}
-                      >
-                        <span>{row.employee.firstName} {row.employee.lastName}</span>
-                      </button>
-                      <button
-                        className={`employee-chart-toggle-button ${employeeChartOpen ? 'is-active' : ''}`}
-                        type="button"
+                        checked={employeeChartOpen}
                         aria-label={employeeChartOpen ? 'Скрыть график сотрудника' : 'Показать график сотрудника'}
-                        onClick={() => toggleEmployeeChart(row.metric.id, row.employee.id)}
-                      >
-                        {employeeChartOpen ? <X size={14} /> : <TrendingUp size={14} />}
-                      </button>
+                        title={employeeChartOpen ? 'Скрыть график сотрудника' : 'Показать график сотрудника'}
+                        onChange={() => toggleEmployeeChart(row.metric.id, row.employee.id)}
+                      />
+                      {isSystemDetail || row.employee.id === UNAVAILABLE_EMPLOYEE_ID ? (
+                        <span className="employee-person-button is-static" title={employeeFullName}>
+                          <span>{employeeFullName}</span>
+                        </span>
+                      ) : (
+                        <button
+                          className="employee-person-button"
+                          type="button"
+                          title={employeeFullName}
+                          onClick={() => openBitrixUser(row.employee.userId)}
+                        >
+                          <span>{employeeFullName}</span>
+                        </button>
+                      )}
+                      {!isSystemDetail ? (
+                        <button
+                          className="employee-chart-toggle-button"
+                          type="button"
+                          aria-label="Скрыть сотрудника из списка"
+                          title="Скрыть сотрудника из списка"
+                          onClick={() => hideAppliedMetricEmployee(row.metric.id, row.employee.id)}
+                        >
+                          <X size={14} />
+                        </button>
+                      ) : null}
                     </div>
                     <div className="table-right-cell" role="cell">
                       <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
@@ -5807,23 +6413,22 @@ function App() {
                             <ValueCellButton
                               className={thresholdClass}
                               valueLabel={display.label}
-                              tooltipLabel={
-                                display.hasNumericValue
-                                  ? appendThresholdTooltip(
-                                    display.tooltip,
-                                    value,
-                                    employeeThreshold,
-                                    metricDirection,
-                                  )
-                                  : display.tooltip
-                              }
+                              tooltipLabel={getValueCellOpenTooltip(
+                                value,
+                                row.metric.label,
+                                row.metric.type,
+                                display,
+                                employeeThreshold,
+                                metricDirection,
+                              )}
+                              disabled={display.accessDenied}
                               key={`${row.rowId}-${point.key}`}
                               onClick={() => openDetail(
                                 row.metric,
                                 point,
                                 value,
                                 row.sectionId,
-                                row.employee,
+                                isSystemDetail ? undefined : row.employee,
                                 row.sourceId,
                                 row.detailSourceIds,
                                 row.detailMetricIds,
@@ -5837,11 +6442,29 @@ function App() {
                 );
               }
 
+              if (row.kind === 'employee_sum_hint') {
+                return (
+                  <div className={`${rowClassName} is-employee-sum-hint`} key={row.rowId} role="row" data-row-id={row.rowId}>
+                    <div className={`${leftCellClassName} employee-sum-hint-cell`} role="rowheader">
+                      <span title={row.message}>{row.message}</span>
+                    </div>
+                    <div className="table-right-cell" role="cell">
+                      <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
+                        <div className="value-axis-gutter" aria-hidden="true" />
+                        {reportData.map((point) => (
+                          <div className="value-cell is-muted" key={`${row.rowId}-${point.key}`} />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
               if (row.kind === 'employee_chart') {
                 return (
                   <div className={rowClassName} key={row.rowId} role="row" data-row-id={row.rowId}>
-                    <div className={leftCellClassName} role="rowheader">
-                      График: {row.employee.firstName} {row.employee.lastName}
+                    <div className={leftCellClassName} role="rowheader" title={getEmployeeFullName(row.employee)}>
+                      {getEmployeeFullName(row.employee)}
                     </div>
                     <div className="table-right-cell" role="cell">
                       <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
@@ -5850,6 +6473,7 @@ function App() {
                             metric={row.metric}
                             reportData={reportData}
                             threshold={employeeThresholdsByMetricId[row.metric.id]}
+                            direction={resolveMetricDirection(row.metric.id, metricDirectionsById)}
                             valuesByPeriod={buildEmployeeChartValuesByPeriod(
                               row.employee,
                               reportData,
@@ -5866,8 +6490,8 @@ function App() {
               if (row.kind === 'chart') {
                 return (
                   <div className={rowClassName} key={row.rowId} role="row" data-row-id={row.rowId}>
-                    <div className={leftCellClassName} role="rowheader">
-                      График: {row.metric.label}
+                    <div className={leftCellClassName} role="rowheader" title={row.metric.label}>
+                      {row.metric.label}
                     </div>
                     <div className="table-right-cell" role="cell">
                       <div className="table-row-grid" style={{ ...syncedContentStyle, ...gridStyle }}>
@@ -5876,6 +6500,7 @@ function App() {
                             metric={row.metric}
                             reportData={reportData}
                             threshold={rowThresholds[row.metric.id]}
+                            direction={resolveMetricDirection(row.metric.id, metricDirectionsById)}
                             valuesByPeriod={row.valuesByPeriod}
                           />
                         </div>
@@ -5892,7 +6517,10 @@ function App() {
                 const actionIds = buildSourceMetricActionIds(row.sourceId, row.metricKey, sourceData);
                 const rowThreshold = resolveThresholdForIds(actionIds, rowThresholds);
                 const periodValues = reportData.map((point) =>
-                  readValuesByPeriod(metricData?.valuesByPeriod, point.key),
+                  toCorridorValue(
+                    readValuesByPeriod(metricData?.valuesByPeriod, point.key),
+                    resolvePeriodValueState(valueStates, point.key, actionIds),
+                  ),
                 );
                 const rowRecommendedThreshold = calculateRecommendedThresholds(
                   periodValues,
@@ -5919,6 +6547,8 @@ function App() {
                     sourceMetricEmployeesForThreshold,
                     appliedEmployeeIdsByMetricId[actionId],
                     reportData,
+                    valueStates,
+                    actionIds,
                   ),
                   valueType,
                 );
@@ -5947,6 +6577,7 @@ function App() {
                         type="button"
                         draggable
                         aria-label="Перетащить строку"
+                        title="Перетащить строку"
                         onDragStart={(event) => handleSourceMetricDragStart(row.sourceId, row.metricKey, event)}
                         onDragEnd={() => {
                           draggedSourceMetricRef.current = null;
@@ -5954,7 +6585,7 @@ function App() {
                       >
                         <GripVertical size={15} />
                       </button>
-                      <span className="metric-name">{row.metricLabel}</span>
+                      <span className="metric-name" title={row.metricLabel}>{row.metricLabel}</span>
                       <RowActionsMenu
                         employeesOpen={employeesOpen}
                         hasAppliedEmployees={(appliedEmployeeIdsByMetricId[actionId]?.size ?? 0) > 0}
@@ -5973,6 +6604,17 @@ function App() {
                         onSelectAllEmployees={(employeeIds) => selectAllDraftMetricEmployees(actionId, employeeIds)}
                         onResetEmployees={() => resetDraftMetricEmployees(actionId)}
                         onApplyEmployees={() => applyMetricEmployees(actionId, sourceMetricEmployees.map((employee) => employee.id))}
+                        onDiscardEmployees={() => discardEmployeeSelectorDraft(actionId)}
+                        onExpandAllEmployeeCharts={() => {
+                          const employeeIds = tableRows
+                            .filter((tableRow): tableRow is Extract<TableRow, { kind: 'employee' }> =>
+                              tableRow.kind === 'employee' && tableRow.metric.id === actionId)
+                            .map((tableRow) => tableRow.employee.id);
+                          expandAllEmployeeCharts(actionId, employeeIds);
+                        }}
+                        onCollapseAllEmployeeCharts={() => collapseAllEmployeeCharts(actionId)}
+                        employeeChartsExpanded={Array.from(expandedEmployeeChartIds).some((chartId) =>
+                          chartId.startsWith(`${actionId}::`))}
                         onToggleChart={() => toggleMetricChart(actionId)}
                         onThresholdChange={applySourceRowThreshold}
                         onEmployeeThresholdChange={(value) => updateEmployeeThreshold(actionId, value)}
@@ -6009,16 +6651,15 @@ function App() {
                             <ValueCellButton
                               className={thresholdClass}
                               valueLabel={display.label}
-                              tooltipLabel={
-                                display.hasNumericValue
-                                  ? appendThresholdTooltip(
-                                    display.tooltip,
-                                    value,
-                                    rowThreshold,
-                                    metricDirection,
-                                  )
-                                  : display.tooltip
-                              }
+                              tooltipLabel={getValueCellOpenTooltip(
+                                value,
+                                row.metricLabel,
+                                valueType,
+                                display,
+                                rowThreshold,
+                                metricDirection,
+                              )}
+                              disabled={display.accessDenied}
                               key={`${row.rowId}-${point.key}`}
                               onClick={() => openDetail(
                                 syntheticMetric,
@@ -6043,7 +6684,12 @@ function App() {
               const metricRow = row as { kind: 'metric'; rowId: string; sectionId: string; metric: MetricRow };
               const rowThreshold = rowThresholds[metricRow.metric.id] ?? { upper: '', lower: '' };
               const rowRecommendedThreshold = calculateRecommendedThresholds(
-                reportData.map((point) => point.values[metricRow.metric.id]),
+                reportData.map((point) =>
+                  toCorridorValue(
+                    point.values[metricRow.metric.id],
+                    resolvePeriodValueState(valueStates, point.key, metricRow.metric.id),
+                  ),
+                ),
                 metricRow.metric.type,
               );
               const employeeThreshold = employeeThresholdsByMetricId[metricRow.metric.id] ?? { upper: '', lower: '', mode: null };
@@ -6053,6 +6699,7 @@ function App() {
                   availableEmployees,
                   appliedEmployeeIdsByMetricId[metricRow.metric.id],
                   reportData,
+                  valueStates,
                 ),
                 metricRow.metric.type,
               );
@@ -6074,6 +6721,7 @@ function App() {
                       type="button"
                       draggable
                       aria-label="Перетащить строку"
+                      title="Перетащить строку"
                       onDragStart={(event) => handleMetricDragStart(metricRow.sectionId, metricRow.metric.id, event)}
                       onDragEnd={() => {
                         draggedMetricRef.current = null;
@@ -6081,7 +6729,7 @@ function App() {
                     >
                       <GripVertical size={15} />
                     </button>
-                    <span className="metric-name">{metricRow.metric.label}</span>
+                    <span className="metric-name" title={metricRow.metric.label}>{metricRow.metric.label}</span>
                     <RowActionsMenu
                       employeesOpen={employeesOpen}
                       hasAppliedEmployees={(appliedEmployeeIdsByMetricId[metricRow.metric.id]?.size ?? 0) > 0}
@@ -6099,6 +6747,17 @@ function App() {
                       onSelectAllEmployees={(employeeIds) => selectAllDraftMetricEmployees(metricRow.metric.id, employeeIds)}
                       onResetEmployees={() => resetDraftMetricEmployees(metricRow.metric.id)}
                       onApplyEmployees={() => applyMetricEmployees(metricRow.metric.id, availableEmployees.map((employee) => employee.id))}
+                      onDiscardEmployees={() => discardEmployeeSelectorDraft(metricRow.metric.id)}
+                      onExpandAllEmployeeCharts={() => {
+                        const employeeIds = tableRows
+                          .filter((tableRow): tableRow is Extract<TableRow, { kind: 'employee' }> =>
+                            tableRow.kind === 'employee' && tableRow.metric.id === metricRow.metric.id)
+                          .map((tableRow) => tableRow.employee.id);
+                        expandAllEmployeeCharts(metricRow.metric.id, employeeIds);
+                      }}
+                      onCollapseAllEmployeeCharts={() => collapseAllEmployeeCharts(metricRow.metric.id)}
+                      employeeChartsExpanded={Array.from(expandedEmployeeChartIds).some((chartId) =>
+                        chartId.startsWith(`${metricRow.metric.id}::`))}
                       onToggleChart={() => toggleMetricChart(metricRow.metric.id)}
                       onThresholdChange={(value) => updateRowThreshold(metricRow.metric.id, value)}
                       onEmployeeThresholdChange={(value) => updateEmployeeThreshold(metricRow.metric.id, value)}
@@ -6127,16 +6786,15 @@ function App() {
                           <ValueCellButton
                             className={thresholdClass}
                             valueLabel={display.label}
-                            tooltipLabel={
-                              display.hasNumericValue
-                                ? appendThresholdTooltip(
-                                  display.tooltip,
-                                  value,
-                                  rowThreshold,
-                                  metricDirection,
-                                )
-                                : display.tooltip
-                            }
+                            tooltipLabel={getValueCellOpenTooltip(
+                              value,
+                              metricRow.metric.label,
+                              metricRow.metric.type,
+                              display,
+                              rowThreshold,
+                              metricDirection,
+                            )}
+                            disabled={display.accessDenied}
                             key={`${metricRow.rowId}-${point.key}`}
                             onClick={() => openDetail(metricRow.metric, point, value, metricRow.sectionId)}
                           />
@@ -6165,10 +6823,9 @@ function App() {
           </div>
 
           {canScrollBack && (
-            <button
+            <TooltipButton
               className="scroll-button scroll-back-button"
-              type="button"
-              aria-label="Прокрутить влево"
+              label="Прокрутить временную шкалу влево"
               onClick={() => handleScrollButtonClick(-1)}
               onPointerDown={(event) => handleScrollButtonPointerDown(-1, event)}
               onPointerUp={handleScrollButtonPointerUp}
@@ -6177,22 +6834,22 @@ function App() {
               onContextMenu={(event) => event.preventDefault()}
             >
               <ChevronLeft size={24} />
-            </button>
+            </TooltipButton>
           )}
 
-          <button
+          <TooltipButton
             className={`scroll-button scroll-forward-button ${canScrollForward ? '' : 'is-disabled'}`}
-            type="button"
-            aria-label="Прокрутить вправо"
+            label="Прокрутить временную шкалу вправо"
             onClick={() => handleScrollButtonClick(1)}
             onPointerDown={(event) => handleScrollButtonPointerDown(1, event)}
             onPointerUp={handleScrollButtonPointerUp}
             onPointerCancel={handleScrollButtonPointerUp}
             onPointerLeave={handleScrollButtonPointerUp}
             onContextMenu={(event) => event.preventDefault()}
+            disabled={!canScrollForward}
           >
             <ChevronRight size={24} />
-          </button>
+          </TooltipButton>
         </section>
         <div className="floating-layer" />
       </section>
@@ -6229,8 +6886,18 @@ function App() {
       )}
 
       {isInstructionOpen && (
-        <InstructionModal onClose={() => setIsInstructionOpen(false)} />
+        <InstructionModal
+          onClose={() => setIsInstructionOpen(false)}
+          onStartTips={startReportOnboarding}
+        />
       )}
+
+      <ReportOnboarding
+        open={isOnboardingOpen}
+        stepIndex={onboardingStepIndex}
+        onStepChange={setOnboardingStepIndex}
+        onClose={closeReportOnboarding}
+      />
 
       {isAppSettingsOpen && (
         <AppSettingsModal
@@ -6260,7 +6927,7 @@ function App() {
       )}
 
       {detailContext && (
-        <DetailModal context={detailContext} rows={detailRows} onClose={() => setDetailContext(null)} />
+        <DetailModal context={detailContext} rows={detailRows} onClose={closeDetail} />
       )}
 
       {notification && (

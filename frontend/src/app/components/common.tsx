@@ -3,6 +3,8 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type RefObject,
   type ReactNode,
 } from 'react';
@@ -340,12 +342,24 @@ export function TooltipButton({
   className = '',
   onClick,
   ariaPressed,
+  disabled,
+  onPointerDown,
+  onPointerUp,
+  onPointerCancel,
+  onPointerLeave,
+  onContextMenu,
 }: {
   label: string;
   children: ReactNode;
   className?: string;
   onClick: () => void;
   ariaPressed?: boolean;
+  disabled?: boolean;
+  onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onPointerUp?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onPointerCancel?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onPointerLeave?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onContextMenu?: (event: ReactMouseEvent<HTMLButtonElement>) => void;
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [tooltipStyle, setTooltipStyle] = useState<CSSProperties | null>(null);
@@ -402,8 +416,17 @@ export function TooltipButton({
       onBlur={() => setTooltipStyle(null)}
       onMouseEnter={showTooltip}
       onMouseLeave={() => setTooltipStyle(null)}
+      onPointerDown={onPointerDown}
+      onPointerUp={(event) => {
+        setTooltipStyle(null);
+        onPointerUp?.(event);
+      }}
+      onPointerCancel={onPointerCancel}
+      onPointerLeave={onPointerLeave}
+      onContextMenu={onContextMenu}
       aria-label={label}
       aria-pressed={ariaPressed}
+      disabled={disabled}
       ref={buttonRef}
     >
       {children}
@@ -496,11 +519,13 @@ export function ValueCellButton({
   className = '',
   valueLabel,
   tooltipLabel,
+  disabled = false,
   onClick,
 }: {
   className?: string;
   valueLabel: string;
   tooltipLabel?: string;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -550,9 +575,11 @@ export function ValueCellButton({
 
   return (
     <button
-      className={`value-cell value-cell-button ${className}`.trim()}
+      className={`value-cell value-cell-button ${disabled ? 'is-disabled' : ''} ${className}`.trim()}
       type="button"
-      onClick={onClick}
+      disabled={disabled}
+      aria-label={tooltipLabel ?? valueLabel}
+      onClick={disabled ? undefined : onClick}
       onFocus={showTooltip}
       onBlur={() => setTooltipStyle(null)}
       onMouseEnter={showTooltip}
@@ -560,9 +587,11 @@ export function ValueCellButton({
       ref={buttonRef}
     >
       <span className="value-cell-badge">{valueLabel}</span>
-      <span className="value-cell-corner-arrow" aria-hidden="true">
-        ↗
-      </span>
+      {!disabled ? (
+        <span className="value-cell-corner-arrow" aria-hidden="true">
+          ↗
+        </span>
+      ) : null}
       {tooltipStyle && <TooltipPortal label={tooltipLabel ?? valueLabel} style={tooltipStyle} />}
     </button>
   );

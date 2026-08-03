@@ -1,12 +1,15 @@
-﻿import type { CSSProperties, RefObject } from 'react';
+﻿import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import type { ActiveChartPoint, ChartTooltipItem, HoverChartDotProps } from '../types';
 import { clamp } from './common';
 import { getAppliedThresholdItems } from '../utils/thresholds';
 
+const TOOLTIP_MARGIN = 12;
+
 const getChartTooltipStyle = (
   point: ActiveChartPoint,
   container: HTMLElement | null,
+  size: { width: number; height: number },
 ): CSSProperties => {
   if (typeof window === 'undefined') {
     return {};
@@ -15,24 +18,27 @@ const getChartTooltipStyle = (
   const containerRect = container?.getBoundingClientRect();
   const pointX = (containerRect?.left ?? 0) + point.x;
   const pointY = (containerRect?.top ?? 0) + point.y;
+  // F-19: keep tooltip inside the browser window (and report card when tighter).
   const appRect = container?.closest('.report-card')?.getBoundingClientRect();
-  const boundary = appRect ?? {
-    top: 0,
-    right: window.innerWidth,
-    bottom: window.innerHeight,
-    left: 0,
-    width: window.innerWidth,
-    height: window.innerHeight,
+  const boundary = {
+    top: Math.max(0, appRect?.top ?? 0),
+    left: Math.max(0, appRect?.left ?? 0),
+    right: Math.min(window.innerWidth, appRect?.right ?? window.innerWidth),
+    bottom: Math.min(window.innerHeight, appRect?.bottom ?? window.innerHeight),
   };
-  const width = Math.min(280, Math.max(180, (container?.clientWidth ?? 280) - 24));
-  const estimatedHeight = 116;
-  const minLeft = boundary.left + width / 2 + 12;
-  const maxLeft = Math.max(minLeft, boundary.right - width / 2 - 12);
-  const hasTopSpace = pointY - boundary.top > estimatedHeight + 14;
-  const preferredTop = hasTopSpace ? pointY - 10 : pointY + 10;
-  const top = hasTopSpace
-    ? Math.max(preferredTop, boundary.top + estimatedHeight + 12)
-    : Math.min(Math.max(preferredTop, boundary.top + 12), boundary.bottom - estimatedHeight - 12);
+
+  const width = Math.min(
+    size.width || 280,
+    Math.max(160, boundary.right - boundary.left - TOOLTIP_MARGIN * 2),
+  );
+  const height = Math.max(size.height || 116, 48);
+  const hasTopSpace = pointY - boundary.top > height + TOOLTIP_MARGIN + 8;
+  const preferredTop = hasTopSpace ? pointY - 10 : pointY + 14;
+  const minTop = boundary.top + TOOLTIP_MARGIN + (hasTopSpace ? height : 0);
+  const maxTop = boundary.bottom - TOOLTIP_MARGIN - (hasTopSpace ? 0 : height);
+  const top = clamp(preferredTop, Math.min(minTop, maxTop), Math.max(minTop, maxTop));
+  const minLeft = boundary.left + width / 2 + TOOLTIP_MARGIN;
+  const maxLeft = Math.max(minLeft, boundary.right - width / 2 - TOOLTIP_MARGIN);
 
   return {
     width,
@@ -42,8 +48,6 @@ const getChartTooltipStyle = (
   };
 };
 
-
-
 export function ChartPointTooltip({
   point,
   title,
@@ -51,6 +55,7 @@ export function ChartPointTooltip({
   thresholdItems,
   containerRef,
   valueFormatter,
+  summary,
 }: {
   point: ActiveChartPoint;
   title: string;
@@ -58,35 +63,65 @@ export function ChartPointTooltip({
   thresholdItems: ReturnType<typeof getAppliedThresholdItems>;
   containerRef: RefObject<HTMLDivElement | null>;
   valueFormatter: (value: number) => string;
+  /** F-19 prose line: value + corridor position + evaluation. */
+  summary?: string;
 }) {
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 260, height: 116 });
+
+  useLayoutEffect(() => {
+    const node = tooltipRef.current;
+    if (!node) {
+      return;
+    }
+
+    const rect = node.getBoundingClientRect();
+    const next = {
+      width: Math.ceil(rect.width) || 260,
+      height: Math.ceil(rect.height) || 116,
+    };
+
+    setSize((current) => (
+      current.width === next.width && current.height === next.height ? current : next
+    ));
+  }, [point.index, point.x, point.y, title, summary, items, thresholdItems]);
+
   if (typeof document === 'undefined') {
     return null;
   }
 
   return (
-    createPortal(<div className="chart-point-tooltip chart-tooltip" style={getChartTooltipStyle(point, containerRef.current)}>
-      <p>{title}</p>
-      <div className="chart-tooltip-list">
-        {items.map((item) => (
-          <span className="chart-tooltip-row" key={item.label}>
-            <i style={{ background: item.color }} />
-            <span>{item.label}</span>
-            <strong>{item.value}</strong>
-          </span>
-        ))}
-        {thresholdItems.map((item) => (
-          <span
-            className="chart-tooltip-row threshold-tooltip-row"
-            style={{ color: item.color }}
-            key={item.label}
-          >
-            <i style={{ borderColor: item.color, background: item.color }} />
-            <span>{item.label}</span>
-            <strong style={{ color: item.color }}>{valueFormatter(item.value)}</strong>
-          </span>
-        ))}
-      </div>
-    </div>, document.body)
+    createPortal(
+      <div
+        className="chart-point-tooltip chart-tooltip"
+        ref={tooltipRef}
+        style={getChartTooltipStyle(point, containerRef.current, size)}
+      >
+        <p>{title}</p>
+        {summary ? <p className="chart-tooltip-summary">{summary}</p> : null}
+        <div className="chart-tooltip-list">
+          {items.map((item) => (
+            <span className="chart-tooltip-row" key={item.label}>
+              <i style={{ background: item.color }} />
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </span>
+          ))}
+          {thresholdItems.map((item) => (
+            <span
+              className="chart-tooltip-row threshold-tooltip-row"
+              style={{ color: item.color }}
+              key={item.label}
+            >
+              <i style={{ borderColor: item.color, background: item.color }} />
+              <span>{item.label}</span>
+              <strong style={{ color: item.color }}>{valueFormatter(item.value)}</strong>
+            </span>
+          ))}
+        </div>
+      </div>,
+      document.body,
+    )
   );
 }
 
@@ -120,6 +155,3 @@ export function HoverChartDot({
     </g>
   );
 }
-
-
-

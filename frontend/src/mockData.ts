@@ -37,8 +37,9 @@ const conversionValue = (success: number, created: number) => {
 export const buildReportData = (
   period: Period,
   range: DateRange = defaultDateRange,
+  options?: { calendarWeekStart?: number },
 ): ReportPoint[] =>
-  buildPeriodPoints(period, range).map((point, index) => {
+  buildPeriodPoints(period, range, options).map((point, index) => {
     const values = metrics.reduce<Record<string, number>>((acc, metric) => {
       acc[metric.id] = metricValue(metric, index, period);
       return acc;

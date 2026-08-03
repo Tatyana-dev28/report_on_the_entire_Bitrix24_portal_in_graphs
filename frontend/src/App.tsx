@@ -1782,13 +1782,20 @@ function App() {
         dateRangeSelectedManuallyRef.current = false;
 
         if (settings && Object.keys(settings).length > 0) {
+          // One-shot auto-build (incl. after preview finished) must not be clobbered by a
+          // late Pro settings response — otherwise calculated corridors disappear.
+          const protectAutoBuildResults =
+            temporaryAutoReportModeRef.current
+            || activeAutoBuildGenerationRef.current !== null
+            || skipAutoSaveRef.current;
+
           // Apply saved filters
-          if (typeof settings.period === 'string') {
+          if (!protectAutoBuildResults && typeof settings.period === 'string') {
             setDraftFilters((current) => ({ ...current, period: settings.period as Period }));
             setAppliedFilters((current) => ({ ...current, period: settings.period as Period }));
           }
 
-          if (settings.dateRange && typeof settings.dateRange === 'object') {
+          if (!protectAutoBuildResults && settings.dateRange && typeof settings.dateRange === 'object') {
             const dateRange = settings.dateRange as { start?: string; end?: string };
             if (dateRange.start && dateRange.end) {
               const nextRange = { start: dateRange.start, end: dateRange.end };
@@ -1802,8 +1809,7 @@ function App() {
           if (
             settings.selectedSources
             && Array.isArray(settings.selectedSources)
-            && activeAutoBuildGenerationRef.current === null
-            && !skipAutoSaveRef.current
+            && !protectAutoBuildResults
           ) {
             setDraftFilters((current) => ({ ...current, selectedSources: settings.selectedSources as string[] }));
             setAppliedFilters((current) => ({ ...current, selectedSources: settings.selectedSources as string[] }));
@@ -1811,13 +1817,14 @@ function App() {
 
           let restoredSectionIds = new Set<string>();
 
-          if (settings.enabledSectionIds && Array.isArray(settings.enabledSectionIds)) {
+          if (!protectAutoBuildResults && settings.enabledSectionIds && Array.isArray(settings.enabledSectionIds)) {
             restoredSectionIds = new Set(settings.enabledSectionIds as string[]);
             setDraftFilters((current) => ({ ...current, enabledSectionIds: restoredSectionIds }));
             setAppliedFilters((current) => ({ ...current, enabledSectionIds: new Set(restoredSectionIds) }));
           } else if (
-            settings.enabledMetricIdsBySection &&
-            typeof settings.enabledMetricIdsBySection === 'object'
+            !protectAutoBuildResults
+            && settings.enabledMetricIdsBySection
+            && typeof settings.enabledMetricIdsBySection === 'object'
           ) {
             // Legacy Pro saves: derive visible sections from saved metric visibility.
             const savedMetrics = settings.enabledMetricIdsBySection as Record<string, string[]>;
@@ -1830,8 +1837,7 @@ function App() {
             setAppliedFilters((current) => ({ ...current, enabledSectionIds: new Set(restoredSectionIds) }));
           }
 
-          const allowTableRestore =
-            activeAutoBuildGenerationRef.current === null && !skipAutoSaveRef.current;
+          const allowTableRestore = !protectAutoBuildResults;
 
           if (allowTableRestore && settings.tableSelectedSources && Array.isArray(settings.tableSelectedSources)) {
             const savedTableSources = settings.tableSelectedSources as string[];
@@ -1866,17 +1872,17 @@ function App() {
             setDraftTableSelectedSources(entityIds);
           }
 
-          if (typeof settings.chartDisplayMode === 'string') {
+          if (!protectAutoBuildResults && typeof settings.chartDisplayMode === 'string') {
             setDraftFilters((current) => ({ ...current, chartDisplayMode: settings.chartDisplayMode as ChartDisplayMode }));
             setAppliedFilters((current) => ({ ...current, chartDisplayMode: settings.chartDisplayMode as ChartDisplayMode }));
           }
 
-          if (typeof settings.metricMode === 'string') {
+          if (!protectAutoBuildResults && typeof settings.metricMode === 'string') {
             setDraftFilters((current) => ({ ...current, metricMode: settings.metricMode as ChartMetricMode }));
             setAppliedFilters((current) => ({ ...current, metricMode: settings.metricMode as ChartMetricMode }));
           }
 
-          if (settings.schedule && typeof settings.schedule === 'object') {
+          if (!protectAutoBuildResults && settings.schedule && typeof settings.schedule === 'object') {
             const schedule = settings.schedule as Record<string, unknown>;
             const nextSchedule = {
               workdayStart: String(schedule.workdayStart ?? ''),
@@ -1898,10 +1904,7 @@ function App() {
           }
 
           // Apply saved thresholds (never overwrite one-shot auto-build thresholds).
-          if (
-            activeAutoBuildGenerationRef.current === null
-            && !skipAutoSaveRef.current
-          ) {
+          if (!protectAutoBuildResults) {
             if (settings.mainThreshold && typeof settings.mainThreshold === 'object') {
               const mt = settings.mainThreshold as Record<string, unknown>;
               setMainThreshold({
@@ -1934,7 +1937,11 @@ function App() {
           }
 
           // Apply saved metric visibility
-          if (settings.enabledMetricIdsBySection && typeof settings.enabledMetricIdsBySection === 'object') {
+          if (
+            !protectAutoBuildResults
+            && settings.enabledMetricIdsBySection
+            && typeof settings.enabledMetricIdsBySection === 'object'
+          ) {
             const saved = settings.enabledMetricIdsBySection as Record<string, string[]>;
             setEnabledMetricIdsBySection(
               Object.fromEntries(
@@ -1949,28 +1956,38 @@ function App() {
           }
 
           // Apply saved section order
-          if (settings.sectionOrder && Array.isArray(settings.sectionOrder)) {
+          if (!protectAutoBuildResults && settings.sectionOrder && Array.isArray(settings.sectionOrder)) {
             setSectionOrder(settings.sectionOrder as string[]);
           }
 
           // Apply saved metric order
-          if (settings.metricOrderBySection && typeof settings.metricOrderBySection === 'object') {
+          if (
+            !protectAutoBuildResults
+            && settings.metricOrderBySection
+            && typeof settings.metricOrderBySection === 'object'
+          ) {
             setMetricOrderBySection(settings.metricOrderBySection as Record<string, string[]>);
           }
 
-          if (settings.sourceSectionOrder && Array.isArray(settings.sourceSectionOrder)) {
+          if (
+            !protectAutoBuildResults
+            && settings.sourceSectionOrder
+            && Array.isArray(settings.sourceSectionOrder)
+          ) {
             setSourceSectionOrder(settings.sourceSectionOrder as string[]);
           }
 
           if (
-            settings.sourceMetricOrderBySource
+            !protectAutoBuildResults
+            && settings.sourceMetricOrderBySource
             && typeof settings.sourceMetricOrderBySource === 'object'
           ) {
             setSourceMetricOrderBySource(settings.sourceMetricOrderBySource as Record<string, string[]>);
           }
 
           if (
-            settings.enabledMetricKeysBySource
+            !protectAutoBuildResults
+            && settings.enabledMetricKeysBySource
             && typeof settings.enabledMetricKeysBySource === 'object'
           ) {
             const savedSourceMetrics = settings.enabledMetricKeysBySource as Record<string, string[]>;
@@ -1989,7 +2006,11 @@ function App() {
           }
 
           // Apply saved expanded sections
-          if (settings.expandedSections && Array.isArray(settings.expandedSections)) {
+          if (
+            !protectAutoBuildResults
+            && settings.expandedSections
+            && Array.isArray(settings.expandedSections)
+          ) {
             setExpandedSections(new Set(settings.expandedSections as string[]));
           }
         } else {
@@ -2259,7 +2280,14 @@ function App() {
             || Object.keys(preview.sourceMetrics ?? {}).length > 0
             || Object.keys(preview.valueStates ?? {}).length > 0;
 
-          if (applyAutomaticThresholdsRef.current) {
+          const shouldApplyAutomaticCorridors =
+            applyAutomaticThresholdsRef.current
+            || Boolean(
+              pendingAutoBuildSummaryRef.current?.wantCorridors
+              && pendingAutoBuildSummaryRef.current.generation === activeAutoBuildGenerationRef.current,
+            );
+
+          if (shouldApplyAutomaticCorridors) {
             const scheduledData = applyScheduleToReportData(preview.data, filters.period, appliedFilters.schedule);
             const scheduledChartData = applyScheduleToReportData(
               preview.chartData ?? preview.data,
@@ -2413,20 +2441,27 @@ function App() {
             }
           } else {
             // Regular build: clear auto corridors, but keep manually saved ones (F-08).
-            const currentMainThreshold = mainThresholdRef.current;
-            if (!isManualThreshold(currentMainThreshold)) {
-              setMainThreshold({ upper: '', lower: '', mode: null });
+            // Never clear while an auto-build still expects corridors (ref can be raced).
+            const pendingWantsCorridors = Boolean(
+              pendingAutoBuildSummaryRef.current?.wantCorridors
+              && pendingAutoBuildSummaryRef.current.generation === activeAutoBuildGenerationRef.current,
+            );
+            if (!pendingWantsCorridors) {
+              const currentMainThreshold = mainThresholdRef.current;
+              if (!isManualThreshold(currentMainThreshold)) {
+                setMainThreshold({ upper: '', lower: '', mode: null });
+              }
+              setRowThresholds(
+                Object.fromEntries(
+                  Object.entries(rowThresholdsRef.current).filter(([, value]) => isManualThreshold(value)),
+                ),
+              );
+              setEmployeeThresholdsByMetricId(
+                Object.fromEntries(
+                  Object.entries(employeeThresholdsRef.current).filter(([, value]) => isManualThreshold(value)),
+                ),
+              );
             }
-            setRowThresholds(
-              Object.fromEntries(
-                Object.entries(rowThresholdsRef.current).filter(([, value]) => isManualThreshold(value)),
-              ),
-            );
-            setEmployeeThresholdsByMetricId(
-              Object.fromEntries(
-                Object.entries(employeeThresholdsRef.current).filter(([, value]) => isManualThreshold(value)),
-              ),
-            );
           }
 
           // End auto-build skip only after thresholds (and other presets) are applied.
@@ -4285,11 +4320,6 @@ function App() {
       period: 'days',
       dateRange,
     };
-    setDraftFilters((current) => ({
-      ...current,
-      period: 'days',
-      dateRange,
-    }));
     // Chart settings only: exactly one source — Sales funnel. Never copy table selection here.
     const chartSources = [...preset.chartSources];
     autoBuildChartSourcesRef.current = chartSources;
@@ -4302,11 +4332,32 @@ function App() {
 
     applyAutomaticThresholdsRef.current = automaticThresholds;
     setEmployeeThresholdsByMetricId({});
-    if (!automaticThresholds) {
+    // Same as manual corridor build: start from a clean auto corridor slate.
+    // Manual corridors are preserved in the merge step after preview.
+    if (automaticThresholds) {
+      setMainThreshold((current) => (
+        isManualThreshold(current) ? current : { upper: '', lower: '', mode: null }
+      ));
+      setRowThresholds((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(([, value]) => isManualThreshold(value)),
+        ),
+      );
+    } else {
       setMainThreshold({ upper: '', lower: '', mode: null });
       setRowThresholds({});
     }
 
+    setDraftFilters((current) => ({
+      ...current,
+      period: 'days',
+      dateRange,
+      selectedSources: [...chartSources],
+      metricMode: preset.chartMetricMode,
+      chartDisplayMode: preset.chartDisplayMode,
+      enabledSectionIds: new Set(nextEnabledSectionIds),
+    }));
+    setEnabledMetricIdsBySection(cloneSetRecord(nextEnabledMetrics));
     setAppliedFilters((current) => ({
       ...current,
       period: 'days',
@@ -4323,6 +4374,7 @@ function App() {
     setAppliedEnabledMetricIdsBySection(cloneSetRecord(nextEnabledMetrics));
     setTableSelectedSources(pipelineSourceIds);
     setTableEntitySourceIds(entitySourceIds);
+    setDraftTableSelectedSources([...entitySourceIds, ...pipelineSourceIds]);
     setSectionOrder(nextSectionOrder);
     setSourceSectionOrder([]);
     setTableLeadingSourceId(salesSource.id);

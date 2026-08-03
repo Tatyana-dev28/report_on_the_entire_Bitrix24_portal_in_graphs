@@ -153,6 +153,7 @@ import {
 import { buildMainIndicatorCaption, hasResolvableMainChartSources } from './app/utils/mainIndicatorCaption';
 import {
   calculateRecommendedThresholds,
+  appendThresholdTooltip,
   getAppliedThresholdItems,
   getThresholdClass,
   getThresholdLineLabel,
@@ -5754,19 +5755,25 @@ function App() {
                             row.metric.type,
                             valueStates[point.key]?.[row.metric.id],
                           );
+                          const metricDirection = resolveMetricDirection(row.metric.id, metricDirectionsById);
                           const thresholdClass = display.hasNumericValue
-                            ? getThresholdClass(
-                              value,
-                              employeeThreshold,
-                              resolveMetricDirection(row.metric.id, metricDirectionsById),
-                            )
+                            ? getThresholdClass(value, employeeThreshold, metricDirection)
                             : '';
 
                           return (
                             <ValueCellButton
                               className={thresholdClass}
                               valueLabel={display.label}
-                              tooltipLabel={display.tooltip}
+                              tooltipLabel={
+                                display.hasNumericValue
+                                  ? appendThresholdTooltip(
+                                    display.tooltip,
+                                    value,
+                                    employeeThreshold,
+                                    metricDirection,
+                                  )
+                                  : display.tooltip
+                              }
                               key={`${row.rowId}-${point.key}`}
                               onClick={() => openDetail(
                                 row.metric,
@@ -5950,19 +5957,25 @@ function App() {
                               .map((id) => valueStates[point.key]?.[id])
                               .find(Boolean),
                           );
+                          const metricDirection = resolveMetricDirectionForIds(actionIds, metricDirectionsById);
                           const thresholdClass = display.hasNumericValue
-                            ? getThresholdClass(
-                              value,
-                              rowThreshold,
-                              resolveMetricDirectionForIds(actionIds, metricDirectionsById),
-                            )
+                            ? getThresholdClass(value, rowThreshold, metricDirection)
                             : '';
 
                           return (
                             <ValueCellButton
                               className={thresholdClass}
                               valueLabel={display.label}
-                              tooltipLabel={display.tooltip}
+                              tooltipLabel={
+                                display.hasNumericValue
+                                  ? appendThresholdTooltip(
+                                    display.tooltip,
+                                    value,
+                                    rowThreshold,
+                                    metricDirection,
+                                  )
+                                  : display.tooltip
+                              }
                               key={`${row.rowId}-${point.key}`}
                               onClick={() => openDetail(
                                 syntheticMetric,
@@ -6062,19 +6075,25 @@ function App() {
                           metricRow.metric.type,
                           valueStates[point.key]?.[metricRow.metric.id],
                         );
+                        const metricDirection = resolveMetricDirection(metricRow.metric.id, metricDirectionsById);
                         const thresholdClass = display.hasNumericValue
-                          ? getThresholdClass(
-                            value,
-                            rowThreshold,
-                            resolveMetricDirection(metricRow.metric.id, metricDirectionsById),
-                          )
+                          ? getThresholdClass(value, rowThreshold, metricDirection)
                           : '';
 
                         return (
                           <ValueCellButton
                             className={thresholdClass}
                             valueLabel={display.label}
-                            tooltipLabel={display.tooltip}
+                            tooltipLabel={
+                              display.hasNumericValue
+                                ? appendThresholdTooltip(
+                                  display.tooltip,
+                                  value,
+                                  rowThreshold,
+                                  metricDirection,
+                                )
+                                : display.tooltip
+                            }
                             key={`${metricRow.rowId}-${point.key}`}
                             onClick={() => openDetail(metricRow.metric, point, value, metricRow.sectionId)}
                           />

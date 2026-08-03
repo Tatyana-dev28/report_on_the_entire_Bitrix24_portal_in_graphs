@@ -219,6 +219,83 @@ export const getAppliedThresholdItems = (threshold?: ThresholdValues) => {
   return items.filter((item): item is ThresholdTooltipItem => item !== null);
 };
 
+export type ThresholdDeviationSide = 'above' | 'below';
+
+/** Strict: equality to a bound is NOT a deviation (F-10). */
+export const getThresholdDeviationSide = (
+  value: number,
+  threshold?: ThresholdValues,
+): ThresholdDeviationSide | null => {
+  if (!threshold || !Number.isFinite(value)) {
+    return null;
+  }
+
+  const upper = parseThreshold(threshold.upper);
+  const lower = parseThreshold(threshold.lower);
+
+  if (upper !== null && value > upper) {
+    return 'above';
+  }
+
+  if (lower !== null && value < lower) {
+    return 'below';
+  }
+
+  return null;
+};
+
+const isSevereRangeDeviation = (
+  value: number,
+  side: ThresholdDeviationSide,
+  upper: number | null,
+  lower: number | null,
+) => {
+  if (upper === null || lower === null) {
+    return true;
+  }
+
+  const span = Math.abs(upper - lower);
+  if (!(span > 0)) {
+    return true;
+  }
+
+  const excess = side === 'above' ? value - upper : lower - value;
+  // Farther than one full corridor width → red; milder → yellow.
+  return excess >= span;
+};
+
+export const getThresholdDeviationTooltip = (
+  value: number,
+  threshold?: ThresholdValues,
+  direction: MetricDirection = 'none',
+): string | null => {
+  const side = getThresholdDeviationSide(value, threshold);
+
+  if (side === 'above') {
+    return 'Выше верхней границы';
+  }
+
+  if (side === 'below') {
+    return 'Ниже нижней границы';
+  }
+
+  if (direction === 'range_normal' && threshold) {
+    const upper = parseThreshold(threshold.upper);
+    const lower = parseThreshold(threshold.lower);
+    if (
+      upper !== null
+      && lower !== null
+      && Number.isFinite(value)
+      && value >= lower
+      && value <= upper
+    ) {
+      return 'Внутри нормального диапазона';
+    }
+  }
+
+  return null;
+};
+
 export const getThresholdClass = (
   value: number,
   threshold?: ThresholdValues,
@@ -230,37 +307,55 @@ export const getThresholdClass = (
 
   const upper = parseThreshold(threshold.upper);
   const lower = parseThreshold(threshold.lower);
-  const isAbove = upper !== null && value >= upper;
-  const isBelow = lower !== null && value < lower;
+  const side = getThresholdDeviationSide(value, threshold);
 
-  if (!isAbove && !isBelow) {
+  if (direction === 'range_normal') {
+    if (!side) {
+      if (
+        upper !== null
+        && lower !== null
+        && value >= lower
+        && value <= upper
+      ) {
+        return 'is-inside-range-threshold';
+      }
+      return '';
+    }
+
+    return isSevereRangeDeviation(value, side, upper, lower)
+      ? 'is-outside-range-threshold'
+      : 'is-outside-range-warning';
+  }
+
+  if (!side) {
     return '';
   }
 
   // Neutral: show corridor deviation without good/bad coloring.
   if (direction === 'none') {
-    if (isAbove) {
-      return 'is-above-corridor-neutral';
-    }
-    return 'is-below-corridor-neutral';
-  }
-
-  if (direction === 'range_normal') {
-    // Outside the corridor is bad in either direction; inside stays unhighlighted.
-    return 'is-outside-range-threshold';
+    return side === 'above' ? 'is-above-corridor-neutral' : 'is-below-corridor-neutral';
   }
 
   if (direction === 'lower_better') {
     // High values are bad, low values are good.
-    if (isAbove) {
-      return 'is-below-threshold';
-    }
-    return 'is-above-threshold';
+    return side === 'above' ? 'is-below-threshold' : 'is-above-threshold';
   }
 
-  // higher_better (default evaluative mode)
-  if (isAbove) {
-    return 'is-above-threshold';
+  // higher_better
+  return side === 'above' ? 'is-above-threshold' : 'is-below-threshold';
+};
+
+export const appendThresholdTooltip = (
+  baseTooltip: string | undefined,
+  value: number,
+  threshold?: ThresholdValues,
+  direction: MetricDirection = 'none',
+) => {
+  const reason = getThresholdDeviationTooltip(value, threshold, direction);
+  if (!reason) {
+    return baseTooltip;
   }
-  return 'is-below-threshold';
+
+  const base = (baseTooltip ?? '').trim();
+  return base ? `${base} · ${reason}` : reason;
 };

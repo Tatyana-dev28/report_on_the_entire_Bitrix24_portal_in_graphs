@@ -2563,6 +2563,26 @@ button {
   background: #fff0f0;
 }
 
+.value-cell.is-inside-range-threshold {
+  color: #22845a;
+  font-weight: 600;
+}
+
+.value-cell.is-inside-range-threshold .value-cell-badge {
+  border: 1px solid #ccefd9;
+  background: #edf9f1;
+}
+
+.value-cell.is-outside-range-warning {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.value-cell.is-outside-range-warning .value-cell-badge {
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+}
+
 .value-cell.is-outside-range-threshold {
   color: #c93333;
   font-weight: 600;

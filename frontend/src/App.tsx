@@ -114,6 +114,11 @@ import {
   openBitrixEntity,
   openBitrixUser,
 } from './app/utils/bitrixNavigation';
+import { AUTOMATIC_REPORT_PRESET } from './app/config/automaticReportPreset';
+import {
+  buildAutomaticReportSummaryMessage,
+  hasFilledCorridor,
+} from './app/utils/automaticReportSummary';
 import {
   constrainRangeForPeriod,
   getDefaultRangeForPeriod,
@@ -1008,30 +1013,61 @@ const deserializeStringArrayRecord = (record?: Record<string, string[]>) => {
   );
 };
 
-const createAllEnabledMetricIdsBySection = (sections: MetricSection[]) =>
-  sections.reduce<Record<string, Set<string>>>((acc, section) => {
+const isCrmSourceAvailable = (source: CrmSource) => source.isAvailable !== false;
+
+const getCrmSourceDisplayLabel = (source: CrmSource) =>
+  (source.sourceLabel || source.title || source.id).trim();
+
+const createAutomaticEnabledMetricIdsBySection = (sections: MetricSection[]) => {
+  const configured = AUTOMATIC_REPORT_PRESET.metricIdsBySection;
+
+  return sections.reduce<Record<string, Set<string>>>((acc, section) => {
+    const preferred = configured?.[section.id];
+    if (preferred && preferred.length > 0) {
+      const allowed = new Set(section.metricIds);
+      acc[section.id] = new Set(preferred.filter((metricId) => allowed.has(metricId)));
+      return acc;
+    }
+
     acc[section.id] = new Set(section.metricIds);
     return acc;
   }, {});
+};
 
-const createAutomaticSectionOrder = (sections: MetricSection[]) => [
-  ...(sections.some((section) => section.id === 'deals') ? ['deals'] : []),
-  ...sections.map((section) => section.id).filter((id) => id !== 'deals'),
-];
+const createAutomaticSectionOrder = (sections: MetricSection[]) => {
+  const priority = AUTOMATIC_REPORT_PRESET.sectionOrderPriority.filter((sectionId) =>
+    sections.some((section) => section.id === sectionId),
+  );
+  const prioritySet = new Set(priority);
+  return [
+    ...priority,
+    ...sections.map((section) => section.id).filter((id) => !prioritySet.has(id)),
+  ];
+};
 
 const resolveAutomaticSalesSource = (crmSources: CrmSource[]) => {
   const dealPipelineSources = crmSources.filter(isDealPipelineSource);
+  const availableDealPipelines = dealPipelineSources.filter(isCrmSourceAvailable);
 
   return (
-    dealPipelineSources.find((source) => source.isAvailable && (source.id === 'deal-0' || source.categoryId === 0)) ??
-    dealPipelineSources.find((source) => source.id === 'deal-0' || source.categoryId === 0) ??
-    dealPipelineSources.find((source) => {
+    availableDealPipelines.find((source) => source.id === 'deal-0' || source.categoryId === 0) ??
+    availableDealPipelines.find((source) => {
       const label = `${source.sourceLabel} ${source.title}`.toLocaleLowerCase('ru-RU');
       return label.includes('продаж');
     }) ??
-    dealPipelineSources.find((source) => source.isAvailable) ??
-    dealPipelineSources[0]
+    availableDealPipelines[0] ??
+    null
   );
+};
+
+const resolveAutomaticReportSections = (sections: MetricSection[]) => {
+  const configuredSectionIds = AUTOMATIC_REPORT_PRESET.sectionIds;
+  if (!configuredSectionIds || configuredSectionIds.length === 0) {
+    return sections;
+  }
+
+  const allowed = new Set(configuredSectionIds);
+  return sections.filter((section) => allowed.has(section.id));
 };
 
 const buildAutomaticReportPreset = (
@@ -1045,13 +1081,37 @@ const buildAutomaticReportPreset = (
     return null;
   }
 
+  const selectedSections = resolveAutomaticReportSections(sections);
+  if (!selectedSections.length) {
+    return null;
+  }
+
+  const sourceById = new Map(crmSources.map((source) => [source.id, source]));
+  const preferredEntitySourceIds = AUTOMATIC_REPORT_PRESET.preferredEntitySourceIds;
+  const candidateSourceIds = preferredEntitySourceIds && preferredEntitySourceIds.length > 0
+    ? [
+        salesSource.id,
+        ...preferredEntitySourceIds.filter((id) => id !== salesSource.id),
+      ]
+    : [
+        salesSource.id,
+        ...crmSourceIds.filter((id) => id !== salesSource.id),
+      ];
+
+  const skippedUnavailable = candidateSourceIds
+    .map((id) => sourceById.get(id))
+    .filter((source): source is CrmSource => source != null && !isCrmSourceAvailable(source));
+
+  // Auto mode uses only available portal sources; one unavailable source must not block the rest.
+  const allTableSources = candidateSourceIds.filter((id) => {
+    const source = sourceById.get(id);
+    return Boolean(source && isCrmSourceAvailable(source));
+  });
+
+  // Currently only one strategy; kept on AUTOMATIC_REPORT_PRESET for future variants.
   const dateRange = getPreviousWeekFromYesterdayRange();
   const chartSources = [salesSource.id];
-  const allTableSources = [
-    salesSource.id,
-    ...crmSourceIds.filter((id) => id !== salesSource.id),
-  ];
-  const availableSectionIds = new Set(sections.map((section) => section.id));
+  const availableSectionIds = new Set(selectedSections.map((section) => section.id));
   const { pipelineSourceIds, entitySourceIds } = resolveTableSelectionFromSources(
     allTableSources,
     crmSources,
@@ -1066,9 +1126,12 @@ const buildAutomaticReportPreset = (
     pipelineSourceIds,
     entitySourceIds,
     tablePreviewSourceIds: Array.from(new Set([...pipelineSourceIds, ...entitySourceIds])),
-    enabledSectionIds: new Set(sections.map((section) => section.id)),
-    enabledMetricIdsBySection: createAllEnabledMetricIdsBySection(sections),
-    sectionOrder: createAutomaticSectionOrder(sections),
+    enabledSectionIds: availableSectionIds,
+    enabledMetricIdsBySection: createAutomaticEnabledMetricIdsBySection(selectedSections),
+    sectionOrder: createAutomaticSectionOrder(selectedSections),
+    skippedUnavailableLabels: skippedUnavailable.map(getCrmSourceDisplayLabel).filter(Boolean),
+    chartMetricMode: AUTOMATIC_REPORT_PRESET.chartMetricMode,
+    chartDisplayMode: AUTOMATIC_REPORT_PRESET.chartDisplayMode,
   };
 };
 
@@ -1098,6 +1161,14 @@ function App() {
   const autoBuildTableSourcesRef = useRef<string[] | null>(null);
   const autoBuildDateFiltersRef = useRef<Pick<ReportFilters, 'period' | 'dateRange'> | null>(null);
   const manualDateFiltersBeforeAutoRef = useRef<Pick<ReportFilters, 'period' | 'dateRange'> | null>(null);
+  // F-06: summary toast after automatic preset finishes loading.
+  const pendingAutoBuildSummaryRef = useRef<{
+    generation: number;
+    mainIndicatorLabel: string;
+    skippedUnavailableLabels: string[];
+    wantCorridors: boolean;
+    corridorMetricsCount?: number;
+  } | null>(null);
 
   const [savedViews, setSavedViews] = useState<SavedReportViewOption[]>(() => [defaultSavedView]);
   const [selectedView, setSelectedView] = useState('default');
@@ -1304,7 +1375,8 @@ function App() {
       return undefined;
     }
 
-    const timeoutId = window.setTimeout(() => setNotification(''), 5200);
+    const timeoutMs = notification.length > 90 ? 9000 : 5200;
+    const timeoutId = window.setTimeout(() => setNotification(''), timeoutMs);
     return () => window.clearTimeout(timeoutId);
   }, [notification, pdfExporting]);
 
@@ -2014,6 +2086,8 @@ function App() {
             });
 
             const nextRowThresholds: Record<string, ThresholdValues> = {};
+            // Count corridors for table indicators only (main chart corridor is separate).
+            let corridorMetricsCount = 0;
 
             // Regular section metrics (deals, leads, …).
             selectedMetricIds.forEach((metricId) => {
@@ -2023,42 +2097,60 @@ function App() {
                 return;
               }
 
-              const recommended = calculateRecommendedThresholds(
-                scheduledData.map((point) => point.values[metricId]),
-                metric.type,
-              );
+              try {
+                const recommended = calculateRecommendedThresholds(
+                  scheduledData.map((point) => point.values[metricId]),
+                  metric.type,
+                );
 
-              nextRowThresholds[metricId] = {
-                upper: recommended.upper,
-                lower: recommended.lower,
-                mode: 'recommended',
-              };
+                if (!hasFilledCorridor(recommended.upper, recommended.lower)) {
+                  return;
+                }
+
+                nextRowThresholds[metricId] = {
+                  upper: recommended.upper,
+                  lower: recommended.lower,
+                  mode: 'recommended',
+                };
+                corridorMetricsCount += 1;
+              } catch (error) {
+                console.warn('[Auto thresholds] skipped section metric', metricId, error);
+              }
             });
 
             // Funnel / smart-process rows use the same action ids as the table UI.
             // Store every known alias so thresholds stay attached across source key formats.
             Object.entries(preview.sourceMetrics ?? {}).forEach(([sourceKey, sourceData]) => {
               Object.entries(sourceData.metrics ?? {}).forEach(([metricKey, metricData]) => {
-                const valueType =
-                  metricData.valueType === 'money'
-                    ? 'money'
-                    : metricData.valueType === 'percent'
-                      ? 'percent'
-                      : 'number';
-                const recommended = calculateRecommendedThresholds(
-                  scheduledData.map((point) => readValuesByPeriod(metricData.valuesByPeriod, point.key)),
-                  valueType,
-                );
+                try {
+                  const valueType =
+                    metricData.valueType === 'money'
+                      ? 'money'
+                      : metricData.valueType === 'percent'
+                        ? 'percent'
+                        : 'number';
+                  const recommended = calculateRecommendedThresholds(
+                    scheduledData.map((point) => readValuesByPeriod(metricData.valuesByPeriod, point.key)),
+                    valueType,
+                  );
 
-                const thresholdValue: ThresholdValues = {
-                  upper: recommended.upper,
-                  lower: recommended.lower,
-                  mode: 'recommended',
-                };
+                  if (!hasFilledCorridor(recommended.upper, recommended.lower)) {
+                    return;
+                  }
 
-                buildSourceMetricActionIds(sourceKey, metricKey, sourceData).forEach((actionId) => {
-                  nextRowThresholds[actionId] = thresholdValue;
-                });
+                  const thresholdValue: ThresholdValues = {
+                    upper: recommended.upper,
+                    lower: recommended.lower,
+                    mode: 'recommended',
+                  };
+
+                  buildSourceMetricActionIds(sourceKey, metricKey, sourceData).forEach((actionId) => {
+                    nextRowThresholds[actionId] = thresholdValue;
+                  });
+                  corridorMetricsCount += 1;
+                } catch (error) {
+                  console.warn('[Auto thresholds] skipped source metric', sourceKey, metricKey, error);
+                }
               });
             });
 
@@ -2067,6 +2159,14 @@ function App() {
             autoBuildChartSourcesRef.current = null;
             autoBuildTableSourcesRef.current = null;
             autoBuildDateFiltersRef.current = null;
+
+            const pendingSummary = pendingAutoBuildSummaryRef.current;
+            if (
+              pendingSummary
+              && activeAutoBuildGenerationRef.current === pendingSummary.generation
+            ) {
+              pendingSummary.corridorMetricsCount = corridorMetricsCount;
+            }
           } else {
             // Regular build (not automatic): clear thresholds after data load
             // to prevent applyBackendSettings from restoring stale values
@@ -2083,6 +2183,34 @@ function App() {
             finishedGeneration !== null &&
             finishedGeneration === autoBuildGenerationRef.current
           ) {
+            const pendingSummary = pendingAutoBuildSummaryRef.current;
+            if (pendingSummary && pendingSummary.generation === finishedGeneration) {
+              const sourceMetricCount = Object.values(preview.sourceMetrics ?? {}).reduce(
+                (sum, sourceData) => sum + Object.keys(sourceData.metrics ?? {}).length,
+                0,
+              );
+              const foundMetrics = selectedMetricIds.length + sourceMetricCount;
+              const corridorCount = pendingSummary.wantCorridors
+                ? (pendingSummary.corridorMetricsCount ?? 0)
+                : null;
+              const missingDataNote = foundMetrics === 0
+                ? 'Не удалось набрать показатели по доступным данным портала.'
+                : pendingSummary.wantCorridors
+                  && corridorCount !== null
+                  && corridorCount < foundMetrics
+                  ? 'Для части показателей не хватило данных для расчёта коридоров.'
+                  : null;
+
+              setNotification(buildAutomaticReportSummaryMessage({
+                foundMetrics,
+                mainIndicatorLabel: pendingSummary.mainIndicatorLabel,
+                corridorsCalculated: corridorCount,
+                skippedUnavailableLabels: pendingSummary.skippedUnavailableLabels,
+                missingDataNote,
+              }));
+              pendingAutoBuildSummaryRef.current = null;
+            }
+
             activeAutoBuildGenerationRef.current = null;
             autoBuildChartSourcesRef.current = null;
             autoBuildTableSourcesRef.current = null;
@@ -2117,6 +2245,7 @@ function App() {
               failedGeneration !== null &&
               failedGeneration === autoBuildGenerationRef.current
             ) {
+              pendingAutoBuildSummaryRef.current = null;
               activeAutoBuildGenerationRef.current = null;
               skipAutoSaveRef.current = false;
             }
@@ -2140,6 +2269,15 @@ function App() {
             failedGeneration !== null &&
             failedGeneration === autoBuildGenerationRef.current
           ) {
+            const pendingSummary = pendingAutoBuildSummaryRef.current;
+            if (pendingSummary && pendingSummary.generation === failedGeneration) {
+              setNotification(
+                pendingSummary.skippedUnavailableLabels.length > 0
+                  ? `Автопостроение не завершено. Пропущены недоступные: ${pendingSummary.skippedUnavailableLabels.slice(0, 3).join(', ')}.`
+                  : 'Автопостроение не завершено. Попробуйте выбрать показатели вручную.',
+              );
+              pendingAutoBuildSummaryRef.current = null;
+            }
             activeAutoBuildGenerationRef.current = null;
             skipAutoSaveRef.current = false;
           }
@@ -3551,6 +3689,7 @@ function App() {
     autoBuildChartSourcesRef.current = null;
     autoBuildTableSourcesRef.current = null;
     autoBuildDateFiltersRef.current = null;
+    pendingAutoBuildSummaryRef.current = null;
     manualDateFiltersBeforeAutoRef.current = null;
     const availableSectionIds = new Set(metricSections.map((section) => section.id));
     const { pipelineSourceIds, entitySourceIds } = resolveTableSelectionFromSources(
@@ -3605,7 +3744,14 @@ function App() {
     const automaticThresholds = options?.automaticThresholds ?? true;
     const preset = buildAutomaticReportPreset(crmSources, crmSourceIds, metricSections);
     if (!preset) {
-      setNotification('Нет доступной воронки продаж.');
+      const hasAnyAvailableDeal = crmSources.some(
+        (source) => isDealPipelineSource(source) && isCrmSourceAvailable(source),
+      );
+      setNotification(
+        hasAnyAvailableDeal
+          ? 'Не удалось подобрать показатели автоматически: нет доступных разделов каталога.'
+          : 'Нет доступной воронки продаж. Проверьте права CRM или выберите показатели вручную.',
+      );
       return;
     }
 
@@ -3626,6 +3772,12 @@ function App() {
     autoBuildGenerationRef.current = generation;
     activeAutoBuildGenerationRef.current = generation;
     skipAutoSaveRef.current = true;
+    pendingAutoBuildSummaryRef.current = {
+      generation,
+      mainIndicatorLabel: getCrmSourceDisplayLabel(salesSource),
+      skippedUnavailableLabels: [...preset.skippedUnavailableLabels],
+      wantCorridors: automaticThresholds,
+    };
 
     const dateRange = preset.dateRange;
     autoBuildDateFiltersRef.current = {
@@ -3659,8 +3811,8 @@ function App() {
       period: 'days',
       dateRange,
       selectedSources: [...chartSources],
-      metricMode: 'money',
-      chartDisplayMode: 'sum',
+      metricMode: preset.chartMetricMode,
+      chartDisplayMode: preset.chartDisplayMode,
       enabledSectionIds: new Set(nextEnabledSectionIds),
       schedule: {
         ...current.schedule,

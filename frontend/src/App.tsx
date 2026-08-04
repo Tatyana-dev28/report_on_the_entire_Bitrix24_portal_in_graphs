@@ -5949,81 +5949,82 @@ function App() {
                 </div>
               )}
               <div className="sync-content chart-sync-content" style={syncedContentStyle} ref={chartContentRef}>
-                <div
-                  className="main-indicator-caption"
-                  title={mainIndicatorCaption.titleFull !== mainIndicatorCaption.title ? mainIndicatorCaption.titleFull : undefined}
-                >
-                  <div className="main-indicator-caption-title">{mainIndicatorCaption.title}</div>
-                  <div className="main-indicator-caption-meta">{mainIndicatorCaption.meta}</div>
-                </div>
-                {mainIndicatorCaption.empty ? (
-                  <div className="main-indicator-empty" role="status">
-                    <p>{mainIndicatorCaption.emptyMessage}</p>
-                    {mainIndicatorCaption.emptyHint && <span>{mainIndicatorCaption.emptyHint}</span>}
-                  </div>
-                ) : (
-                <div className="chart-wrap" ref={mainChartWrapRef}>
+                <div className="chart-top-block">
                   <div
-                    className={`chart-series-legend${chartLegendCollapsible ? ' is-collapsible' : ''}`}
-                    style={{ paddingLeft: CHART_AXIS_WIDTH }}
-                    aria-label="Линии графика"
+                    className="main-indicator-caption"
+                    title={mainIndicatorCaption.titleFull !== mainIndicatorCaption.title ? mainIndicatorCaption.titleFull : undefined}
                   >
-                    {chartLegendCollapsible ? (
-                      <div className="chart-series-legend-toolbar">
-                        <button
-                          type="button"
-                          className="chart-legend-toggle"
-                          aria-expanded={chartLegendExpanded}
-                          onClick={() => setChartLegendExpanded((prev) => !prev)}
-                        >
-                          <span>
-                            {chartLegendExpanded
-                              ? 'Свернуть'
-                              : `Линии · ${chartSeries.length}`}
-                          </span>
-                          {chartLegendExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                        </button>
-                        {!isSeparateChart && hasTrendSeries ? (
-                          <label className="chart-legend-item chart-legend-trend-toggle">
-                            <input
-                              type="checkbox"
-                              checked={showTrendLine}
-                              onChange={(event) => setShowTrendLine(event.target.checked)}
-                            />
-                            <i className="chart-legend-swatch is-trend" aria-hidden="true" />
-                            <span>Тренд</span>
-                          </label>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {chartLegendVisible ? (
-                      <div
-                        className={`chart-series-legend-list${chartLegendCollapsible ? ' is-scrollable' : ''}`}
-                      >
-                        {chartSeries.map((series) => (
-                          <span className="chart-legend-item" key={series.key}>
-                            <i
-                              className="chart-legend-swatch"
-                              style={{ background: series.color }}
-                              aria-hidden="true"
-                            />
-                            <span title={series.label}>{series.label}</span>
-                          </span>
-                        ))}
-                        {!chartLegendCollapsible && !isSeparateChart && hasTrendSeries ? (
-                          <label className="chart-legend-item chart-legend-trend-toggle">
-                            <input
-                              type="checkbox"
-                              checked={showTrendLine}
-                              onChange={(event) => setShowTrendLine(event.target.checked)}
-                            />
-                            <i className="chart-legend-swatch is-trend" aria-hidden="true" />
-                            <span>Тренд</span>
-                          </label>
-                        ) : null}
-                      </div>
-                    ) : null}
+                    <div className="main-indicator-caption-title">{mainIndicatorCaption.title}</div>
+                    <div className="main-indicator-caption-meta">{mainIndicatorCaption.meta}</div>
                   </div>
+                  {mainIndicatorCaption.empty ? (
+                    <div className="main-indicator-empty" role="status">
+                      <p>{mainIndicatorCaption.emptyMessage}</p>
+                      {mainIndicatorCaption.emptyHint && <span>{mainIndicatorCaption.emptyHint}</span>}
+                    </div>
+                  ) : (
+                    <div
+                      className={`chart-series-legend${chartLegendCollapsible ? ' is-collapsible' : ''}`}
+                      aria-label="Линии графика"
+                    >
+                      {chartLegendCollapsible ? (
+                        <div className="chart-series-legend-toolbar">
+                          <button
+                            type="button"
+                            className="chart-legend-toggle"
+                            aria-expanded={chartLegendExpanded}
+                            onClick={() => setChartLegendExpanded((prev) => !prev)}
+                          >
+                            <span>
+                              {chartLegendExpanded
+                                ? 'Свернуть'
+                                : `Линии · ${chartSeries.length}`}
+                            </span>
+                            {chartLegendExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          </button>
+                          {!isSeparateChart && hasTrendSeries ? (
+                            <label className="chart-legend-item chart-legend-trend-toggle">
+                              <input
+                                type="checkbox"
+                                checked={showTrendLine}
+                                onChange={(event) => setShowTrendLine(event.target.checked)}
+                              />
+                              <i className="chart-legend-swatch is-trend" aria-hidden="true" />
+                              <span>Тренд</span>
+                            </label>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {chartLegendVisible ? (
+                        <div className="chart-series-legend-list">
+                          {chartSeries.map((series) => (
+                            <span className="chart-legend-item" key={series.key}>
+                              <i
+                                className="chart-legend-swatch"
+                                style={{ background: series.color }}
+                                aria-hidden="true"
+                              />
+                              <span title={series.label}>{series.label}</span>
+                            </span>
+                          ))}
+                          {!chartLegendCollapsible && !isSeparateChart && hasTrendSeries ? (
+                            <label className="chart-legend-item chart-legend-trend-toggle">
+                              <input
+                                type="checkbox"
+                                checked={showTrendLine}
+                                onChange={(event) => setShowTrendLine(event.target.checked)}
+                              />
+                              <i className="chart-legend-swatch is-trend" aria-hidden="true" />
+                              <span>Тренд</span>
+                            </label>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+                {!mainIndicatorCaption.empty ? (
+                <div className="chart-wrap" ref={mainChartWrapRef}>
                   <ResponsiveContainer width="100%" height={280}>
                     <LineChart
                       data={chartData}

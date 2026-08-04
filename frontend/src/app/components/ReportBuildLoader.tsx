@@ -439,10 +439,7 @@ export default function ReportBuildLoader({
   return (
     <div className={rootClassName} role="status" aria-live="polite" aria-label={stageLabel}>
       <div className="report-loader__card">
-        <p className="report-loader__stage-label">{stageLabel}</p>
-        <span className="report-loader__sr-status" aria-live="polite">
-          {stageLabel}
-        </span>
+        <span className="report-loader__sr-status">{stageLabel}</span>
         <div className="report-loader__stage" aria-hidden="true">
           <div className="report-loader__scene" ref={sceneRef}>
             <svg className="report-loader__map" viewBox={`0 0 ${svgWidth} ${svgHeight}`} preserveAspectRatio="none">

@@ -1266,7 +1266,7 @@ button {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-  padding: 0 12px 8px;
+  padding: 0 0 0;
   box-sizing: border-box;
 }
 
@@ -1296,7 +1296,7 @@ button {
   justify-content: center;
   gap: 6px;
   min-height: 240px;
-  margin: 0 12px;
+  margin: 0;
   padding: 20px 18px;
   border: 1px dashed #dfe7f1;
   border-radius: 12px;
@@ -1660,6 +1660,10 @@ button {
 
 .chart-viewport {
   position: relative;
+  height: 372px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .sync-content {
@@ -1667,16 +1671,22 @@ button {
 }
 
 .chart-sync-content {
-  height: 372px;
+  height: auto;
+  min-height: 372px;
   padding: 12px 0;
+  box-sizing: border-box;
+}
+
+.chart-top-block {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px;
   box-sizing: border-box;
 }
 
 .chart-wrap {
   position: relative;
   width: 100%;
-  display: grid;
-  gap: 8px;
 }
 
 .chart-series-legend {
@@ -1685,7 +1695,6 @@ button {
   align-items: center;
   gap: 12px 16px;
   min-height: 24px;
-  box-sizing: border-box;
 }
 
 .chart-series-legend.is-collapsible {
@@ -1727,15 +1736,6 @@ button {
   flex-wrap: wrap;
   align-items: center;
   gap: 12px 16px;
-}
-
-.chart-series-legend-list.is-scrollable {
-  max-height: 72px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  padding-right: 4px;
-  overscroll-behavior: contain;
-  gap: 10px 14px;
 }
 
 .chart-legend-item {
@@ -4350,10 +4350,14 @@ button {
   }
 
   .chart-left,
-  .chart-viewport,
-  .chart-sync-content {
+  .chart-viewport {
     min-height: 348px;
     height: 348px;
+  }
+
+  .chart-sync-content {
+    min-height: 348px;
+    height: auto;
   }
 
   .chart-wrap {
@@ -4564,10 +4568,14 @@ button {
   }
 
   .chart-left,
-  .chart-viewport,
-  .chart-sync-content {
+  .chart-viewport {
     min-height: 372px;
     height: 372px;
+  }
+
+  .chart-sync-content {
+    min-height: 372px;
+    height: auto;
   }
 
   .chart-wrap {

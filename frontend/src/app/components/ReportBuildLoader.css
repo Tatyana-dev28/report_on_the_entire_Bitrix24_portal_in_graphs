@@ -22,26 +22,6 @@
   isolation: isolate;
 }
 
-.report-loader__stage-label {
-  position: absolute;
-  top: 14px;
-  left: 50%;
-  z-index: 8;
-  margin: 0;
-  padding: 8px 16px;
-  transform: translateX(-50%);
-  border: 1px solid rgba(152, 185, 220, 0.45);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 8px 18px rgba(89, 129, 173, 0.12);
-  color: #1d4f7c;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
 .report-loader__card::after {
   content: "";
   position: absolute;

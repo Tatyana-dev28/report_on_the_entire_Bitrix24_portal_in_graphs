@@ -6139,7 +6139,7 @@ function App() {
                     />
                   )}
                 </div>
-                )}
+                ) : null}
               </div>
               <div className="chart-zoom-controls" aria-label="Масштаб графика">
                 <TooltipButton

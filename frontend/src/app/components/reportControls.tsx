@@ -1884,12 +1884,15 @@ export function RowActionsMenu({
   const popoverRef = useRef<HTMLDivElement>(null);
   const employeeSelectorListRef = useRef<HTMLDivElement>(null);
   const pendingEmployeeScrollTopRef = useRef<number | null>(null);
-  const ref = useOutsideClose<HTMLDivElement>(open && mode !== 'employees', () => {
-    if (mode === 'employees') {
-      onDiscardEmployees?.();
-    }
-    setOpen(false);
-  }, [popoverRef]);
+  const stickyPopoverMode =
+    mode === 'employees' || mode === 'thresholds' || mode === 'employeeThresholds';
+  const ref = useOutsideClose<HTMLDivElement>(
+    open && !stickyPopoverMode,
+    () => {
+      setOpen(false);
+    },
+    [popoverRef],
+  );
 
   const resolveEmployeeListAnchorRect = useCallback((): DOMRect | null => {
     const reportCard = ref.current?.closest('.report-card');
@@ -2144,7 +2147,7 @@ export function RowActionsMenu({
           expectedWidth={mode === 'thresholds' || mode === 'employeeThresholds' ? 520 : mode === 'employees' ? 390 : 280}
           expectedHeight={mode === 'thresholds' || mode === 'employeeThresholds' ? 330 : mode === 'employees' ? 620 : 200}
           constrainHeight={mode !== 'employees'}
-          updateOnScroll={mode !== 'employees'}
+          updateOnScroll={mode === 'actions'}
           verticalPlacement={mode === 'employees' ? 'anchor-start' : 'auto'}
           pinLeft={mode === 'employees' ? 290 : undefined}
         >

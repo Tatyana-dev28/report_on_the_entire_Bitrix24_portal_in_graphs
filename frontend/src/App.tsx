@@ -324,9 +324,11 @@ const detailIdToNumber = (id: string | number, fallback: number) => {
   return 900000 + fallback;
 };
 
-const normalizeDetailEntityRawId = (id: string | number | undefined) => {
+const normalizeDetailEntityRawId = (
+  id: string | number | undefined,
+): string | number | undefined => {
   if (id === undefined || id === null || id === '') {
-    return id;
+    return undefined;
   }
 
   const formMatch = String(id).match(/^(?:lead|deal)-form-(\d+)$/i);
@@ -512,10 +514,11 @@ const buildBackendDetailRows = (
           ? (detail.navigationEntityId ?? detail.entityId ?? detail.id)
           : (detail.entityId ?? detail.id),
       );
+      const resolvedEntityId = detailEntityId ?? String(index + 1);
 
       return {
         rowNumber: index + 1,
-        entityId: detailIdToNumber(detailEntityId, index + 1),
+        entityId: detailIdToNumber(resolvedEntityId, index + 1),
         entityRawId: detailEntityId,
         title: detail.title || detail.metricLabel || context.metric.label,
         linkedElementTitle: detail.linkedElementTitle || '',

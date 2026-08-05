@@ -1111,7 +1111,11 @@ export function DetailModal({
     >
       <section className="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title">
         <div className="detail-head">
-          <div>
+          <div className="detail-head-title">
+            <button className="detail-close-button" type="button" onClick={onClose}>
+              <X size={18} />
+              <span>Закрыть детализацию</span>
+            </button>
             <p id="detail-title">Детализация: {context.metric.label}</p>
             <span>{formatDetailContextSummary(context)}</span>
           </div>
@@ -1128,10 +1132,6 @@ export function DetailModal({
                 </button>
               </>
             )}
-            <button className="detail-close-button" type="button" onClick={onClose}>
-              <span>Закрыть детализацию</span>
-              <X size={18} />
-            </button>
           </div>
         </div>
 

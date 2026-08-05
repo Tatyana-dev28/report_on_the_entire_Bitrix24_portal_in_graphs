@@ -52,6 +52,7 @@ from apps.reports.services.portal_timezone import (
 )
 from apps.reports.services.source_metrics_service import build_source_metrics_by_period
 from apps.reports.services.employee_breakdown import build_employee_breakdown
+from apps.reports.services.portal_employees import enrich_employee_payloads_with_names
 from apps.reports.services.entity_details import build_entity_details
 from apps.reports.services.exceptions import ReportPreviewSessionError
 
@@ -181,6 +182,7 @@ class BitrixReportDataProvider:
             buckets=buckets,
             build_bucket_values=_build_bucket_values,
         )
+        employees = enrich_employee_payloads_with_names(employees, context.portal)
         # Funnel/smart blocks always show created/won/lost even when CRM-section
         # metrics are off — expand catalog so their drill-down details are built too.
         detail_metric_catalog = _expand_metric_catalog_for_source_details(
@@ -791,39 +793,62 @@ class BitrixReportDataProvider:
         period_start: datetime,
         period_end: datetime,
     ) -> list[dict]:
-        try:
-            return client.call_list(
-                "tasks.task.list",
-                {
-                    "order": {"CREATED_DATE": "ASC"},
-                    "filter": {
-                        ">=CREATED_DATE": _bitrix_datetime(period_start),
-                        "<=CREATED_DATE": _bitrix_datetime(period_end),
-                    },
-                    "select": [
-                        "ID",
-                        "TITLE",
-                        "CREATED_DATE",
-                        "CLOSED_DATE",
-                        "DEADLINE",
-                        "STATUS",
-                        "REAL_STATUS",
-                        "RESPONSIBLE_ID",
-                        "RESPONSIBLE_NAME",
-                        "RESPONSIBLE_LAST_NAME",
-                    ],
-                },
-            )
-        except BitrixRestAuthError:
-            raise
-        except BitrixRestError:
-            logger.warning(
-                "Bitrix task loading failed for period %s - %s; skipping this period.",
-                period_start.date(),
-                period_end.date(),
-                exc_info=True,
-            )
-            return []
+        # Keep select minimal: RESPONSIBLE_NAME/LAST_NAME are not always valid for
+        # tasks.task.list and can make the whole request fail (→ empty metrics).
+        select_fields = [
+            "ID",
+            "TITLE",
+            "CREATED_DATE",
+            "CLOSED_DATE",
+            "DEADLINE",
+            "STATUS",
+            "REAL_STATUS",
+            "RESPONSIBLE_ID",
+        ]
+        date_from = _bitrix_datetime(period_start)
+        date_to = _bitrix_datetime(period_end)
+        # Created-only filter misses tasks closed/overdue in the period but created earlier.
+        filter_variants = (
+            {
+                ">=CREATED_DATE": date_from,
+                "<=CREATED_DATE": date_to,
+            },
+            {
+                ">=CLOSED_DATE": date_from,
+                "<=CLOSED_DATE": date_to,
+            },
+            {
+                ">=DEADLINE": date_from,
+                "<=DEADLINE": date_to,
+            },
+        )
+
+        rows: list[dict] = []
+
+        for task_filter in filter_variants:
+            try:
+                rows.extend(
+                    client.call_list(
+                        "tasks.task.list",
+                        {
+                            "order": {"ID": "ASC"},
+                            "filter": task_filter,
+                            "select": select_fields,
+                        },
+                    )
+                )
+            except BitrixRestAuthError:
+                raise
+            except BitrixRestError:
+                logger.warning(
+                    "Bitrix task loading failed for period %s - %s filter=%s; skipping this query.",
+                    period_start.date(),
+                    period_end.date(),
+                    sorted(task_filter.keys()),
+                    exc_info=True,
+                )
+
+        return _deduplicate_rows_by_id(rows)
 
     def _load_crm_forms(
         self,

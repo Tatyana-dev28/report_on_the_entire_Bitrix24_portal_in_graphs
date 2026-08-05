@@ -168,8 +168,15 @@ class BitrixRestClient:
                 all_items.extend(result)
             elif isinstance(result, dict) and "items" in result and isinstance(result["items"], list):
                 all_items.extend(result["items"])
-            elif isinstance(result, dict) and "tasks" in result and isinstance(result["tasks"], list):
-                all_items.extend(result["tasks"])
+            elif isinstance(result, dict) and "tasks" in result:
+                tasks = result["tasks"]
+                if isinstance(tasks, list):
+                    all_items.extend(tasks)
+                elif isinstance(tasks, dict):
+                    # Bitrix often returns tasks as an id→row map, not an array.
+                    all_items.extend(
+                        value for value in tasks.values() if isinstance(value, dict)
+                    )
             elif result is not None:
                 all_items.append(result)
 

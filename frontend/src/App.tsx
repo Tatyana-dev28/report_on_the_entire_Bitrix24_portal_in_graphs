@@ -308,6 +308,24 @@ const detailIdToNumber = (id: string | number, fallback: number) => {
 
 const normalizePeriodKey = (value: string) => value.slice(0, 10);
 
+/** True when key encodes an hour bucket (e.g. 2026-08-03T16:00:00). */
+const hasHourPrecisionPeriodKey = (value: string) =>
+  /^\d{4}-\d{2}-\d{2}[T ]\d{2}/.test(value);
+
+/**
+ * Match key for detail drill-down:
+ * - hour buckets → YYYY-MM-DDTHH (never date-only, or all day hours collapse together)
+ * - day/week/month → YYYY-MM-DD
+ */
+const periodMatchKey = (value: string) => {
+  const hourMatch = value.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2})/);
+  if (hourMatch) {
+    return `${hourMatch[1]}T${hourMatch[2]}`;
+  }
+
+  return normalizePeriodKey(value);
+};
+
 const matchDetailSourceId = (detailSourceId: string | undefined, sourceIds: string[]) => {
   if (!sourceIds.length || !detailSourceId) {
     return true;
@@ -331,11 +349,18 @@ const matchDetailMetricId = (detailMetricId: string | undefined, metricIds: stri
 
 const matchDetailPeriodKey = (detailPeriodKey: string | undefined, pointKey: string) => {
   if (!detailPeriodKey) {
-    return true;
+    // Missing period must not dump every entity into an hour/day cell drill-down.
+    return false;
   }
 
   if (detailPeriodKey === pointKey) {
     return true;
+  }
+
+  // Hour columns: compare date+hour. Date-only fallback wrongly includes the whole day
+  // (e.g. cell "16:00 → 8" opened 200+ missed calls from 17:xx–18:xx).
+  if (hasHourPrecisionPeriodKey(detailPeriodKey) || hasHourPrecisionPeriodKey(pointKey)) {
+    return periodMatchKey(detailPeriodKey) === periodMatchKey(pointKey);
   }
 
   return normalizePeriodKey(detailPeriodKey) === normalizePeriodKey(pointKey);
@@ -719,6 +744,8 @@ const buildSourceMetricEmployees = (
       isTechnical: known?.isTechnical,
       workPosition: known?.workPosition,
       department: known?.department,
+      departmentIds: known?.departmentIds,
+      departments: known?.departments,
     } satisfies ReportEmployee;
   });
 };
@@ -1481,6 +1508,8 @@ function App() {
             isTechnical: employee.isTechnical ?? false,
             workPosition: employee.workPosition ?? null,
             department: employee.department ?? null,
+            departmentIds: employee.departmentIds ?? [],
+            departments: employee.departments ?? [],
           }))
         : reportEmployees,
     [portalEmployees, reportEmployees],

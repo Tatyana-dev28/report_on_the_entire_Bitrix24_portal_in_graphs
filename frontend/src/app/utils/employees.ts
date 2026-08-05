@@ -8,6 +8,17 @@ export type EmployeeDirectoryItem = PortalEmployeeItem & {
   isTechnical?: boolean;
   workPosition?: string | null;
   department?: string | null;
+  departmentIds?: string[];
+  departments?: Array<{ id: string; name: string }>;
+};
+
+export const NO_DEPARTMENT_ID = '__none__';
+export const NO_DEPARTMENT_LABEL = 'Без подразделения';
+
+export type EmployeeDepartmentGroup = {
+  id: string;
+  label: string;
+  employeeIds: string[];
 };
 
 /** Backend buckets rows without ASSIGNED/RESPONSIBLE into this id. */
@@ -105,7 +116,86 @@ export const enrichEmployeesWithDirectory = (
       isTechnical: meta.isTechnical ?? false,
       workPosition: meta.workPosition ?? employee.workPosition,
       department: meta.department ?? employee.department,
+      departmentIds: meta.departmentIds ?? employee.departmentIds,
+      departments: meta.departments ?? employee.departments,
     };
+  });
+};
+
+const resolveEmployeeDepartments = (
+  employee: ReportEmployee,
+): Array<{ id: string; name: string }> => {
+  if (employee.departments?.length) {
+    return employee.departments;
+  }
+
+  const departmentIds = employee.departmentIds?.filter(Boolean) ?? [];
+  if (!departmentIds.length) {
+    return [];
+  }
+
+  const names = (employee.department ?? '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return departmentIds.map((id, index) => ({
+    id,
+    name: names[index] || (departmentIds.length === 1 ? (employee.department || `Подразделение ${id}`) : `Подразделение ${id}`),
+  }));
+};
+
+/** Groups selectable employees by department (multi-dept users appear in each). */
+export const buildEmployeeDepartmentGroups = (
+  employees: ReportEmployee[],
+): EmployeeDepartmentGroup[] => {
+  const groups = new Map<string, EmployeeDepartmentGroup>();
+
+  const addToGroup = (id: string, label: string, employeeId: string) => {
+    const existing = groups.get(id);
+
+    if (existing) {
+      if (!existing.employeeIds.includes(employeeId)) {
+        existing.employeeIds.push(employeeId);
+      }
+
+      if (existing.label.startsWith('Подразделение ') && !label.startsWith('Подразделение ')) {
+        existing.label = label;
+      }
+
+      return;
+    }
+
+    groups.set(id, {
+      id,
+      label,
+      employeeIds: [employeeId],
+    });
+  };
+
+  employees.forEach((employee) => {
+    const departments = resolveEmployeeDepartments(employee);
+
+    if (!departments.length) {
+      addToGroup(NO_DEPARTMENT_ID, NO_DEPARTMENT_LABEL, employee.id);
+      return;
+    }
+
+    departments.forEach((department) => {
+      addToGroup(department.id, department.name, employee.id);
+    });
+  });
+
+  return Array.from(groups.values()).sort((left, right) => {
+    if (left.id === NO_DEPARTMENT_ID) {
+      return 1;
+    }
+
+    if (right.id === NO_DEPARTMENT_ID) {
+      return -1;
+    }
+
+    return left.label.localeCompare(right.label, 'ru-RU');
   });
 };
 

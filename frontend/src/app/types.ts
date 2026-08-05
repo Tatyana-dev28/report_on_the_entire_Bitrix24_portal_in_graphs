@@ -23,6 +23,9 @@ export type MockEmployee = {
   isTechnical?: boolean;
   workPosition?: string | null;
   department?: string | null;
+  /** Bitrix UF_DEPARTMENT ids; used for department browse mode. */
+  departmentIds?: string[];
+  departments?: Array<{ id: string; name: string }>;
 };
 
 export type ReportEmployee = MockEmployee & EmployeeMetricItem;

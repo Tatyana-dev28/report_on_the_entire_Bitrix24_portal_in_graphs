@@ -46,6 +46,8 @@ export type PortalEmployeeItem = {
     isTechnical?: boolean;
     workPosition?: string | null;
     department?: string | null;
+    departmentIds?: string[];
+    departments?: Array<{ id: string; name: string }>;
 };
 
 export type PortalEmployeesResponse = {

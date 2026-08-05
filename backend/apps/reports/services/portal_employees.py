@@ -34,6 +34,8 @@ def load_portal_employees(portal: BitrixPortal) -> list[dict[str, Any]]:
         logger.warning("Failed to load portal employees via user.get.", exc_info=True)
         return []
 
+    department_names = _load_department_names(portal)
+
     employees: list[dict[str, Any]] = []
 
     for user in users:
@@ -55,7 +57,15 @@ def load_portal_employees(portal: BitrixPortal) -> list[dict[str, Any]]:
         is_robot = _is_robot_user(user, full_name)
         is_technical = is_robot or _is_technical_user(user)
         work_position = str(user.get("WORK_POSITION") or "").strip()
-        department_label = _department_label(user.get("UF_DEPARTMENT"))
+        department_ids = _department_ids(user.get("UF_DEPARTMENT"))
+        departments = [
+            {
+                "id": department_id,
+                "name": department_names.get(department_id) or f"Подразделение {department_id}",
+            }
+            for department_id in department_ids
+        ]
+        department_label = ", ".join(item["name"] for item in departments) or None
 
         employees.append({
             "id": user_id,
@@ -68,9 +78,37 @@ def load_portal_employees(portal: BitrixPortal) -> list[dict[str, Any]]:
             "isTechnical": is_technical,
             "workPosition": work_position or None,
             "department": department_label,
+            "departmentIds": department_ids,
+            "departments": departments,
         })
 
     return employees
+
+
+def _load_department_names(portal: BitrixPortal) -> dict[str, str]:
+    try:
+        client = BitrixRestClient(portal)
+        departments = client.call_list("department.get", {})
+    except BitrixRestError:
+        logger.warning("Failed to load portal departments via department.get.", exc_info=True)
+        return {}
+    except Exception:
+        logger.warning("Unexpected error while loading portal departments.", exc_info=True)
+        return {}
+
+    names: dict[str, str] = {}
+
+    for department in departments:
+        if not isinstance(department, dict):
+            continue
+
+        department_id = str(department.get("ID") or "").strip()
+        name = str(department.get("NAME") or "").strip()
+
+        if department_id and name:
+            names[department_id] = name
+
+    return names
 
 
 def _is_robot_user(user: dict[str, Any], full_name: str) -> bool:
@@ -98,20 +136,12 @@ def _is_technical_user(user: dict[str, Any]) -> bool:
     return user_type in {"email", "extranet"} and external_auth != ""
 
 
-def _department_label(raw_departments: Any) -> str | None:
+def _department_ids(raw_departments: Any) -> list[str]:
     if raw_departments is None:
-        return None
+        return []
 
     if isinstance(raw_departments, list):
-        ids = [str(item).strip() for item in raw_departments if str(item).strip()]
-    else:
-        text = str(raw_departments).strip()
-        ids = [text] if text else []
+        return [str(item).strip() for item in raw_departments if str(item).strip()]
 
-    if not ids:
-        return None
-
-    if len(ids) == 1:
-        return f"Подразделение {ids[0]}"
-
-    return f"Подразделения {', '.join(ids[:3])}"
+    text = str(raw_departments).strip()
+    return [text] if text else []

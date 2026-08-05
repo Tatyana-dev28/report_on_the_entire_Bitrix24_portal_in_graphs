@@ -16,6 +16,8 @@ import {
   MoreVertical,
   Settings2,
   SlidersHorizontal,
+  Users,
+  Network,
   X,
 } from 'lucide-react';
 import {
@@ -78,6 +80,7 @@ import {
   getWorkdayScheduleError,
 } from '../utils/reportCalculations';
 import {
+  buildEmployeeDepartmentGroups,
   getEmployeeFullName,
   getEmployeeInitials,
   getEmployeeSecondaryLabel,
@@ -1536,6 +1539,11 @@ export function ThresholdMenu({
   );
 }
 
+const cloneScheduleFilters = (value: ScheduleFilters): ScheduleFilters => ({
+  ...value,
+  weekendDayIds: [...value.weekendDayIds],
+});
+
 export function ScheduleMenu({
   schedule,
   period,
@@ -1550,18 +1558,21 @@ export function ScheduleMenu({
   menuKey?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [draftSchedule, setDraftSchedule] = useState<ScheduleFilters>(() => cloneScheduleFilters(schedule));
   const popoverRef = useRef<HTMLDivElement>(null);
   const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
   const showWorkdayFields = period === 'hours';
   const showWeekendFields = period === 'days' || period === 'weeks';
   const showWeekStartFields = period === 'days' || period === 'weeks';
-  const workdayError = showWorkdayFields ? getWorkdayScheduleError(schedule) : null;
+  const hasEditableFields = showWorkdayFields || showWeekendFields || showWeekStartFields;
+  const workdayError = showWorkdayFields ? getWorkdayScheduleError(draftSchedule) : null;
   const expectedHeight =
-    90
+    120
     + (showWorkdayFields ? 140 : 0)
     + (showWeekendFields ? 110 : 0)
     + (showWeekStartFields ? 110 : 0)
-    + (workdayError ? 36 : 0);
+    + (workdayError ? 36 : 0)
+    + (hasEditableFields ? 0 : 40);
 
   useEffect(() => {
     if (!menuGroup || !menuKey) {
@@ -1583,36 +1594,38 @@ export function ScheduleMenu({
     };
   }, [menuGroup, menuKey]);
 
-  const toggleOpen = () => {
-    setOpen((current) => {
-      const nextOpen = !current;
-
-      if (nextOpen && menuGroup && menuKey) {
-        window.dispatchEvent(new CustomEvent('nested-menu-open', {
-          detail: { group: menuGroup, key: menuKey },
-        }));
-      }
-
-      return nextOpen;
-    });
+  const openMenu = () => {
+    setDraftSchedule(cloneScheduleFilters(schedule));
+    if (menuGroup && menuKey) {
+      window.dispatchEvent(new CustomEvent('nested-menu-open', {
+        detail: { group: menuGroup, key: menuKey },
+      }));
+    }
+    setOpen(true);
   };
 
-  const updateSchedule = (nextSchedule: ScheduleFilters) => {
-    onChange({
-      ...nextSchedule,
-      weekendDayIds: [...nextSchedule.weekendDayIds],
-    });
+  const updateDraftSchedule = (nextSchedule: ScheduleFilters) => {
+    setDraftSchedule(cloneScheduleFilters(nextSchedule));
   };
 
   const toggleWeekendDay = (dayId: number) => {
-    const weekendDayIds = schedule.weekendDayIds.includes(dayId)
-      ? schedule.weekendDayIds.filter((currentDayId) => currentDayId !== dayId)
-      : [...schedule.weekendDayIds, dayId];
+    const weekendDayIds = draftSchedule.weekendDayIds.includes(dayId)
+      ? draftSchedule.weekendDayIds.filter((currentDayId) => currentDayId !== dayId)
+      : [...draftSchedule.weekendDayIds, dayId];
 
-    updateSchedule({
-      ...schedule,
+    updateDraftSchedule({
+      ...draftSchedule,
       weekendDayIds,
     });
+  };
+
+  const applySchedule = () => {
+    if (workdayError) {
+      return;
+    }
+
+    onChange(cloneScheduleFilters(draftSchedule));
+    setOpen(false);
   };
 
   return (
@@ -1621,7 +1634,7 @@ export function ScheduleMenu({
         className="threshold-trigger schedule-trigger"
         type="button"
         aria-expanded={open}
-        onClick={toggleOpen}
+        onClick={open ? () => setOpen(false) : openMenu}
       >
         <CalendarClock size={17} />
         <span>Рабочий календарь</span>
@@ -1643,10 +1656,10 @@ export function ScheduleMenu({
                 <label className={`schedule-field ${workdayError ? 'has-error' : ''}`}>
                   <span>Рабочий день с</span>
                   <select
-                    value={schedule.workdayStart}
+                    value={draftSchedule.workdayStart}
                     onChange={(event) =>
-                      updateSchedule({
-                        ...schedule,
+                      updateDraftSchedule({
+                        ...draftSchedule,
                         workdayStart: event.target.value,
                       })
                     }
@@ -1662,10 +1675,10 @@ export function ScheduleMenu({
                 <label className={`schedule-field ${workdayError ? 'has-error' : ''}`}>
                   <span>Рабочий день до</span>
                   <select
-                    value={schedule.workdayEnd}
+                    value={draftSchedule.workdayEnd}
                     onChange={(event) =>
-                      updateSchedule({
-                        ...schedule,
+                      updateDraftSchedule({
+                        ...draftSchedule,
                         workdayEnd: event.target.value,
                       })
                     }
@@ -1686,7 +1699,7 @@ export function ScheduleMenu({
                 <span>Выходные дни</span>
                 <div className="schedule-day-grid">
                   {weekDayOptions.map((day) => {
-                    const selected = schedule.weekendDayIds.includes(day.id);
+                    const selected = draftSchedule.weekendDayIds.includes(day.id);
 
                     return (
                       <button
@@ -1708,7 +1721,7 @@ export function ScheduleMenu({
                 <span>Неделя начинается с</span>
                 <div className="schedule-day-grid">
                   {weekDayOptions.map((day) => {
-                    const selected = schedule.calendarWeekStart === day.id;
+                    const selected = draftSchedule.calendarWeekStart === day.id;
 
                     return (
                       <button
@@ -1716,8 +1729,8 @@ export function ScheduleMenu({
                         type="button"
                         key={day.id}
                         onClick={() =>
-                          updateSchedule({
-                            ...schedule,
+                          updateDraftSchedule({
+                            ...draftSchedule,
                             calendarWeekStart: day.id,
                           })
                         }
@@ -1730,18 +1743,30 @@ export function ScheduleMenu({
                 </div>
               </div>
             )}
-            {!showWorkdayFields && !showWeekendFields && !showWeekStartFields ? (
+            {!hasEditableFields ? (
               <p className="schedule-period-hint">
                 Для текущей группировки настройки календаря не применяются.
               </p>
             ) : null}
-            <button
-              className="popover-reset-button"
-              type="button"
-              onClick={() => updateSchedule(createDefaultSchedule())}
-            >
-              Вернуть настройки по умолчанию
-            </button>
+            <div className="schedule-form-actions">
+              <button
+                className="popover-reset-button"
+                type="button"
+                onClick={() => updateDraftSchedule(createDefaultSchedule())}
+              >
+                Вернуть настройки по умолчанию
+              </button>
+              {hasEditableFields ? (
+                <button
+                  className="threshold-apply-button manual-apply-button"
+                  type="button"
+                  disabled={Boolean(workdayError)}
+                  onClick={applySchedule}
+                >
+                  Применить
+                </button>
+              ) : null}
+            </div>
           </div>
         </FloatingPopover>
       )}
@@ -1878,6 +1903,8 @@ export function RowActionsMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<'actions' | 'thresholds' | 'employeeThresholds' | 'employees'>('actions');
+  const [employeeBrowseMode, setEmployeeBrowseMode] = useState<'employees' | 'departments'>('employees');
+  const [activeDepartmentId, setActiveDepartmentId] = useState<string | null>(null);
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [showInactiveEmployees, setShowInactiveEmployees] = useState(false);
   const [employeeSelectorAnchorRect, setEmployeeSelectorAnchorRect] = useState<DOMRect | null>(null);
@@ -1927,14 +1954,48 @@ export function RowActionsMenu({
     () => (showInactiveEmployees ? employees : employees.filter((employee) => employee.isActive !== false)),
     [employees, showInactiveEmployees],
   );
+  const departmentGroups = useMemo(
+    () => buildEmployeeDepartmentGroups(selectableEmployees),
+    [selectableEmployees],
+  );
+  const activeDepartment = useMemo(
+    () => departmentGroups.find((group) => group.id === activeDepartmentId) ?? null,
+    [activeDepartmentId, departmentGroups],
+  );
+  const departmentEmployees = useMemo(() => {
+    if (!activeDepartment) {
+      return [];
+    }
+
+    const ids = new Set(activeDepartment.employeeIds);
+    return selectableEmployees.filter((employee) => ids.has(employee.id));
+  }, [activeDepartment, selectableEmployees]);
+  const filteredDepartments = useMemo(() => {
+    const query = employeeSearch.trim().toLocaleLowerCase('ru-RU');
+
+    if (!query) {
+      return departmentGroups;
+    }
+
+    return departmentGroups.filter((group) =>
+      group.label.toLocaleLowerCase('ru-RU').includes(query),
+    );
+  }, [departmentGroups, employeeSearch]);
+  const employeesForList = useMemo(() => {
+    if (employeeBrowseMode === 'departments' && activeDepartment) {
+      return departmentEmployees;
+    }
+
+    return selectableEmployees;
+  }, [activeDepartment, departmentEmployees, employeeBrowseMode, selectableEmployees]);
   const filteredEmployees = useMemo(() => {
     const query = employeeSearch.trim().toLocaleLowerCase('ru-RU');
 
     if (!query) {
-      return selectableEmployees;
+      return employeesForList;
     }
 
-    return selectableEmployees.filter((employee) =>
+    return employeesForList.filter((employee) =>
       [
         employee.firstName,
         employee.lastName,
@@ -1948,11 +2009,13 @@ export function RowActionsMenu({
         .toLocaleLowerCase('ru-RU')
         .includes(query),
     );
-  }, [employeeSearch, selectableEmployees]);
+  }, [employeeSearch, employeesForList]);
+  const showDepartmentList = employeeBrowseMode === 'departments' && !activeDepartment;
+  const listEmployees = showDepartmentList ? [] : filteredEmployees;
   const duplicateNameKeys = useMemo(() => {
     const counts = new Map<string, number>();
 
-    filteredEmployees.forEach((employee) => {
+    listEmployees.forEach((employee) => {
       const key = getEmployeeFullName(employee).toLocaleLowerCase('ru-RU');
       counts.set(key, (counts.get(key) ?? 0) + 1);
     });
@@ -1962,7 +2025,7 @@ export function RowActionsMenu({
         .filter(([, count]) => count > 1)
         .map(([key]) => key),
     );
-  }, [filteredEmployees]);
+  }, [listEmployees]);
   const selectedCount = selectedEmployeeIds?.size ?? 0;
   const hasInactiveEmployees = employees.some((employee) => employee.isActive === false);
 
@@ -2073,13 +2136,19 @@ export function RowActionsMenu({
     };
   }, [mode, onDiscardEmployees, open, ref]);
 
+  const resetEmployeeBrowseState = () => {
+    setEmployeeBrowseMode('employees');
+    setActiveDepartmentId(null);
+    setEmployeeSearch('');
+    setShowInactiveEmployees(false);
+  };
+
   const closeEmployeeSelector = (options?: { discard?: boolean }) => {
     if (options?.discard !== false) {
       onDiscardEmployees?.();
     }
     setEmployeeSelectorAnchorRect(null);
-    setEmployeeSearch('');
-    setShowInactiveEmployees(false);
+    resetEmployeeBrowseState();
     setMode('actions');
     setOpen(false);
   };
@@ -2092,8 +2161,7 @@ export function RowActionsMenu({
 
   const openEmployees = (anchorElement?: HTMLElement) => {
     onOpenEmployeeSelector?.();
-    setEmployeeSearch('');
-    setShowInactiveEmployees(false);
+    resetEmployeeBrowseState();
     const listRect = resolveEmployeeListAnchorRect();
     setEmployeeSelectorAnchorRect(listRect ?? anchorElement?.getBoundingClientRect() ?? null);
     setMode('employees');
@@ -2112,9 +2180,23 @@ export function RowActionsMenu({
   const returnToActions = () => {
     onDiscardEmployees?.();
     setEmployeeSelectorAnchorRect(null);
-    setEmployeeSearch('');
-    setShowInactiveEmployees(false);
+    resetEmployeeBrowseState();
     setMode('actions');
+  };
+
+  const setBrowseMode = (nextMode: 'employees' | 'departments') => {
+    setEmployeeBrowseMode(nextMode);
+    setActiveDepartmentId(null);
+    setEmployeeSearch('');
+  };
+
+  const selectAllVisibleEmployees = () => {
+    if (showDepartmentList) {
+      onSelectAllEmployees?.(selectableEmployees.map((employee) => employee.id));
+      return;
+    }
+
+    onSelectAllEmployees?.(listEmployees.map((employee) => employee.id));
   };
 
   const toggleEmployeeWithoutScrollJump = (employeeId: string) => {
@@ -2144,7 +2226,7 @@ export function RowActionsMenu({
           popoverRef={popoverRef}
           open={open}
           className={`settings-popover row-actions-popover ${mode === 'employees' ? 'is-employee-selector-popover' : ''}`}
-          expectedWidth={mode === 'thresholds' || mode === 'employeeThresholds' ? 520 : mode === 'employees' ? 390 : 280}
+          expectedWidth={mode === 'thresholds' || mode === 'employeeThresholds' ? 520 : mode === 'employees' ? 430 : 280}
           expectedHeight={mode === 'thresholds' || mode === 'employeeThresholds' ? 330 : mode === 'employees' ? 620 : 200}
           constrainHeight={mode !== 'employees'}
           updateOnScroll={mode === 'actions'}
@@ -2233,119 +2315,189 @@ export function RowActionsMenu({
             </div>
           ) : mode === 'employees' ? (
             <div className="row-employee-selector">
-              <div className="row-popover-head">
-                <button
-                  type="button"
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    returnToActions();
-                  }}
-                >
-                  Назад
-                </button>
-                <button
-                  className="row-menu-close"
-                  type="button"
-                  aria-label="Закрыть меню"
-                  onClick={() => closeEmployeeSelector()}
-                >
-                  <X size={14} />
-                </button>
-              </div>
-              <input
-                className="employee-selector-search"
-                type="search"
-                placeholder="Поиск по сотрудникам"
-                value={employeeSearch}
-                onChange={(event) => setEmployeeSearch(event.currentTarget.value)}
-              />
-              <div className="employee-selector-actions">
-                <button
-                  type="button"
-                  onClick={() => onSelectAllEmployees?.(selectableEmployees.map((employee) => employee.id))}
-                >
-                  Выбрать всех
-                </button>
-                <button type="button" onClick={onResetEmployees}>
-                  Снять выбор
-                </button>
-                <button
-                  className="employee-selector-apply"
-                  type="button"
-                  onClick={applyEmployeesAndClose}
-                >
-                  Применить
-                </button>
-              </div>
-              <div className="employee-selector-meta">
-                <span>Выбрано: {selectedCount}</span>
-                {hasInactiveEmployees ? (
-                  <label className="employee-selector-inactive-toggle">
-                    <input
-                      type="checkbox"
-                      checked={showInactiveEmployees}
-                      onChange={(event) => setShowInactiveEmployees(event.currentTarget.checked)}
-                    />
-                    <span>Неактивные</span>
-                  </label>
+              <div className={`employee-selector-main ${activeDepartment ? 'has-department-title' : ''}`}>
+                <div className="row-popover-head">
+                  <button
+                    type="button"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (employeeBrowseMode === 'departments' && activeDepartment) {
+                        setActiveDepartmentId(null);
+                        setEmployeeSearch('');
+                        return;
+                      }
+                      returnToActions();
+                    }}
+                  >
+                    Назад
+                  </button>
+                  <button
+                    className="row-menu-close"
+                    type="button"
+                    aria-label="Закрыть меню"
+                    onClick={() => closeEmployeeSelector()}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                {activeDepartment ? (
+                  <div className="employee-selector-department-title" title={activeDepartment.label}>
+                    {activeDepartment.label}
+                  </div>
                 ) : null}
-              </div>
-              <div className="employee-selector-list" ref={employeeSelectorListRef}>
-                {filteredEmployees.map((employee) => {
-                  const fullName = getEmployeeFullName(employee);
-                  const nameKey = fullName.toLocaleLowerCase('ru-RU');
-                  const secondaryLabel = getEmployeeSecondaryLabel(employee, {
-                    forceDisambiguation: duplicateNameKeys.has(nameKey),
-                  });
-                  const badgeLabel = employee.isRobot
-                    ? 'Робот'
-                    : employee.isTechnical
-                      ? 'Техн.'
-                      : null;
-
-                  return (
-                    <label
-                      className={`employee-selector-option ${employee.isRobot || employee.isTechnical ? 'is-robot' : ''}`}
-                      key={employee.id}
-                      title={secondaryLabel ? `${fullName} · ${secondaryLabel}` : fullName}
-                    >
+                <input
+                  className="employee-selector-search"
+                  type="search"
+                  placeholder={
+                    showDepartmentList
+                      ? 'Поиск по подразделениям'
+                      : 'Поиск по сотрудникам'
+                  }
+                  value={employeeSearch}
+                  onChange={(event) => setEmployeeSearch(event.currentTarget.value)}
+                />
+                <div className="employee-selector-actions">
+                  <button
+                    type="button"
+                    onClick={selectAllVisibleEmployees}
+                  >
+                    Выбрать всех
+                  </button>
+                  <button type="button" onClick={onResetEmployees}>
+                    Снять выбор
+                  </button>
+                  <button
+                    className="employee-selector-apply"
+                    type="button"
+                    onClick={applyEmployeesAndClose}
+                  >
+                    Применить
+                  </button>
+                </div>
+                <div className="employee-selector-meta">
+                  <span>Выбрано: {selectedCount}</span>
+                  {hasInactiveEmployees ? (
+                    <label className="employee-selector-inactive-toggle">
                       <input
                         type="checkbox"
-                        checked={selectedEmployeeIds?.has(employee.id) ?? false}
-                        onChange={() => toggleEmployeeWithoutScrollJump(employee.id)}
+                        checked={showInactiveEmployees}
+                        onChange={(event) => setShowInactiveEmployees(event.currentTarget.checked)}
                       />
-                      <span className="employee-selector-avatar" aria-hidden="true">
-                        {employee.avatarUrl ? (
-                          <img src={employee.avatarUrl} alt="" />
-                        ) : (
-                          getEmployeeInitials(employee)
-                        )}
-                      </span>
-                      <span className="employee-selector-option-text">
-                        <span className="employee-selector-option-name">
-                          <span>{fullName}</span>
-                          {badgeLabel ? (
-                            <em className={`employee-selector-badge ${employee.isRobot ? 'is-robot' : 'is-technical'}`}>
-                              {badgeLabel}
-                            </em>
-                          ) : null}
-                          {employee.isActive === false ? (
-                            <em className="employee-selector-badge is-inactive">Неактивен</em>
-                          ) : null}
-                        </span>
-                        {secondaryLabel ? (
-                          <span className="employee-selector-option-meta">{secondaryLabel}</span>
-                        ) : null}
-                      </span>
+                      <span>Неактивные</span>
                     </label>
-                  );
-                })}
-                {filteredEmployees.length === 0 && (
-                  <div className="employee-selector-empty">
-                    Сотрудники не найдены
-                  </div>
-                )}
+                  ) : null}
+                </div>
+                <div className="employee-selector-list" ref={employeeSelectorListRef}>
+                  {showDepartmentList ? (
+                    filteredDepartments.length > 0 ? (
+                      filteredDepartments.map((group) => (
+                        <button
+                          className="employee-selector-department-option"
+                          type="button"
+                          key={group.id}
+                          onClick={() => {
+                            setActiveDepartmentId(group.id);
+                            setEmployeeSearch('');
+                          }}
+                        >
+                          <span className="employee-selector-department-option-text">
+                            <span className="employee-selector-department-option-name">{group.label}</span>
+                            <span className="employee-selector-option-meta">
+                              {group.employeeIds.length} сотр.
+                            </span>
+                          </span>
+                          <ChevronRight size={16} />
+                        </button>
+                      ))
+                    ) : (
+                      <div className="employee-selector-empty">
+                        Подразделения не найдены
+                      </div>
+                    )
+                  ) : (
+                    <>
+                      {listEmployees.map((employee) => {
+                        const fullName = getEmployeeFullName(employee);
+                        const nameKey = fullName.toLocaleLowerCase('ru-RU');
+                        const secondaryLabel = getEmployeeSecondaryLabel(employee, {
+                          forceDisambiguation: duplicateNameKeys.has(nameKey),
+                        });
+                        const badgeLabel = employee.isRobot
+                          ? 'Робот'
+                          : employee.isTechnical
+                            ? 'Техн.'
+                            : null;
+
+                        return (
+                          <label
+                            className={`employee-selector-option ${employee.isRobot || employee.isTechnical ? 'is-robot' : ''}`}
+                            key={employee.id}
+                            title={secondaryLabel ? `${fullName} · ${secondaryLabel}` : fullName}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedEmployeeIds?.has(employee.id) ?? false}
+                              onChange={() => toggleEmployeeWithoutScrollJump(employee.id)}
+                            />
+                            <span className="employee-selector-avatar" aria-hidden="true">
+                              {employee.avatarUrl ? (
+                                <img src={employee.avatarUrl} alt="" />
+                              ) : (
+                                getEmployeeInitials(employee)
+                              )}
+                            </span>
+                            <span className="employee-selector-option-text">
+                              <span className="employee-selector-option-name">
+                                <span>{fullName}</span>
+                                {badgeLabel ? (
+                                  <em className={`employee-selector-badge ${employee.isRobot ? 'is-robot' : 'is-technical'}`}>
+                                    {badgeLabel}
+                                  </em>
+                                ) : null}
+                                {employee.isActive === false ? (
+                                  <em className="employee-selector-badge is-inactive">Неактивен</em>
+                                ) : null}
+                              </span>
+                              {secondaryLabel ? (
+                                <span className="employee-selector-option-meta">{secondaryLabel}</span>
+                              ) : null}
+                            </span>
+                          </label>
+                        );
+                      })}
+                      {listEmployees.length === 0 && (
+                        <div className="employee-selector-empty">
+                          Сотрудники не найдены
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="employee-selector-side-tabs" role="tablist" aria-label="Режим списка сотрудников">
+                <button
+                  className={`employee-selector-side-tab ${employeeBrowseMode === 'employees' ? 'is-active' : ''}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={employeeBrowseMode === 'employees'}
+                  title="Все сотрудники"
+                  aria-label="Все сотрудники"
+                  onClick={() => setBrowseMode('employees')}
+                >
+                  <Users size={16} />
+                </button>
+                <button
+                  className={`employee-selector-side-tab ${employeeBrowseMode === 'departments' ? 'is-active' : ''}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={employeeBrowseMode === 'departments'}
+                  title="Подразделения"
+                  aria-label="Подразделения"
+                  onClick={() => setBrowseMode('departments')}
+                >
+                  <Network size={16} />
+                </button>
               </div>
             </div>
           ) : mode === 'thresholds' ? (

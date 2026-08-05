@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, time
 from decimal import Decimal, InvalidOperation
+import re
 from typing import Any
 
 from django.utils import timezone
@@ -354,14 +355,15 @@ def _build_entity_detail(
     portal: Any | None = None,
 ) -> dict:
     employee_id = _extract_employee_id(row)
-    entity_id = str(row.get("CRM_ACTIVITY_ID") or row.get("CALL_ID") or row.get("ID") or "")
+    raw_row_id = str(row.get("CRM_ACTIVITY_ID") or row.get("CALL_ID") or row.get("ID") or "")
+    entity_id = _extract_detail_entity_id(row, source_id) or raw_row_id
     title = _extract_entity_title(row, source_id)
     created_at = _extract_row_datetime(row, portal=portal)
     navigation_entity = _extract_navigation_entity(row, source_id)
     linked_element = _extract_linked_element(row, source_id)
 
     detail = {
-        "id": entity_id or f"{source_id}:{metric_id}:{period_key}:{len(title)}",
+        "id": raw_row_id or f"{source_id}:{metric_id}:{period_key}:{len(title)}",
         "entityId": entity_id,
         "sourceId": source_id,
         "periodKey": period_key,
@@ -385,6 +387,34 @@ def _build_entity_detail(
     return detail
 
 
+def _extract_detail_entity_id(row: dict, source_id: str) -> str:
+    """Prefer a normal CRM id in the detail ID column (not lead-form-123)."""
+    if source_id.startswith("crm-form-"):
+        crm_entity_id = str(row.get("CRM_ENTITY_ID") or "").strip()
+        if crm_entity_id:
+            return crm_entity_id
+
+        parsed = _parse_crm_form_fallback_id(row.get("ID"))
+        if parsed:
+            return parsed["entityId"]
+
+        return str(row.get("ID") or "").strip()
+
+    return str(row.get("CRM_ACTIVITY_ID") or row.get("CALL_ID") or row.get("ID") or "").strip()
+
+
+def _parse_crm_form_fallback_id(value: object) -> dict[str, str] | None:
+    match = re.match(r"^(lead|deal)-form-(\d+)$", str(value or "").strip(), flags=re.IGNORECASE)
+
+    if not match:
+        return None
+
+    return {
+        "entityType": match.group(1).lower(),
+        "entityId": match.group(2),
+    }
+
+
 def _extract_linked_element(row: dict, source_id: str) -> dict[str, str] | None:
     """CRM card linked to a call / activity / form (not the primary entity itself)."""
     entity_id = ""
@@ -393,6 +423,12 @@ def _extract_linked_element(row: dict, source_id: str) -> dict[str, str] | None:
     if source_id.startswith("crm-form-"):
         entity_id = str(row.get("CRM_ENTITY_ID") or "").strip()
         entity_type = _normalize_crm_entity_type(row.get("CRM_ENTITY_TYPE"))
+
+        if not entity_id or not entity_type:
+            parsed = _parse_crm_form_fallback_id(row.get("ID"))
+            if parsed:
+                entity_id = parsed["entityId"]
+                entity_type = parsed["entityType"]
     elif source_id.startswith("activity-"):
         entity_id = str(row.get("OWNER_ID") or "").strip()
         entity_type = _owner_type_id_to_entity_type(row.get("OWNER_TYPE_ID"))
@@ -406,10 +442,15 @@ def _extract_linked_element(row: dict, source_id: str) -> dict[str, str] | None:
         return None
 
     type_label = _LINKED_ELEMENT_TYPE_LABELS.get(entity_type, entity_type)
+    known_title = ""
+    if source_id.startswith("crm-form-"):
+        # Fallback form rows already carry the created lead/deal title.
+        known_title = str(row.get("TITLE") or "").strip()
+
     return {
         "linkedElementId": entity_id,
         "linkedElementType": entity_type,
-        "linkedElementTitle": f"{type_label} #{entity_id}",
+        "linkedElementTitle": known_title or f"{type_label} #{entity_id}",
     }
 
 
@@ -480,6 +521,12 @@ def _extract_navigation_entity(row: dict, source_id: str) -> dict[str, str] | No
     if source_id.startswith("crm-form-"):
         entity_id = str(row.get("CRM_ENTITY_ID") or "").strip()
         entity_type = _normalize_crm_entity_type(row.get("CRM_ENTITY_TYPE"))
+
+        if not entity_id or not entity_type:
+            parsed = _parse_crm_form_fallback_id(row.get("ID"))
+            if parsed:
+                entity_id = parsed["entityId"]
+                entity_type = parsed["entityType"]
 
         if entity_id and entity_type:
             return {

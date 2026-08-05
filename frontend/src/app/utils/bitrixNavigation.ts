@@ -346,6 +346,7 @@ export const buildBitrixMetricDetailUrl = (detail: {
     entityId: Number(detail.entityId) || 0,
     entityRawId: detail.entityId,
     title: detail.title ?? '',
+    linkedElementTitle: '',
     responsibleId: 0,
     responsibleName: '',
     createdAt: '',

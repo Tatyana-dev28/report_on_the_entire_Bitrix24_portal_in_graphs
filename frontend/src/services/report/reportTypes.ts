@@ -73,6 +73,10 @@ export type MetricDetailItem = {
   navigationEntityId?: string | number;
   navigationEntityType?: string;
   navigationEntityTypeId?: string | number;
+  /** CRM card linked to a call / activity / form (title). */
+  linkedElementTitle?: string;
+  linkedElementId?: string | number;
+  linkedElementType?: string;
 };
 
 export type EmployeeMetricPeriodValue = {

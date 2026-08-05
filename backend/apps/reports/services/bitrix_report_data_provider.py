@@ -53,7 +53,10 @@ from apps.reports.services.portal_timezone import (
 from apps.reports.services.source_metrics_service import build_source_metrics_by_period
 from apps.reports.services.employee_breakdown import build_employee_breakdown
 from apps.reports.services.portal_employees import enrich_employee_payloads_with_names
-from apps.reports.services.entity_details import build_entity_details
+from apps.reports.services.entity_details import (
+    build_entity_details,
+    enrich_details_linked_element_titles,
+)
 from apps.reports.services.exceptions import ReportPreviewSessionError
 
 
@@ -195,6 +198,7 @@ class BitrixReportDataProvider:
             metric_catalog=detail_metric_catalog,
             portal=context.portal,
         )
+        enrich_details_linked_element_titles(details, client)
 
         unsupported_sources = [
             source["sourceLabel"]

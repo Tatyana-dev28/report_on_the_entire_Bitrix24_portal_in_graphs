@@ -42,6 +42,25 @@ from apps.reports.services.calculators.telephony_calculator import (
 from apps.reports.services.portal_timezone import get_portal_tzinfo
 
 
+_LINKED_ELEMENT_TYPE_LABELS = {
+    "lead": "Лид",
+    "deal": "Сделка",
+    "contact": "Контакт",
+    "company": "Компания",
+    "quote": "Предложение",
+    "invoice": "Счёт",
+}
+
+_LINKED_ELEMENT_LIST_METHODS = {
+    "lead": ("crm.lead.list", ["ID", "TITLE"]),
+    "deal": ("crm.deal.list", ["ID", "TITLE"]),
+    "company": ("crm.company.list", ["ID", "TITLE"]),
+    "contact": ("crm.contact.list", ["ID", "NAME", "LAST_NAME", "SECOND_NAME"]),
+    "quote": ("crm.quote.list", ["ID", "TITLE"]),
+    "invoice": ("crm.invoice.list", ["ID", "ORDER_TOPIC", "ACCOUNT_NUMBER"]),
+}
+
+
 def build_entity_details(
     *,
     buckets: list[Any],
@@ -76,6 +95,42 @@ def build_entity_details(
                     )
 
     return details
+
+
+def enrich_details_linked_element_titles(details: list[dict], client: Any) -> None:
+    """Resolve linked CRM titles for activity / telephony / form details.
+
+    Failures are swallowed so report building never breaks because of title lookup.
+    """
+    if not details or client is None:
+        return
+
+    ids_by_type: dict[str, set[str]] = {}
+
+    for detail in details:
+        entity_type = str(detail.get("linkedElementType") or "").strip()
+        entity_id = str(detail.get("linkedElementId") or "").strip()
+
+        if not entity_type or not entity_id or entity_type not in _LINKED_ELEMENT_LIST_METHODS:
+            continue
+
+        ids_by_type.setdefault(entity_type, set()).add(entity_id)
+
+    if not ids_by_type:
+        return
+
+    titles = _load_linked_element_titles(client, ids_by_type)
+
+    if not titles:
+        return
+
+    for detail in details:
+        entity_type = str(detail.get("linkedElementType") or "").strip()
+        entity_id = str(detail.get("linkedElementId") or "").strip()
+        title = titles.get((entity_type, entity_id))
+
+        if title:
+            detail["linkedElementTitle"] = title
 
 
 def _row_metric_ids(source_id: str, row: dict, metric_ids: set[str]) -> list[str]:
@@ -303,6 +358,7 @@ def _build_entity_detail(
     title = _extract_entity_title(row, source_id)
     created_at = _extract_row_datetime(row, portal=portal)
     navigation_entity = _extract_navigation_entity(row, source_id)
+    linked_element = _extract_linked_element(row, source_id)
 
     detail = {
         "id": entity_id or f"{source_id}:{metric_id}:{period_key}:{len(title)}",
@@ -323,7 +379,101 @@ def _build_entity_detail(
     if navigation_entity:
         detail.update(navigation_entity)
 
+    if linked_element:
+        detail.update(linked_element)
+
     return detail
+
+
+def _extract_linked_element(row: dict, source_id: str) -> dict[str, str] | None:
+    """CRM card linked to a call / activity / form (not the primary entity itself)."""
+    entity_id = ""
+    entity_type: str | None = None
+
+    if source_id.startswith("crm-form-"):
+        entity_id = str(row.get("CRM_ENTITY_ID") or "").strip()
+        entity_type = _normalize_crm_entity_type(row.get("CRM_ENTITY_TYPE"))
+    elif source_id.startswith("activity-"):
+        entity_id = str(row.get("OWNER_ID") or "").strip()
+        entity_type = _owner_type_id_to_entity_type(row.get("OWNER_TYPE_ID"))
+    elif source_id.startswith("telephony-"):
+        entity_id = str(row.get("CRM_ENTITY_ID") or "").strip()
+        entity_type = _normalize_crm_entity_type(row.get("CRM_ENTITY_TYPE"))
+    else:
+        return None
+
+    if not entity_id or not entity_type:
+        return None
+
+    type_label = _LINKED_ELEMENT_TYPE_LABELS.get(entity_type, entity_type)
+    return {
+        "linkedElementId": entity_id,
+        "linkedElementType": entity_type,
+        "linkedElementTitle": f"{type_label} #{entity_id}",
+    }
+
+
+def _load_linked_element_titles(
+    client: Any,
+    ids_by_type: dict[str, set[str]],
+) -> dict[tuple[str, str], str]:
+    from apps.bitrix.services.rest_client import BitrixRestError
+
+    titles: dict[tuple[str, str], str] = {}
+
+    for entity_type, entity_ids in ids_by_type.items():
+        method_info = _LINKED_ELEMENT_LIST_METHODS.get(entity_type)
+
+        if not method_info:
+            continue
+
+        method, select = method_info
+        id_list = sorted(entity_ids)
+
+        for offset in range(0, len(id_list), 50):
+            chunk = id_list[offset : offset + 50]
+
+            try:
+                rows = client.call_list(
+                    method,
+                    {
+                        "filter": {"ID": chunk},
+                        "select": select,
+                    },
+                )
+            except BitrixRestError:
+                continue
+            except Exception:
+                continue
+
+            for row in rows or []:
+                row_id = str(row.get("ID") or "").strip()
+                title = _format_linked_element_title(entity_type, row)
+
+                if row_id and title:
+                    titles[(entity_type, row_id)] = title
+
+    return titles
+
+
+def _format_linked_element_title(entity_type: str, row: dict) -> str:
+    if entity_type == "contact":
+        parts = [
+            str(row.get("NAME") or "").strip(),
+            str(row.get("SECOND_NAME") or "").strip(),
+            str(row.get("LAST_NAME") or "").strip(),
+        ]
+        return " ".join(part for part in parts if part).strip()
+
+    if entity_type == "invoice":
+        return str(
+            row.get("ORDER_TOPIC")
+            or row.get("ACCOUNT_NUMBER")
+            or row.get("TITLE")
+            or ""
+        ).strip()
+
+    return str(row.get("TITLE") or "").strip()
 
 
 def _extract_navigation_entity(row: dict, source_id: str) -> dict[str, str] | None:
@@ -397,7 +547,12 @@ def _normalize_crm_entity_type(value: object) -> str | None:
         "invoice": "invoice",
     }
 
-    return mapping.get(normalized)
+    mapped = mapping.get(normalized)
+    if mapped:
+        return mapped
+
+    # Telephony/forms sometimes return owner-type numeric codes.
+    return _owner_type_id_to_entity_type(value)
 
 
 def _owner_type_id_to_entity_type(value: object) -> str | None:

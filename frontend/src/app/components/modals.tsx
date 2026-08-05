@@ -919,6 +919,7 @@ export function DetailModal({
     rowNumber: row.rowNumber,
     entityId: row.entityRawId || row.entityId || '',
     title: row.title,
+    linkedElementTitle: row.linkedElementTitle || '',
     responsibleName: row.responsibleName || '',
     createdAt: row.createdAt,
   }));
@@ -952,6 +953,7 @@ export function DetailModal({
         row.rowNumber,
         row.entityId,
         row.title,
+        row.linkedElementTitle || '—',
         row.responsibleName,
         row.createdAt,
       ]);
@@ -961,6 +963,7 @@ export function DetailModal({
       { width: 8 },
       { width: 16 },
       { width: 42 },
+      { width: 36 },
       { width: 28 },
       { width: 22 },
     ];
@@ -1010,6 +1013,7 @@ export function DetailModal({
         String(row.rowNumber),
         String(row.entityId),
         row.title,
+        row.linkedElementTitle || '—',
         row.responsibleName,
         row.createdAt,
       ].forEach((value) => {
@@ -1222,6 +1226,9 @@ export function DetailModal({
                       {availabilityLabel ? <em>{availabilityLabel}</em> : null}
                     </div>
                   )}
+                  <div className="detail-cell detail-title-cell">
+                    {row.linkedElementTitle || '—'}
+                  </div>
                   {canOpenResponsible ? (
                     <button
                       className="detail-cell detail-action-cell"

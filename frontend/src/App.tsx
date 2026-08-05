@@ -493,6 +493,7 @@ const buildBackendDetailRows = (
         entityId: detailIdToNumber(detailEntityId, index + 1),
         entityRawId: detailEntityId,
         title: detail.title || detail.metricLabel || context.metric.label,
+        linkedElementTitle: detail.linkedElementTitle || '',
         responsibleId: Number.isFinite(responsibleId) ? responsibleId : 0,
         responsibleName: detail.responsibleName || detail.employeeName || context.employee?.name || '',
         createdAt: Number.isFinite(createdAtDate.getTime())

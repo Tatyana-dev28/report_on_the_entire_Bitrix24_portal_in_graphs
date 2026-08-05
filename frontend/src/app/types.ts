@@ -172,6 +172,7 @@ export type DetailRow = {
   entityId: number;
   entityRawId?: string | number;
   title: string;
+  linkedElementTitle: string;
   responsibleId: number;
   responsibleName: string;
   createdAt: string;
@@ -185,7 +186,13 @@ export type DetailRow = {
   availability?: 'ok' | 'unavailable' | 'access_denied';
 };
 
-export type DetailColumnKey = 'rowNumber' | 'entityId' | 'title' | 'responsibleName' | 'createdAt';
+export type DetailColumnKey =
+  | 'rowNumber'
+  | 'entityId'
+  | 'title'
+  | 'linkedElementTitle'
+  | 'responsibleName'
+  | 'createdAt';
 
 export type DetailSort = {
   key: DetailColumnKey;

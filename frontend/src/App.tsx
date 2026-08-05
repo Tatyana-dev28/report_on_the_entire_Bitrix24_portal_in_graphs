@@ -313,7 +313,24 @@ const detailIdToNumber = (id: string | number, fallback: number) => {
     return numeric;
   }
 
+  const formMatch = String(id).match(/^(?:lead|deal)-form-(\d+)$/i);
+  if (formMatch) {
+    const formId = Number(formMatch[1]);
+    if (Number.isFinite(formId) && formId > 0) {
+      return formId;
+    }
+  }
+
   return 900000 + fallback;
+};
+
+const normalizeDetailEntityRawId = (id: string | number | undefined) => {
+  if (id === undefined || id === null || id === '') {
+    return id;
+  }
+
+  const formMatch = String(id).match(/^(?:lead|deal)-form-(\d+)$/i);
+  return formMatch ? formMatch[1] : id;
 };
 
 const normalizePeriodKey = (value: string) => value.slice(0, 10);
@@ -486,7 +503,15 @@ const buildBackendDetailRows = (
         ? createdAtDate.getTime()
         : index;
       const responsibleId = Number(detail.employeeId ?? context.employee?.id ?? 0);
-      const detailEntityId = detail.entityId ?? detail.id;
+      const isCrmFormDetail = Boolean(
+        detail.sourceId?.startsWith('crm-form-')
+        || context.entityType === 'crm_form',
+      );
+      const detailEntityId = normalizeDetailEntityRawId(
+        isCrmFormDetail
+          ? (detail.navigationEntityId ?? detail.entityId ?? detail.id)
+          : (detail.entityId ?? detail.id),
+      );
 
       return {
         rowNumber: index + 1,

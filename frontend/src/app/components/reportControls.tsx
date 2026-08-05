@@ -822,7 +822,9 @@ export function TableSettingsMenu({
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
+  // Close only via the header X (or the trigger toggle) — scrolling the page
+  // must not dismiss table settings while the user is browsing sources.
+  const ref = useOutsideClose<HTMLDivElement>(false, () => setOpen(false), [popoverRef]);
 
   const handleApply = () => {
     onApply();
@@ -858,6 +860,7 @@ export function TableSettingsMenu({
           className="settings-popover table-settings-popover"
           expectedWidth={300}
           expectedHeight={760}
+          updateOnScroll={false}
         >
           <div className="table-settings-head">
             <p>Настройки таблицы</p>

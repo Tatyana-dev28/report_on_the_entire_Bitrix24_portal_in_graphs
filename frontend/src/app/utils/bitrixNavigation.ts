@@ -84,10 +84,12 @@ const getBitrixEntityPath = (entityType: BitrixEntityType, id: string | number) 
     company: `/crm/company/details/${id}/`,
     contact: `/crm/contact/details/${id}/`,
     task: `/company/personal/user/0/tasks/task/view/${id}/`,
-    activity: `/crm/activity/?ID=${id}`,
-    call: `/telephony/detail.php?ID=${id}`,
-    email: `/crm/activity/?ID=${id}`,
-    message: `/crm/activity/?ID=${id}`,
+    // open_view opens the activity slider/card; bare ?ID= often lands on a list.
+    activity: `/crm/activity/?open_view=${id}`,
+    // Last-resort for statistic-row id without CRM link: filter the grid to that row.
+    call: `/telephony/detail.php?apply_filter=Y&FILTER[ID]=${id}`,
+    email: `/crm/activity/?open_view=${id}`,
+    message: `/crm/activity/?open_view=${id}`,
     crm_form: `/crm/webform/result/${id}/`,
   };
 

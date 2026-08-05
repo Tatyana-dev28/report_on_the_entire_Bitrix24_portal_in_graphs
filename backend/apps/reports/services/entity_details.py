@@ -348,8 +348,25 @@ def _extract_navigation_entity(row: dict, source_id: str) -> dict[str, str] | No
             }
 
     if source_id.startswith("telephony-"):
-        call_id = str(row.get("ID") or "").strip()
+        # Prefer CRM card (supported by BX24.openPath). /telephony/detail.php is the
+        # statistics LIST, not a single call — that is why drill-down opened many numbers.
+        crm_entity_id = str(row.get("CRM_ENTITY_ID") or "").strip()
+        crm_entity_type = _normalize_crm_entity_type(row.get("CRM_ENTITY_TYPE"))
 
+        if crm_entity_id and crm_entity_type:
+            return {
+                "navigationEntityId": crm_entity_id,
+                "navigationEntityType": crm_entity_type,
+            }
+
+        activity_id = str(row.get("CRM_ACTIVITY_ID") or "").strip()
+        if activity_id:
+            return {
+                "navigationEntityId": activity_id,
+                "navigationEntityType": "activity",
+            }
+
+        call_id = str(row.get("ID") or "").strip()
         if call_id:
             return {
                 "navigationEntityId": call_id,

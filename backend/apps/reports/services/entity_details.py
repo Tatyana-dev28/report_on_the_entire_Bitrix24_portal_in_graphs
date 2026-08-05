@@ -472,13 +472,14 @@ def _extract_employee_id(row: dict) -> str:
 
 
 def _extract_employee_name(row: dict, employee_id: str) -> str:
+    # Do not fall back to NAME/TITLE — for deals/leads that is the entity title.
     first_name = _first_non_empty_value(
         row,
-        ["ASSIGNED_BY_NAME", "RESPONSIBLE_NAME", "NAME", "name"],
+        ["ASSIGNED_BY_NAME", "RESPONSIBLE_NAME"],
     )
     last_name = _first_non_empty_value(
         row,
-        ["ASSIGNED_BY_LAST_NAME", "RESPONSIBLE_LAST_NAME", "LAST_NAME", "lastName"],
+        ["ASSIGNED_BY_LAST_NAME", "RESPONSIBLE_LAST_NAME"],
     )
     full_name = " ".join([part for part in [first_name, last_name] if part]).strip()
 

@@ -27,6 +27,19 @@ export const UNAVAILABLE_EMPLOYEE_ID = '__unavailable__';
 export const UNASSIGNED_EMPLOYEE_LABEL = 'Без ответственного';
 export const UNAVAILABLE_EMPLOYEE_LABEL = 'Недоступно';
 
+export const isGenericEmployeeLabel = (name: string | null | undefined, employeeId: string) => {
+  const normalized = (name ?? '').trim();
+
+  if (!normalized) {
+    return true;
+  }
+
+  return normalized === UNASSIGNED_EMPLOYEE_LABEL
+    || normalized === UNAVAILABLE_EMPLOYEE_LABEL
+    || normalized === `Сотрудник ${employeeId}`
+    || normalized === `Сотрудник ${String(employeeId)}`;
+};
+
 export const getEmployeeFullName = (employee: Pick<ReportEmployee, 'firstName' | 'lastName' | 'name' | 'id'>) => {
   if (employee.id === UNASSIGNED_EMPLOYEE_ID) {
     return UNASSIGNED_EMPLOYEE_LABEL;
@@ -36,9 +49,17 @@ export const getEmployeeFullName = (employee: Pick<ReportEmployee, 'firstName' |
     return UNAVAILABLE_EMPLOYEE_LABEL;
   }
 
-  return `${employee.firstName ?? ''} ${employee.lastName ?? ''}`.trim()
-    || employee.name?.trim()
-    || `Сотрудник ${employee.id}`;
+  const joined = `${employee.firstName ?? ''} ${employee.lastName ?? ''}`.trim();
+  if (joined && !isGenericEmployeeLabel(joined, employee.id)) {
+    return joined;
+  }
+
+  const named = employee.name?.trim();
+  if (named && !isGenericEmployeeLabel(named, employee.id)) {
+    return named;
+  }
+
+  return named || joined || `Сотрудник ${employee.id}`;
 };
 
 export const getEmployeeInitials = (employee: Pick<ReportEmployee, 'firstName' | 'lastName' | 'name' | 'id'>) => {
@@ -90,29 +111,62 @@ export const enrichEmployeesWithDirectory = (
     }));
   }
 
-  const byId = new Map(directory.map((item) => [item.id, item]));
+  const byId = new Map(directory.map((item) => [String(item.id), item]));
 
   return employees.map((employee) => {
-    const meta = byId.get(employee.id);
-    const fullName = employee.name || getEmployeeFullName(employee);
+    const meta = byId.get(String(employee.id));
+    const currentLabel = getEmployeeFullName(employee);
 
     if (!meta) {
       return {
         ...employee,
         isActive: employee.isActive ?? true,
-        isRobot: employee.isRobot ?? detectRobotByName(fullName),
+        isRobot: employee.isRobot ?? detectRobotByName(currentLabel),
         isTechnical: employee.isTechnical ?? false,
+      };
+    }
+
+    const metaFullName = meta.name?.trim()
+      || `${meta.firstName ?? ''} ${meta.lastName ?? ''}`.trim()
+      || '';
+
+    // Directory wins over generic report labels like "Сотрудник 7597"
+    // (and over firstName/lastName leftovers after splitting that label).
+    const useDirectoryName = Boolean(metaFullName)
+      && (
+        isGenericEmployeeLabel(currentLabel, employee.id)
+        || isGenericEmployeeLabel(employee.name, employee.id)
+        || isGenericEmployeeLabel(
+          `${employee.firstName ?? ''} ${employee.lastName ?? ''}`.trim(),
+          employee.id,
+        )
+      );
+
+    if (useDirectoryName) {
+      return {
+        ...employee,
+        name: metaFullName,
+        firstName: meta.firstName || metaFullName,
+        lastName: meta.lastName || '',
+        avatarUrl: meta.avatarUrl ?? employee.avatarUrl,
+        isActive: meta.isActive ?? true,
+        isRobot: meta.isRobot ?? detectRobotByName(metaFullName),
+        isTechnical: meta.isTechnical ?? false,
+        workPosition: meta.workPosition ?? employee.workPosition,
+        department: meta.department ?? employee.department,
+        departmentIds: meta.departmentIds ?? employee.departmentIds,
+        departments: meta.departments ?? employee.departments,
       };
     }
 
     return {
       ...employee,
-      name: meta.name || fullName,
+      name: meta.name || employee.name || metaFullName || currentLabel,
       firstName: meta.firstName || employee.firstName,
-      lastName: meta.lastName || employee.lastName,
+      lastName: meta.lastName ?? employee.lastName,
       avatarUrl: meta.avatarUrl ?? employee.avatarUrl,
       isActive: meta.isActive ?? true,
-      isRobot: meta.isRobot ?? detectRobotByName(meta.name || fullName),
+      isRobot: meta.isRobot ?? detectRobotByName(meta.name || currentLabel),
       isTechnical: meta.isTechnical ?? false,
       workPosition: meta.workPosition ?? employee.workPosition,
       department: meta.department ?? employee.department,
@@ -259,7 +313,6 @@ export const resolveEmployeeDetailList = ({
 
   const valuesByPeriod: Record<string, Record<string, number>> = {};
   let positiveGapTotal = 0;
-  let negativeGapTotal = 0;
 
   reportData.forEach((point) => {
     const total = readMetricTotal(point);
@@ -272,8 +325,6 @@ export const resolveEmployeeDetailList = ({
     if (gap > 0) {
       positiveGapTotal += gap;
       valuesByPeriod[point.key] = { [metricId]: gap };
-    } else if (gap < 0) {
-      negativeGapTotal += Math.abs(gap);
     }
   });
 
@@ -286,20 +337,6 @@ export const resolveEmployeeDetailList = ({
       lastName: '',
       valuesByPeriod,
     });
-
-    return {
-      employees: result,
-      mismatchHint:
-        'Сумма по сотрудникам меньше общего показателя. Разница учтена в строке «Недоступно» (нет ответственного в выборке или ограничен доступ).',
-    };
-  }
-
-  if (negativeGapTotal > 0) {
-    return {
-      employees: result,
-      mismatchHint:
-        'Сумма по сотрудникам больше общего показателя. Проверьте, что одна сущность не учитывается несколько раз.',
-    };
   }
 
   return { employees: result, mismatchHint: null };

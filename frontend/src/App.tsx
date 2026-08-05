@@ -272,9 +272,19 @@ const isBitrixAuthErrorMessage = (message: string) => {
   );
 };
 
-const toReportEmployee = (employee: { id: string; userId?: number; name: string; avatarUrl?: string; values?: Record<string, number> }): ReportEmployee => {
-  const { firstName, lastName } = splitEmployeeName(employee.name);
+const toReportEmployee = (employee: {
+  id: string;
+  userId?: number;
+  name: string;
+  firstName?: string;
+  lastName?: string;
+  avatarUrl?: string;
+  values?: Record<string, number>;
+}): ReportEmployee => {
+  const split = splitEmployeeName(employee.name);
   const userId = employee.userId ?? Number(employee.id);
+  const firstName = employee.firstName?.trim() || split.firstName;
+  const lastName = employee.lastName?.trim() || split.lastName;
 
   return {
     ...employee,
@@ -3241,15 +3251,6 @@ function App() {
               }
             });
 
-            if (detailResolution.mismatchHint) {
-              rows.push({
-                kind: 'employee_sum_hint',
-                rowId: `employee-sum-hint-${metric.id}`,
-                sectionId: section.id,
-                metric,
-                message: detailResolution.mismatchHint,
-              });
-            }
           }
 
           if (tableRowChartsMode === 'with_charts' && expandedChartMetricIds.has(metric.id)) {
@@ -3463,16 +3464,6 @@ function App() {
                 }
               });
 
-              if (detailResolution.mismatchHint) {
-                sourceSectionRows.push({
-                  kind: 'employee_sum_hint',
-                  rowId: `employee-sum-hint-${actionId}`,
-                  sectionId: sourceKey,
-                  metric: syntheticMetric,
-                  message: detailResolution.mismatchHint,
-                  sourceId: sourceKey,
-                });
-              }
             }
 
             if (tableRowChartsMode === 'with_charts' && expandedChartMetricIds.has(actionId)) {

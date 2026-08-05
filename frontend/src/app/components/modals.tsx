@@ -17,6 +17,7 @@ import { TooltipButton, useOutsideClose } from './common';
 import { getBitrixDetailRowPath, openBitrixDetailRow, openBitrixUser } from '../utils/bitrixNavigation';
 import { normalizeDetailColumnWidths, resizeDetailColumnWidths, sumDetailColumnWidths } from '../utils/detailColumns';
 import { compareDetailValues, formatDetailContextSummary } from '../utils/detailRows';
+import { getEmployeeFullName } from '../utils/employees';
 import type { BillingPlan } from '../../services/api/billingApiClient';
 
 export function SaveViewModal({
@@ -616,7 +617,7 @@ export function InstructionModal({
 }
 
 const employeeDisplayName = (employee: ReportEmployee) =>
-  employee.name || `${employee.firstName} ${employee.lastName}`.trim() || `Сотрудник ${employee.id}`;
+  getEmployeeFullName(employee);
 
 export function EmployeeMultiSelect({
   label,

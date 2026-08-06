@@ -522,6 +522,8 @@ const buildBackendDetailRows = (
         entityRawId: detailEntityId,
         title: detail.title || detail.metricLabel || context.metric.label,
         linkedElementTitle: detail.linkedElementTitle || '',
+        linkedElementId: detail.linkedElementId,
+        linkedElementType: normalizeDetailEntityType(detail.linkedElementType) ?? undefined,
         responsibleId: Number.isFinite(responsibleId) ? responsibleId : 0,
         responsibleName: detail.responsibleName || detail.employeeName || context.employee?.name || '',
         createdAt: Number.isFinite(createdAtDate.getTime())

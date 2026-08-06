@@ -173,6 +173,8 @@ export type DetailRow = {
   entityRawId?: string | number;
   title: string;
   linkedElementTitle: string;
+  linkedElementId?: string | number;
+  linkedElementType?: BitrixEntityType;
   responsibleId: number;
   responsibleName: string;
   createdAt: string;

@@ -14,7 +14,7 @@ import { formatMetricValue } from '../../services/report/reportCatalog';
 import { defaultDetailColumnWidths, detailColumnMinWidthSum, detailColumns } from '../constants';
 import type { AppSettings, DetailColumnKey, DetailContext, DetailRow, DetailSort, ReportEmployee } from '../types';
 import { TooltipButton, useOutsideClose } from './common';
-import { getBitrixDetailRowPath, openBitrixDetailRow, openBitrixUser } from '../utils/bitrixNavigation';
+import { getBitrixDetailRowPath, openBitrixDetailRow, openBitrixEntity, openBitrixUser } from '../utils/bitrixNavigation';
 import { normalizeDetailColumnWidths, resizeDetailColumnWidths, sumDetailColumnWidths } from '../utils/detailColumns';
 import { compareDetailValues, formatDetailContextSummary } from '../utils/detailRows';
 import { getEmployeeFullName } from '../utils/employees';
@@ -1174,6 +1174,14 @@ export function DetailModal({
                 ?? (entityPath ? 'ok' : 'unavailable');
               const canOpenEntity = availability === 'ok' && Boolean(entityPath);
               const canOpenResponsible = Number.isFinite(row.responsibleId) && row.responsibleId > 0;
+              const linkedElementType = row.linkedElementType;
+              const linkedElementId = Number(row.linkedElementId);
+              const canOpenLinkedElement = Boolean(
+                row.linkedElementTitle
+                && linkedElementType
+                && Number.isFinite(linkedElementId)
+                && linkedElementId > 0,
+              );
               const entityLabel = row.entityRawId || row.entityId || '-';
               const availabilityLabel =
                 availability === 'access_denied'
@@ -1226,9 +1234,19 @@ export function DetailModal({
                       {availabilityLabel ? <em>{availabilityLabel}</em> : null}
                     </div>
                   )}
-                  <div className="detail-cell detail-title-cell">
-                    {row.linkedElementTitle || '—'}
-                  </div>
+                  {canOpenLinkedElement && linkedElementType ? (
+                    <button
+                      className="detail-cell detail-action-cell detail-title-cell"
+                      type="button"
+                      onClick={() => openBitrixEntity(linkedElementType, linkedElementId)}
+                    >
+                      {row.linkedElementTitle}
+                    </button>
+                  ) : (
+                    <div className="detail-cell detail-title-cell">
+                      {row.linkedElementTitle || '—'}
+                    </div>
+                  )}
                   {canOpenResponsible ? (
                     <button
                       className="detail-cell detail-action-cell"

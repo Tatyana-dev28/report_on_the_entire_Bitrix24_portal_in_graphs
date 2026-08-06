@@ -2515,7 +2515,9 @@ def _chunks(values: list[str], size: int):
 
 
 def _bitrix_datetime(value: datetime) -> str:
-    return timezone.localtime(value).strftime("%Y-%m-%dT%H:%M:%S%z")
+    # Tasks REST expects ISO-8601 offsets with a colon (+03:00). Python's %z
+    # yields +0300, which makes tasks.task.list filters match nothing.
+    return timezone.localtime(value).isoformat(timespec="seconds")
 
 
 def _sum_opportunity(rows: list[dict]) -> int:

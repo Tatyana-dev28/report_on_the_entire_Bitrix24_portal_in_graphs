@@ -11,6 +11,7 @@ from apps.bitrix.services.rest_client import BitrixRestError
 from apps.reports.models import CrmSource, ReportBuild, ReportSession
 from apps.reports.services.bitrix_report_data_provider import (
     BitrixReportDataProvider,
+    _bitrix_datetime,
     resolve_selected_sources_for_portal,
 )
 from apps.reports.services.data_providers import ReportDataProviderContext
@@ -1379,6 +1380,16 @@ class BitrixReportDataProviderTests(TestCase):
         self.assertEqual(result.data[0]["values"]["tasks_done"], 0)
         self.assertEqual(result.data[1]["values"]["tasks_created"], 1)
         self.assertEqual(result.data[1]["values"]["tasks_done"], 1)
+
+    def test_bitrix_datetime_uses_iso_offset_with_colon(self):
+        from datetime import datetime
+
+        from django.utils import timezone as django_timezone
+
+        value = django_timezone.make_aware(datetime(2026, 6, 1, 12, 30, 0))
+        formatted = _bitrix_datetime(value)
+
+        self.assertRegex(formatted, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$")
 
     def test_provider_classifies_numeric_deal_stages_for_sales_funnel(self):
         provider = BitrixReportDataProvider(rest_client_factory=FakeNumericDealStageBitrixRestClient)

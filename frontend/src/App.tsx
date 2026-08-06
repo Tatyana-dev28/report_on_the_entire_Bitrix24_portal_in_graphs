@@ -1354,6 +1354,10 @@ function App() {
   // Cleared when that auto-build generation finishes (not via a fixed timer).
   const skipAutoSaveRef = useRef(false);
   const temporaryAutoReportModeRef = useRef(false);
+  // After rebuild, re-expand row charts if user kept "with_charts" mode.
+  // Wait for a full loading cycle (true → false) so we expand against fresh metrics.
+  const pendingExpandRowChartsRef = useRef(false);
+  const sawReportLoadingForExpandRef = useRef(false);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const immediateAutoSaveRef = useRef(false);
   const autoBuildGenerationRef = useRef(0);
@@ -1601,7 +1605,7 @@ function App() {
     setExpandedEmployeeMetricIds(new Set());
     setExpandedChartMetricIds(new Set());
     setExpandedEmployeeChartIds(new Set());
-    setTableRowChartsMode('compact');
+    // Keep tableRowChartsMode — user preference across rebuilds.
     setDetailContext(null);
     setTableLeadingSourceId(null);
   }, []);
@@ -4295,6 +4299,10 @@ function App() {
       ...current,
       enabledSectionIds: new Set(draftFilters.enabledSectionIds),
     }));
+    if (tableRowChartsMode === 'with_charts') {
+      pendingExpandRowChartsRef.current = true;
+      sawReportLoadingForExpandRef.current = false;
+    }
     resetTemporaryReportUiState();
     setMainThreshold({ upper: '', lower: '', mode: null });
     setRowThresholds({});
@@ -4313,6 +4321,7 @@ function App() {
     metricSections,
     resetTemporaryReportUiState,
     sanitizeChartSources,
+    tableRowChartsMode,
   ]);
 
   const buildReport = useCallback(() => {
@@ -4736,14 +4745,6 @@ function App() {
     });
   }, []);
 
-  const setTableRowChartsModeAndSync = useCallback((mode: TableRowChartsMode) => {
-    setTableRowChartsMode(mode);
-    if (mode === 'compact') {
-      setExpandedChartMetricIds(new Set());
-      setExpandedEmployeeChartIds(new Set());
-    }
-  }, []);
-
   const expandAllRowCharts = useCallback(() => {
     setTableRowChartsMode('with_charts');
 
@@ -4782,11 +4783,44 @@ function App() {
     sourceMetrics,
   ]);
 
+  const setTableRowChartsModeAndSync = useCallback((mode: TableRowChartsMode) => {
+    if (mode === 'compact') {
+      setTableRowChartsMode('compact');
+      setExpandedChartMetricIds(new Set());
+      setExpandedEmployeeChartIds(new Set());
+      return;
+    }
+    // Selecting "with_charts" immediately expands all row charts.
+    expandAllRowCharts();
+  }, [expandAllRowCharts]);
+
   const collapseAllRowCharts = useCallback(() => {
     setExpandedChartMetricIds(new Set());
     setExpandedEmployeeChartIds(new Set());
     setTableRowChartsMode('compact');
   }, []);
+
+  // Rebuild clears expanded chart ids; restore them when mode stays "with_charts".
+  useEffect(() => {
+    if (!pendingExpandRowChartsRef.current) {
+      return;
+    }
+    if (reportLoading) {
+      sawReportLoadingForExpandRef.current = true;
+      return;
+    }
+    if (!sawReportLoadingForExpandRef.current) {
+      return;
+    }
+    if (tableRowChartsMode !== 'with_charts') {
+      pendingExpandRowChartsRef.current = false;
+      sawReportLoadingForExpandRef.current = false;
+      return;
+    }
+    pendingExpandRowChartsRef.current = false;
+    sawReportLoadingForExpandRef.current = false;
+    expandAllRowCharts();
+  }, [expandAllRowCharts, reportLoading, tableRowChartsMode]);
 
   const updateRowThreshold = useCallback((metricId: string, value: ThresholdValues) => {
     markUserSettingsChange();

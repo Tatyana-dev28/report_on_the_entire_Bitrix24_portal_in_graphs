@@ -79,10 +79,16 @@ def build_entity_details(
     for bucket in buckets:
         for source_id, rows in rows_by_source.items():
             for row in rows:
-                if not _row_in_bucket(row, bucket, portal=portal):
-                    continue
-
                 for metric_id in _row_metric_ids(source_id, row, metric_ids):
+                    if not _detail_row_matches_bucket(
+                        row,
+                        bucket,
+                        source_id=source_id,
+                        metric_id=metric_id,
+                        portal=portal,
+                    ):
+                        continue
+
                     metric = metric_by_id.get(metric_id, {})
                     details.append(
                         _build_entity_detail(
@@ -337,12 +343,82 @@ def _contract_metric_ids(row: dict) -> list[str]:
 def _task_metric_ids(row: dict) -> list[str]:
     metric_ids = ["tasks_created"]
 
-    if str(row.get("STATUS") or row.get("REAL_STATUS") or "").upper() in {"5", "COMPLETED", "DONE"}:
+    if _is_completed_task_row(row):
         metric_ids.append("tasks_done")
     elif row.get("DEADLINE"):
         metric_ids.append("tasks_overdue")
 
     return metric_ids
+
+
+def _is_completed_task_row(row: dict) -> bool:
+    status = str(row.get("STATUS") or row.get("REAL_STATUS") or "").upper()
+    return status in {"5", "COMPLETED", "DONE"}
+
+
+def _detail_row_matches_bucket(
+    row: dict,
+    bucket: Any,
+    *,
+    source_id: str,
+    metric_id: str,
+    portal: Any | None = None,
+) -> bool:
+    """Match detail rows to period buckets the same way metric counters do."""
+    if source_id.startswith("task-"):
+        return _task_detail_matches_bucket(row, bucket, metric_id, portal=portal)
+
+    return _row_in_bucket(row, bucket, portal=portal)
+
+
+def _task_detail_matches_bucket(
+    row: dict,
+    bucket: Any,
+    metric_id: str,
+    *,
+    portal: Any | None = None,
+) -> bool:
+    if metric_id == "tasks_created":
+        return _row_field_in_bucket(row, "DATE_CREATE", bucket, portal=portal) or _row_field_in_bucket(
+            row,
+            "CREATED_DATE",
+            bucket,
+            portal=portal,
+        )
+
+    if metric_id == "tasks_done":
+        return _is_completed_task_row(row) and _row_field_in_bucket(
+            row,
+            "CLOSED_DATE",
+            bucket,
+            portal=portal,
+        )
+
+    if metric_id == "tasks_overdue":
+        return (not _is_completed_task_row(row)) and _row_field_in_bucket(
+            row,
+            "DEADLINE",
+            bucket,
+            portal=portal,
+        )
+
+    return _row_in_bucket(row, bucket, portal=portal)
+
+
+def _row_field_in_bucket(
+    row: dict,
+    field: str,
+    bucket: Any,
+    *,
+    portal: Any | None = None,
+) -> bool:
+    value = row.get(field)
+
+    if not value:
+        return False
+
+    parsed = _parse_datetime_or_date(str(value), end_of_day=False, portal=portal)
+    return bool(parsed and bucket.start <= parsed <= bucket.end)
 
 
 def _build_entity_detail(
@@ -416,7 +492,7 @@ def _parse_crm_form_fallback_id(value: object) -> dict[str, str] | None:
 
 
 def _extract_linked_element(row: dict, source_id: str) -> dict[str, str] | None:
-    """CRM card linked to a call / activity / form (not the primary entity itself)."""
+    """CRM card linked to a call / activity / form / task (not the primary entity itself)."""
     entity_id = ""
     entity_type: str | None = None
 
@@ -435,6 +511,11 @@ def _extract_linked_element(row: dict, source_id: str) -> dict[str, str] | None:
     elif source_id.startswith("telephony-"):
         entity_id = str(row.get("CRM_ENTITY_ID") or "").strip()
         entity_type = _normalize_crm_entity_type(row.get("CRM_ENTITY_TYPE"))
+    elif source_id.startswith("task-"):
+        parsed = _parse_uf_crm_task_binding(row.get("UF_CRM_TASK"))
+        if parsed:
+            entity_id = parsed["entityId"]
+            entity_type = parsed["entityType"]
     else:
         return None
 
@@ -452,6 +533,41 @@ def _extract_linked_element(row: dict, source_id: str) -> dict[str, str] | None:
         "linkedElementType": entity_type,
         "linkedElementTitle": known_title or f"{type_label} #{entity_id}",
     }
+
+
+def _parse_uf_crm_task_binding(value: object) -> dict[str, str] | None:
+    """Parse Bitrix task CRM bindings like D_123 / L_45 / C_7 / CO_9."""
+    items: list[object]
+    if isinstance(value, (list, tuple)):
+        items = list(value)
+    elif value in (None, "", [], {}):
+        items = []
+    else:
+        items = [value]
+
+    prefix_map = {
+        "CO": "company",
+        "L": "lead",
+        "D": "deal",
+        "C": "contact",
+    }
+
+    for item in items:
+        match = re.match(r"^(CO|L|D|C)_(\d+)$", str(item or "").strip(), flags=re.IGNORECASE)
+        if not match:
+            continue
+
+        prefix = match.group(1).upper()
+        entity_type = prefix_map.get(prefix)
+        if not entity_type:
+            continue
+
+        return {
+            "entityType": entity_type,
+            "entityId": match.group(2),
+        }
+
+    return None
 
 
 def _load_linked_element_titles(
@@ -712,6 +828,7 @@ def _row_in_bucket(row: dict, bucket: Any, *, portal: Any | None = None) -> bool
 
 ROW_DATE_FIELDS = [
     "DATE_CREATE",
+    "CREATED_DATE",
     "createdTime",
     "CREATED_TIME",
     "DATE_INSERT",
@@ -719,6 +836,7 @@ ROW_DATE_FIELDS = [
     "CALL_START_DATE",
     "START_TIME",
     "CREATED",
+    "CLOSED_DATE",
     "DEADLINE",
 ]
 

@@ -758,7 +758,17 @@ class BitrixReportDataProvider:
                     )
                 )
 
-            return [_normalize_task_row(row) for row in _deduplicate_rows_by_id(all_rows)]
+            normalized = [_normalize_task_row(row) for row in _deduplicate_rows_by_id(all_rows)]
+            with_create_date = sum(
+                1 for row in normalized if row.get("DATE_CREATE") or row.get("CREATED_DATE")
+            )
+            logger.info(
+                "Bitrix tasks normalize complete: total=%s with_create_date=%s periods=%s",
+                len(normalized),
+                with_create_date,
+                len(periods),
+            )
+            return normalized
 
         portal = getattr(client, "portal", None)
 
@@ -780,7 +790,9 @@ class BitrixReportDataProvider:
                     all_rows.extend(future.result())
                 except BitrixRestAuthError:
                     raise
-                except BitrixRestError:
+                except BitrixRestError as error:
+                    if _is_bitrix_permission_error(error):
+                        raise
                     logger.warning(
                         "Bitrix task loading failed for period %s - %s; skipping this period.",
                         period_start.date(),
@@ -788,7 +800,15 @@ class BitrixReportDataProvider:
                         exc_info=True,
                     )
 
-        return [_normalize_task_row(row) for row in _deduplicate_rows_by_id(all_rows)]
+        normalized = [_normalize_task_row(row) for row in _deduplicate_rows_by_id(all_rows)]
+        with_create_date = sum(1 for row in normalized if row.get("DATE_CREATE") or row.get("CREATED_DATE"))
+        logger.info(
+            "Bitrix tasks normalize complete: total=%s with_create_date=%s periods=%s",
+            len(normalized),
+            with_create_date,
+            len(periods),
+        )
+        return normalized
 
     def _load_task_period(
         self,
@@ -808,9 +828,61 @@ class BitrixReportDataProvider:
             "STATUS",
             "REAL_STATUS",
             "RESPONSIBLE_ID",
+            "UF_CRM_TASK",
         ]
         date_from = _bitrix_datetime(period_start)
         date_to = _bitrix_datetime(period_end)
+        rows = self._fetch_task_period_rows(
+            client=client,
+            period_start=period_start,
+            period_end=period_end,
+            date_from=date_from,
+            date_to=date_to,
+            select_fields=select_fields,
+        )
+
+        # Some portals ignore ISO offsets or reject REAL_STATUS in select and
+        # return an empty list without an error — retry with safer variants.
+        if not rows:
+            fallback_from = timezone.localtime(period_start).strftime("%Y-%m-%d %H:%M:%S")
+            fallback_to = timezone.localtime(period_end).strftime("%Y-%m-%d %H:%M:%S")
+            logger.info(
+                "Bitrix tasks empty for %s - %s with ISO filters (%s .. %s); "
+                "retrying with space datetime and select without REAL_STATUS.",
+                period_start.date(),
+                period_end.date(),
+                date_from,
+                date_to,
+            )
+            rows = self._fetch_task_period_rows(
+                client=client,
+                period_start=period_start,
+                period_end=period_end,
+                date_from=fallback_from,
+                date_to=fallback_to,
+                select_fields=[field for field in select_fields if field != "REAL_STATUS"],
+            )
+
+        unique_rows = _deduplicate_rows_by_id(rows)
+        logger.info(
+            "Bitrix tasks loaded for %s - %s: raw=%s unique=%s",
+            period_start.date(),
+            period_end.date(),
+            len(rows),
+            len(unique_rows),
+        )
+        return unique_rows
+
+    def _fetch_task_period_rows(
+        self,
+        *,
+        client,
+        period_start: datetime,
+        period_end: datetime,
+        date_from: str,
+        date_to: str,
+        select_fields: list[str],
+    ) -> list[dict]:
         # Created-only filter misses tasks closed/overdue in the period but created earlier.
         filter_variants = (
             {
@@ -828,31 +900,49 @@ class BitrixReportDataProvider:
         )
 
         rows: list[dict] = []
+        permission_error: BitrixRestError | None = None
 
         for task_filter in filter_variants:
             try:
-                rows.extend(
-                    client.call_list(
-                        "tasks.task.list",
-                        {
-                            "order": {"ID": "ASC"},
-                            "filter": task_filter,
-                            "select": select_fields,
-                        },
-                    )
+                batch = client.call_list(
+                    "tasks.task.list",
+                    {
+                        "order": {"ID": "ASC"},
+                        "filter": task_filter,
+                        "select": select_fields,
+                    },
                 )
-            except BitrixRestAuthError:
-                raise
-            except BitrixRestError:
-                logger.warning(
-                    "Bitrix task loading failed for period %s - %s filter=%s; skipping this query.",
+                logger.info(
+                    "Bitrix tasks query %s - %s filter=%s returned %s rows (range %s .. %s)",
                     period_start.date(),
                     period_end.date(),
                     sorted(task_filter.keys()),
+                    len(batch),
+                    date_from,
+                    date_to,
+                )
+                rows.extend(batch)
+            except BitrixRestAuthError:
+                raise
+            except BitrixRestError as error:
+                if _is_bitrix_permission_error(error):
+                    permission_error = error
+                logger.warning(
+                    "Bitrix task loading failed for period %s - %s filter=%s select=%s; "
+                    "skipping this query. error=%s",
+                    period_start.date(),
+                    period_end.date(),
+                    sorted(task_filter.keys()),
+                    select_fields,
+                    error,
                     exc_info=True,
                 )
 
-        return _deduplicate_rows_by_id(rows)
+        if not rows and permission_error is not None:
+            # Surface missing task scope / 401 to the source loader (access_denied UI).
+            raise permission_error
+
+        return rows
 
     def _load_crm_forms(
         self,
@@ -1111,18 +1201,38 @@ def _build_value_states(
 
 
 def _value_state_for_bitrix_error(error: BitrixRestError) -> dict[str, str]:
+    error_text = str(error).lower()
+
     if isinstance(error, BitrixRestResponseError):
-        error_text = f"{error.error_code} {error.error_description}".lower()
-        if any(marker in error_text for marker in ("access", "denied", "permission", "forbidden")):
-            return {
-                "reason": "access_denied",
-                "message": "Нет доступа к данным показателя",
-            }
+        error_text = f"{error.error_code} {error.error_description} {error_text}".lower()
+
+    if any(
+        marker in error_text
+        for marker in (
+            "access",
+            "denied",
+            "permission",
+            "forbidden",
+            "unauthorized",
+            "401",
+            "insufficient_scope",
+            "method_not_found",
+            "access_denied",
+        )
+    ):
+        return {
+            "reason": "access_denied",
+            "message": "Нет доступа к данным показателя",
+        }
 
     return {
         "reason": "load_error",
         "message": "Не удалось получить данные",
     }
+
+
+def _is_bitrix_permission_error(error: BitrixRestError) -> bool:
+    return _value_state_for_bitrix_error(error).get("reason") == "access_denied"
 
 
 def _find_source_metric_entry(source_metrics: dict[str, dict], source_id: str) -> dict | None:
@@ -2656,6 +2766,7 @@ def _normalize_task_row(row: dict) -> dict:
         "RESPONSIBLE_ID": task.get("RESPONSIBLE_ID") or task.get("responsibleId"),
         "RESPONSIBLE_NAME": task.get("RESPONSIBLE_NAME") or task.get("responsibleName"),
         "RESPONSIBLE_LAST_NAME": task.get("RESPONSIBLE_LAST_NAME") or task.get("responsibleLastName"),
+        "UF_CRM_TASK": task.get("UF_CRM_TASK") or task.get("ufCrmTask") or [],
         "SOURCE_KIND": "task",
     }
 
@@ -2709,7 +2820,7 @@ def _deduplicate_rows_by_id(rows: list[dict]) -> list[dict]:
     seen_ids = set()
 
     for row in rows:
-        row_id = str(row.get("ID") or "").strip()
+        row_id = _extract_raw_row_id(row)
 
         if row_id and row_id in seen_ids:
             continue
@@ -2720,6 +2831,25 @@ def _deduplicate_rows_by_id(rows: list[dict]) -> list[dict]:
         result.append(row)
 
     return result
+
+
+def _extract_raw_row_id(row: dict) -> str:
+    if not isinstance(row, dict):
+        return ""
+
+    for key in ("ID", "id", "CALL_ID"):
+        value = row.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+
+    nested = row.get("task")
+    if isinstance(nested, dict):
+        for key in ("ID", "id"):
+            value = nested.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+
+    return ""
 
 
 def _is_completed_task(row: dict) -> bool:

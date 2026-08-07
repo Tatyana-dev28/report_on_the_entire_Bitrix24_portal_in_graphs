@@ -61,7 +61,18 @@ import {
 } from './services/report/reportCatalog';
 import { reportDataSource } from './services/report/reportDataSource';
 import type { CrmSource, CrmSourceType, MetricDetailItem, ReportLoadFilters, SourceMetricsData, ValueStateMap } from './services/report/reportTypes';
-import type { PortalEmployeeItem } from './services/api/reportApiClient';
+import {
+  isReloadRequiredErrorMessage,
+  loadReportSettings,
+  RELOAD_PAGE_TO_CONTINUE_MESSAGE,
+  saveReportSettings,
+  type PortalEmployeeItem,
+} from './services/api/reportApiClient';
+import {
+  createProPayment,
+  loadBillingState,
+  type BillingPlan,
+} from './services/api/billingApiClient';
 import {
   APP_SETTINGS_STORAGE_KEY,
   CHART_AXIS_WIDTH,
@@ -209,15 +220,6 @@ import {
   SaveViewModal,
 } from './app/components/modals';
 import {
-  createProPayment,
-  loadBillingState,
-  type BillingPlan,
-} from './services/api/billingApiClient';
-import {
-  loadReportSettings,
-  saveReportSettings,
-} from './services/api/reportApiClient';
-import {
   ConfigureChartMenu,
   DateRangePicker,
   RowActionsMenu,
@@ -240,14 +242,13 @@ const splitEmployeeName = (name: string) => {
 
 const BILLING_LOAD_ERROR_MESSAGE = 'Не удалось загрузить платные тарифы. Попробуйте открыть приложение заново или напишите нам.';
 
-const BITRIX_AUTH_EXPIRED_MESSAGE = 'Доступ к Bitrix24 устарел. Обновите страницу, чтобы продолжить работу.';
-
 const getFriendlyBillingError = (error: unknown) => {
   const message = error instanceof Error ? error.message : '';
   const normalizedMessage = message.toLowerCase();
 
   if (
     !message ||
+    isReloadRequiredErrorMessage(message) ||
     normalizedMessage === 'failed to fetch' ||
     normalizedMessage.includes('networkerror') ||
     normalizedMessage.includes('load failed') ||
@@ -259,17 +260,12 @@ const getFriendlyBillingError = (error: unknown) => {
   return message;
 };
 
-const isBitrixAuthErrorMessage = (message: string) => {
-  const normalized = message.toLowerCase();
-
-  return (
-    normalized.includes('oauth') ||
-    normalized.includes('access_token') ||
-    normalized.includes('refresh_token') ||
-    normalized.includes('authorization') ||
-    normalized.includes('token') ||
-    normalized.includes('токен')
-  );
+const getFriendlyReportError = (error: unknown, fallback: string) => {
+  const message = error instanceof Error ? error.message : '';
+  if (isReloadRequiredErrorMessage(message)) {
+    return RELOAD_PAGE_TO_CONTINUE_MESSAGE;
+  }
+  return message || fallback;
 };
 
 const toReportEmployee = (employee: {
@@ -2273,7 +2269,7 @@ function App() {
       .catch((error) => {
         console.warn('[Report data source] CRM sources were not loaded', error);
         if (isActive) {
-          setCatalogError(error instanceof Error ? error.message : 'Не удалось загрузить настройки отчета.');
+          setCatalogError(getFriendlyReportError(error, 'Не удалось загрузить настройки отчета.'));
         }
       })
       .finally(() => {
@@ -2588,7 +2584,7 @@ function App() {
       .catch((error) => {
         console.warn('[Report data source] report data were not loaded', error);
         if (isActive) {
-          const message = error instanceof Error ? error.message : 'Не удалось построить отчет.';
+          const message = getFriendlyReportError(error, 'Не удалось построить отчет.');
           const clearReportState = () => {
             setRawReportData([]);
             setRawChartReportData([]);
@@ -2600,8 +2596,8 @@ function App() {
             hasExistingReportDataRef.current = false;
           };
 
-          if (isBitrixAuthErrorMessage(message)) {
-            setReportError(BITRIX_AUTH_EXPIRED_MESSAGE);
+          if (message === RELOAD_PAGE_TO_CONTINUE_MESSAGE) {
+            setReportError(RELOAD_PAGE_TO_CONTINUE_MESSAGE);
             clearReportState();
             applyAutomaticThresholdsRef.current = false;
             autoBuildChartSourcesRef.current = null;
@@ -2745,9 +2741,9 @@ function App() {
       setReportError('');
     } catch (error) {
       console.warn('[Report data source] section retry failed', sectionId, error);
-      const message = error instanceof Error ? error.message : 'Не удалось получить данные.';
-      if (isBitrixAuthErrorMessage(message)) {
-        setReportError(BITRIX_AUTH_EXPIRED_MESSAGE);
+      const message = getFriendlyReportError(error, 'Не удалось получить данные.');
+      if (message === RELOAD_PAGE_TO_CONTINUE_MESSAGE) {
+        setReportError(RELOAD_PAGE_TO_CONTINUE_MESSAGE);
       } else {
         setNotification(`${SECTION_LOAD_ERROR_MESSAGE} ${SECTION_LOAD_RETRY_LABEL} не выполнен.`);
       }

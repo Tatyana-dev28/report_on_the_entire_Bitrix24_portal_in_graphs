@@ -118,6 +118,12 @@ const appendQuery = (path: string, query: Record<string, string>) => {
     return `${path}${separator}${params.toString()}`;
 };
 
+/** Shared with App UI: long-idle tabs often hit proxy 502/504 that need a full page reload. */
+export const RELOAD_PAGE_TO_CONTINUE_MESSAGE =
+    'Сессия устарела или соединение прервано. Обновите страницу, чтобы продолжить работу.';
+
+const GATEWAY_RELOAD_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524]);
+
 const getErrorMessage = (payload: unknown, fallback: string) => {
     if (!payload || typeof payload !== 'object') {
         return fallback;
@@ -150,15 +156,78 @@ const getErrorMessage = (payload: unknown, fallback: string) => {
     return fallback;
 };
 
+export const isReloadRequiredErrorMessage = (message: string) => {
+    const normalized = message.toLowerCase();
+
+    if (!normalized) {
+        return false;
+    }
+
+    const statusMatch = normalized.match(/\b(502|503|504|520|521|522|523|524)\b/);
+    if (statusMatch && GATEWAY_RELOAD_STATUSES.has(Number(statusMatch[1]))) {
+        return true;
+    }
+
+    return (
+        normalized.includes('oauth')
+        || normalized.includes('access_token')
+        || normalized.includes('refresh_token')
+        || normalized.includes('authorization')
+        || normalized.includes('unauthorized')
+        || normalized.includes('token')
+        || normalized.includes('токен')
+        || normalized.includes('bad signature')
+        || normalized.includes('portal token')
+        || normalized.includes('gateway')
+        || normalized.includes('bad gateway')
+        || normalized.includes('service unavailable')
+        || normalized.includes('timed out')
+        || normalized.includes('gateway timeout')
+        || normalized.includes('failed to fetch')
+        || normalized.includes('networkerror')
+        || normalized.includes('load failed')
+        || normalized.includes('empty response')
+        || normalized.includes('<html')
+        || normalized.includes('nginx')
+        || normalized.includes('cloudflare')
+        || normalized.includes(RELOAD_PAGE_TO_CONTINUE_MESSAGE.toLowerCase())
+    );
+};
+
+const toApiErrorMessage = (status: number, payload: unknown) => {
+    if (GATEWAY_RELOAD_STATUSES.has(status)) {
+        return RELOAD_PAGE_TO_CONTINUE_MESSAGE;
+    }
+
+    const fallback = `Backend API request failed with status ${status}`;
+    const message = getErrorMessage(payload, fallback);
+
+    if (isReloadRequiredErrorMessage(message)) {
+        return RELOAD_PAGE_TO_CONTINUE_MESSAGE;
+    }
+
+    return message;
+};
+
 const requestJson = async <T>(path: string, options: RequestInit = {}): Promise<T> => {
-    const response = await fetch(buildApiUrl(path), {
-        ...options,
-        headers: {
-            Accept: 'application/json',
-            ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-            ...options.headers,
-        },
-    });
+    let response: Response;
+
+    try {
+        response = await fetch(buildApiUrl(path), {
+            ...options,
+            headers: {
+                Accept: 'application/json',
+                ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+                ...options.headers,
+            },
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        if (isReloadRequiredErrorMessage(message) || !message) {
+            throw new Error(RELOAD_PAGE_TO_CONTINUE_MESSAGE);
+        }
+        throw error instanceof Error ? error : new Error(String(error));
+    }
 
     let payload: unknown = null;
 
@@ -169,13 +238,11 @@ const requestJson = async <T>(path: string, options: RequestInit = {}): Promise<
     }
 
     if (!response.ok) {
-        throw new Error(
-            getErrorMessage(payload, `Backend API request failed with status ${response.status}`),
-        );
+        throw new Error(toApiErrorMessage(response.status, payload));
     }
 
     if (payload === null) {
-        throw new Error('Backend API returned an empty response.');
+        throw new Error(RELOAD_PAGE_TO_CONTINUE_MESSAGE);
     }
 
     return payload as T;
@@ -235,7 +302,10 @@ const waitForReportPreview = async (preview: ReportPreviewResponse) => {
         }
 
         if (current.status === 'failed') {
-            throw new Error(current.message || 'Не удалось построить отчет.');
+            const message = current.message || 'Не удалось построить отчет.';
+            throw new Error(
+                isReloadRequiredErrorMessage(message) ? RELOAD_PAGE_TO_CONTINUE_MESSAGE : message,
+            );
         }
     }
 

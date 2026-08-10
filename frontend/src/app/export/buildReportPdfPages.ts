@@ -1,6 +1,6 @@
 import { formatMetricValue } from '../../services/report/reportCatalog';
 import type { MetricRow } from '../../services/report/reportCatalog';
-import { getThresholdClass, resolveDisplayedThresholdAverage } from '../utils/thresholds';
+import { resolveDisplayedThresholdAverage } from '../utils/thresholds';
 import { getEmployeeFullName } from '../utils/employees';
 import {
   buildSourceMetricActionIds,
@@ -9,7 +9,6 @@ import {
   getEmployeePeriodMetricValue,
   getValueCellDisplayLabel,
   readValuesByPeriod,
-  resolveThresholdForIds,
 } from './pdfHelpers';
 import type {
   ExportReportPdfInput,
@@ -112,16 +111,6 @@ export const getPdfPageStyles = (
   }
   .pdf-card-label { color: #6a7482; font-size: 12px; margin-bottom: 6px; }
   .pdf-card-value { font-size: 16px; font-weight: 700; color: #202938; }
-  .pdf-attention { width: 100%; border-collapse: collapse; font-size: 12px; background: #ffffff; }
-  .pdf-attention th {
-    text-align: left;
-    border-bottom: 1px solid #dfe7f1;
-    padding: 6px 8px;
-    color: #5f6b7a;
-    font-weight: 700;
-    background: #ffffff;
-  }
-  .pdf-attention td { border-bottom: 1px solid #e7edf5; padding: 6px 8px; background: #ffffff; color: #202938; }
   .pdf-chart-wrap {
     background: #ffffff !important;
     border: 1px solid #dfe7f1;
@@ -150,7 +139,6 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
     chartData,
     appliedFilters,
     mainThreshold,
-    rowThresholds,
     sourceMetrics,
     valueStates,
     currentViewLabel,
@@ -158,6 +146,7 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
     periodOptionLabel,
     periodLabel,
     tableRowChartsMode = 'compact',
+    mainChartSourcesLabel = '',
   } = input;
 
   const generatedAt = new Intl.DateTimeFormat('ru-RU', {
@@ -182,8 +171,6 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
   const maxRowsPerTablePage = resolveMaxRowsPerTablePage(format);
   const pagePadding = format === 'a3' ? 36 : 32;
   const contentWidth = pageWidth - pagePadding * 2;
-  const ownerAttentionLimit = format === 'a3' ? 10 : 7;
-  const attentionPageSize = format === 'a3' ? 24 : 18;
 
   const getSourceMetricState = (pointKey: string, actionIds: string[]) =>
     actionIds.map((id) => valueStates[pointKey]?.[id]).find(Boolean);
@@ -311,93 +298,12 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
     `;
   };
 
-  const attentionRows: Array<{
-    label: string;
-    period: string;
-    value: number;
-    type: MetricRow['type'];
-  }> = tableRows
-    .filter((row) => row.kind === 'metric' || row.kind === 'source_metric')
-    .flatMap((row) => {
-      if (row.kind === 'source_metric') {
-        const sourceData = sourceMetrics[row.sourceId];
-        const metricData = sourceData?.metrics[row.metricKey];
-        const actionIds = buildSourceMetricActionIds(row.sourceId, row.metricKey, sourceData);
-        const threshold = resolveThresholdForIds(actionIds, rowThresholds);
-        const valueType: MetricRow['type'] =
-          row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number';
-
-        if (!threshold.mode && !threshold.upper && !threshold.lower) {
-          return [];
-        }
-
-        return reportData
-          .map((point) => ({
-            label: row.metricLabel,
-            period: point.label,
-            value: readValuesByPeriod(metricData?.valuesByPeriod, point.key),
-            type: valueType,
-            threshold,
-          }))
-          .filter((item) => getThresholdClass(item.value, item.threshold));
-      }
-
-      const threshold = rowThresholds[row.metric.id];
-      if (!threshold?.mode && !threshold?.upper && !threshold?.lower) {
-        return [];
-      }
-
-      return reportData
-        .map((point) => ({
-          label: row.metric.label,
-          period: point.label,
-          value: point.values[row.metric.id],
-          type: row.metric.type,
-          threshold,
-        }))
-        .filter((item) => getThresholdClass(item.value, item.threshold));
-    })
-    .slice(0, 36);
-
-  const renderAttentionTable = (
-    rows: typeof attentionRows,
-    emptyMessage = 'Показателей, требующих внимания, нет.',
-  ) => {
-    if (!rows.length) {
-      return `<div class="pdf-card pdf-block">${escapeHtml(emptyMessage)}</div>`;
-    }
-
-    return `
-      <table class="pdf-attention pdf-block">
-        <thead>
-          <tr>
-            <th>Показатель</th>
-            <th>Период</th>
-            <th>Значение</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows
-            .map(
-              (row) => `
-            <tr>
-              <td>${escapeHtml(row.label)}</td>
-              <td>${escapeHtml(row.period)}</td>
-              <td><b>${escapeHtml(formatMetricValue(row.value, row.type))}</b></td>
-            </tr>
-          `,
-            )
-            .join('')}
-        </tbody>
-      </table>
-    `;
-  };
-
   const pages: PdfPageSpec[] = [];
 
-  // F-21 owner brief: page 1 = main indicator + corridor + attention preview (keep chart with its title).
-  const ownerAttention = attentionRows.slice(0, ownerAttentionLimit);
-  const remainingAttention = attentionRows.slice(ownerAttentionLimit);
+  // F-21 owner brief: page 1 = main indicator chart + corridor summary.
+  const chartSourcesMeta = mainChartSourcesLabel.trim()
+    ? `<div class="pdf-meta" style="margin-bottom:4px">Источник: ${escapeHtml(mainChartSourcesLabel.trim())}</div>`
+    : '';
 
   pages.push({
     kind: 'html',
@@ -405,6 +311,7 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
     buildBody: () => `
       <div class="pdf-block">
         <div class="pdf-section-title">Главный показатель и основной график</div>
+        ${chartSourcesMeta}
         <div class="pdf-meta" style="margin-bottom:8px">${escapeHtml(tableDisplayLabel)}</div>
         ${makeChartSvg()}
       </div>
@@ -423,28 +330,8 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
             .join('')}
         </div>
       </div>
-      <div class="pdf-block">
-        <div class="pdf-section-title">Показатели, требующие внимания</div>
-        ${renderAttentionTable(ownerAttention)}
-        ${remainingAttention.length
-          ? `<div class="pdf-meta" style="margin-top:8px">Ещё ${remainingAttention.length} на следующих страницах.</div>`
-          : ''}
-      </div>
     `,
   });
-
-  if (remainingAttention.length) {
-    chunk(remainingAttention, attentionPageSize).forEach((attentionChunk, attentionChunkIndex, allChunks) => {
-      pages.push({
-        kind: 'html',
-        title: `Показатели, требующие внимания · ${attentionChunkIndex + 1}/${allChunks.length}`,
-        buildBody: () => `
-          <div class="pdf-section-title">Показатели, требующие внимания</div>
-          ${renderAttentionTable(attentionChunk)}
-        `,
-      });
-    });
-  }
 
   // Full PDF body: selected metrics/employees with repeating timeline headers per page.
   const periodChunks = chunk(

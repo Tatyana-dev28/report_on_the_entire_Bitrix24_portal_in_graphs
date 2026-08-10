@@ -1524,8 +1524,8 @@ function App() {
   // After "Построить автоматически": pin this catalog source id (e.g. deal-0) as the
   // first block in the whole table. Cleared on regular build / reset — not used otherwise.
   const [tableLeadingSourceId, setTableLeadingSourceId] = useState<string | null>(null);
-  // F-05: independent build options for the single «Построить отчёт» button.
-  const [autoPickIndicators, setAutoPickIndicators] = useState(false);
+  // F-05: corridor highlight is an option for «Построить отчёт»;
+  // «Построить автоматически» is a separate one-shot action.
   const [highlightDeviations, setHighlightDeviations] = useState(false);
   const [sourceMetricOrderBySource, setSourceMetricOrderBySource] = useState<Record<string, string[]>>({});
   // Visibility of metrics inside source blocks (separate from CRM enabledMetricIdsBySection).
@@ -4450,11 +4450,6 @@ function App() {
       return;
     }
 
-    if (autoPickIndicators) {
-      buildAutomaticReport({ automaticThresholds: highlightDeviations });
-      return;
-    }
-
     if (highlightDeviations) {
       buildReportWithAutomaticThresholds();
       return;
@@ -4462,13 +4457,18 @@ function App() {
 
     buildReport();
   }, [
-    autoPickIndicators,
-    buildAutomaticReport,
     buildReport,
     buildReportWithAutomaticThresholds,
     canStartReportBuild,
     highlightDeviations,
   ]);
+
+  const runAutomaticReportBuild = useCallback(() => {
+    if (!canStartReportBuild()) {
+      return;
+    }
+    buildAutomaticReport({ automaticThresholds: highlightDeviations });
+  }, [buildAutomaticReport, canStartReportBuild, highlightDeviations]);
 
   const openDetail = useCallback((
     metric: MetricRow,
@@ -5798,7 +5798,6 @@ function App() {
             metricMode: appliedFilters.metricMode,
           },
           mainThreshold,
-          rowThresholds,
           sourceMetrics,
           valueStates,
           currentViewLabel,
@@ -5806,6 +5805,7 @@ function App() {
           periodOptionLabel,
           periodLabel,
           tableRowChartsMode: includeRowChartsInPdf ? 'with_charts' : 'compact',
+          mainChartSourcesLabel: mainIndicatorCaption.titleFull,
         },
         {
           onProgress: (current, total) => {
@@ -5827,11 +5827,11 @@ function App() {
     chartData,
     formatRangeLabel,
     hasBuiltReport,
+    mainIndicatorCaption.titleFull,
     mainThreshold,
     pdfExporting,
     periodOptions,
     reportData,
-    rowThresholds,
     savedViews,
     selectedView,
     sourceMetrics,
@@ -5989,14 +5989,6 @@ function App() {
                   trigger="text"
                 />
                 <div className="left-build-controls">
-                  <label className={`left-build-toggle ${autoPickIndicators ? 'is-on' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={autoPickIndicators}
-                      onChange={(event) => setAutoPickIndicators(event.target.checked)}
-                    />
-                    <span>Подобрать показатели автоматически</span>
-                  </label>
                   <label className={`left-build-toggle ${highlightDeviations ? 'is-on' : ''}`}>
                     <input
                       type="checkbox"
@@ -6005,6 +5997,15 @@ function App() {
                     />
                     <span>Рассчитать коридоры и подсветить отклонения</span>
                   </label>
+                  <button
+                    className="left-panel-action-button"
+                    type="button"
+                    onClick={runAutomaticReportBuild}
+                    disabled={reportLoading || Boolean(sectionRetryingId)}
+                  >
+                    <Play size={16} />
+                    <span>Построить автоматически</span>
+                  </button>
                   <button
                     className="left-panel-action-button left-build-button"
                     type="button"

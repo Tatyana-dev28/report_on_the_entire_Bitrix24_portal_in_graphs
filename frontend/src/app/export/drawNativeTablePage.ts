@@ -38,38 +38,12 @@ const drawPageChrome = (pdf: jsPDF, chrome: PdfPageChrome, format: PdfPageFormat
   pdf.setFillColor(...COLORS.white);
   pdf.rect(0, 0, pageWidth, pageHeight, 'F');
 
-  pdf.setFont(PDF_FONT_FAMILY, 'bold');
-  pdf.setFontSize(format === 'a3' ? 16 : 14);
-  pdf.setTextColor(...COLORS.text);
-  pdf.text(fitText(pdf, chrome.title, contentWidth * 0.72), margin, margin + 5);
-
-  pdf.setFont(PDF_FONT_FAMILY, 'normal');
-  pdf.setFontSize(9);
-  pdf.setTextColor(...COLORS.meta);
-  pdf.text(`Портал: ${chrome.portalLabel}`, margin, margin + 11);
-  pdf.text(`${chrome.periodOptionLabel} · Период: ${chrome.periodLabel}`, margin, margin + 16);
-  const chromeBottom = chrome.tableDisplayLabel ? margin + 21 : margin + 16;
-  if (chrome.tableDisplayLabel) {
-    pdf.text(chrome.tableDisplayLabel, margin, margin + 21);
-  }
-
-  pdf.setFontSize(8.5);
-  const generatedLabel = 'Дата формирования';
-  const generatedWidth = Math.max(
-    pdf.getTextWidth(generatedLabel),
-    pdf.getTextWidth(chrome.generatedAt),
-  );
-  const generatedX = pageWidth - margin - generatedWidth;
-  pdf.text(generatedLabel, generatedX, margin + 5, { align: 'left' });
-  pdf.setFont(PDF_FONT_FAMILY, 'bold');
-  pdf.text(chrome.generatedAt, generatedX, margin + 10, { align: 'left' });
-
-  pdf.setDrawColor(...COLORS.border);
-  pdf.setLineWidth(0.2);
-  pdf.line(margin, chromeBottom + 4, pageWidth - margin, chromeBottom + 4);
+  // No page title / portal / period / table-mode chrome above metric tables.
+  const contentTop = margin;
 
   const footerY = pageHeight - margin;
   pdf.setDrawColor(...COLORS.border);
+  pdf.setLineWidth(0.2);
   pdf.line(margin, footerY - 6, pageWidth - margin, footerY - 6);
   pdf.setFont(PDF_FONT_FAMILY, 'normal');
   pdf.setFontSize(8);
@@ -81,7 +55,7 @@ const drawPageChrome = (pdf: jsPDF, chrome: PdfPageChrome, format: PdfPageFormat
 
   return {
     margin,
-    contentTop: chromeBottom + 8,
+    contentTop,
     contentBottom: footerY - 10,
     contentWidth,
   };

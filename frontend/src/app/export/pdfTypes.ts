@@ -42,7 +42,6 @@ export type ExportReportPdfInput = {
     metricMode: 'money' | 'number' | string;
   };
   mainThreshold: ThresholdValues;
-  rowThresholds: Record<string, ThresholdValues>;
   sourceMetrics: Record<string, SourceMetricsData>;
   valueStates: ValueStateMap;
   currentViewLabel: string;
@@ -51,6 +50,8 @@ export type ExportReportPdfInput = {
   periodLabel: string;
   /** F-17: export notes compact vs with_charts table display. */
   tableRowChartsMode?: 'compact' | 'with_charts';
+  /** Chart sources caption (same meaning as on-screen main indicator title). */
+  mainChartSourcesLabel?: string;
 };
 
 export type ExportReportPdfOptions = {

@@ -342,6 +342,64 @@ class RobokassaBillingTests(TestCase):
         self.assertFalse(state["bitrixTariff"]["isKnown"])
         self.assertEqual(state["bitrixTariff"]["message"], UNKNOWN_LICENSE_MESSAGE)
 
+    def test_regional_license_codes_map_without_license_type(self):
+        """app.info LICENSE like ru_pro100 must resolve even when LICENSE_TYPE is empty."""
+        cases = {
+            "ru_basic": "cloud_basic_5",
+            "ru_std": "cloud_standard_50",
+            "ru_pro100": "cloud_professional_100",
+            "ru_pro": "cloud_professional_100",
+            "en_pro100": "cloud_professional_100",
+            "de_pro100": "cloud_professional_100",
+            "ru_ent250": "cloud_enterprise_250",
+            "ru_ent1000": "cloud_enterprise_1000",
+            "ru_nfr": "nfr",
+        }
+
+        for license_code, expected_plan in cases.items():
+            with self.subTest(license_code=license_code):
+                self.portal.bitrix_license = license_code
+                self.portal.bitrix_license_type = ""
+                self.portal.bitrix_license_family = ""
+                self.portal.bitrix_license_edition = ""
+                self.portal.save(
+                    update_fields=[
+                        "bitrix_license",
+                        "bitrix_license_type",
+                        "bitrix_license_family",
+                        "bitrix_license_edition",
+                        "updated_at",
+                    ]
+                )
+
+                state = get_billing_state(self.portal)
+
+                self.assertEqual(state["bitrixTariff"]["allowedPaidPlanCodes"], [expected_plan])
+                self.assertTrue(state["bitrixTariff"]["licenseDetected"])
+                self.assertEqual(state["bitrixTariff"]["message"], "")
+
+    def test_cloud_ent_family_does_not_force_box_enterprise_plan(self):
+        """Cloud LICENSE_FAMILY=ent must keep LICENSE_TYPE mapping, not box enterprise."""
+        self.portal.bitrix_license = "ru_ent1000"
+        self.portal.bitrix_license_type = "ent1000"
+        self.portal.bitrix_license_family = "ent"
+        self.portal.bitrix_license_edition = "enterprise"
+        self.portal.bitrix_license_max_users = 1000
+        self.portal.save(
+            update_fields=[
+                "bitrix_license",
+                "bitrix_license_type",
+                "bitrix_license_family",
+                "bitrix_license_edition",
+                "bitrix_license_max_users",
+                "updated_at",
+            ]
+        )
+
+        state = get_billing_state(self.portal)
+
+        self.assertEqual(state["bitrixTariff"]["allowedPaidPlanCodes"], ["cloud_enterprise_1000"])
+
     def test_payment_api_rejects_unavailable_plan_id(self):
         response = self.client.post(
             "/api/billing/payments/",

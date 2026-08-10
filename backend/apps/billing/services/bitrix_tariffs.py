@@ -250,16 +250,20 @@ def _resolve_paid_plan_codes(portal: BitrixPortal) -> tuple[str, ...]:
     )
 
     for value in candidates:
-        normalized = _normalize_license_value(value)
-
-        if normalized in BITRIX_LICENSE_ALLOWED_PLAN_CODES:
-            return BITRIX_LICENSE_ALLOWED_PLAN_CODES[normalized]
+        for key in _license_lookup_keys(value):
+            if key in BITRIX_LICENSE_ALLOWED_PLAN_CODES:
+                return BITRIX_LICENSE_ALLOWED_PLAN_CODES[key]
 
     return ()
 
 
 def _resolve_license_get_plan_codes(portal: BitrixPortal) -> tuple[str, ...]:
     edition = _normalize_license_value(getattr(portal, "bitrix_license_edition", ""))
+    family = _normalize_license_value(getattr(portal, "bitrix_license_family", ""))
+
+    # license.get EDITION=enterprise is for box; cloud enterprise uses LICENSE_TYPE=entN.
+    if family == "ent":
+        return ()
 
     if edition not in ("enterprise", "boxenterprise"):
         return ()
@@ -271,6 +275,47 @@ def _resolve_license_get_plan_codes(portal: BitrixPortal) -> tuple[str, ...]:
 
     normalized_users = min(max(((int(users) + 999) // 1000) * 1000, 1000), 10000)
     return (f"box_enterprise_{normalized_users}",)
+
+
+_REGION_LICENSE_PREFIXES = (
+    "ru",
+    "en",
+    "de",
+    "ua",
+    "by",
+    "kz",
+    "uz",
+    "pl",
+    "br",
+    "tr",
+    "fr",
+    "it",
+    "eu",
+    "uk",
+    "la",
+    "cn",
+    "in",
+    "jp",
+    "mx",
+    "co",
+    "ar",
+)
+
+
+def _license_lookup_keys(value: Any) -> tuple[str, ...]:
+    """Build lookup keys for Bitrix LICENSE values like ru_pro100 / de_std."""
+    normalized = _normalize_license_value(value)
+    if not normalized:
+        return ()
+
+    keys = [normalized]
+    for prefix in _REGION_LICENSE_PREFIXES:
+        if not normalized.startswith(prefix):
+            continue
+        remainder = normalized[len(prefix):]
+        if remainder and remainder not in keys:
+            keys.append(remainder)
+    return tuple(keys)
 
 
 def _normalize_license_value(value: Any) -> str:

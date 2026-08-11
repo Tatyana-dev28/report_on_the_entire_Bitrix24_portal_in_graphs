@@ -38,7 +38,6 @@ import ReportBuildLoader from './app/components/ReportBuildLoader';
 import ReportOnboarding from './app/components/ReportOnboarding';
 import {
   CartesianGrid,
-  LabelList,
   Line,
   LineChart,
   ReferenceLine,
@@ -5965,21 +5964,6 @@ function App() {
             />
           </div>
           <div className="top-actions">
-            <TableSettingsMenu
-              selectedSources={draftTableSelectedSources}
-              crmSourceOptions={crmSourceOptions}
-              onSourcesChange={handleTableSelectedSourcesChange}
-              onApply={applyTableSettings}
-              tableRowChartsMode={tableRowChartsMode}
-              onTableRowChartsModeChange={setTableRowChartsModeAndSync}
-              hideZeroRows={hideZeroRows}
-              onHideZeroRowsChange={(value) => {
-                markUserSettingsChange();
-                setHideZeroRows(value);
-              }}
-              onExpandAllRowCharts={expandAllRowCharts}
-              onCollapseAllRowCharts={collapseAllRowCharts}
-            />
             <TooltipButton
               label="Настроить приложение"
               onClick={openAppSettings}
@@ -6204,10 +6188,56 @@ function App() {
                 </div>
                 {!mainIndicatorCaption.empty ? (
                 <div className="chart-wrap" ref={mainChartWrapRef}>
+                  <div className="main-chart-values" aria-label="Значения выбранных источников">
+                    {chartSeries.map((series) => (
+                      <div
+                        className="main-chart-values-row"
+                        key={`values-${series.key}`}
+                        style={{ ...syncedContentStyle, ...gridStyle }}
+                      >
+                        <span className="main-chart-values-label" title={series.label}>
+                          <i
+                            className="chart-legend-swatch"
+                            style={{ background: series.color }}
+                            aria-hidden="true"
+                          />
+                          <span>{series.label}</span>
+                        </span>
+                        {chartData.map((point) => {
+                          const rawValue = point[series.key as keyof typeof point];
+                          const value = typeof rawValue === 'number' ? rawValue : Number(rawValue);
+                          const numericValue = Number.isFinite(value) ? value : 0;
+                          const hasMainCorridor =
+                            upperThresholdNumber !== null || lowerThresholdNumber !== null;
+                          const thresholdClass = hasMainCorridor
+                            ? getThresholdClass(
+                              numericValue,
+                              mainThreshold,
+                              mainChartDirection,
+                            )
+                            : '';
+                          const valueLabel = formatMainChartValue(
+                            numericValue,
+                            appliedFilters.metricMode,
+                          );
+
+                          return (
+                            <span
+                              className={`value-cell main-chart-value-cell ${thresholdClass}`.trim()}
+                              key={`${series.key}-${point.key}`}
+                              title={valueLabel}
+                            >
+                              <span className="value-cell-badge">{valueLabel}</span>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
                   <ResponsiveContainer width="100%" height={280}>
                     <LineChart
                       data={chartData}
-                      margin={{ top: 28, right: 8, left: 0, bottom: 8 }}
+                      margin={{ top: 18, right: 0, left: 0, bottom: 8 }}
                       onMouseLeave={() => setActiveMainChartPoint(null)}
                     >
                       <CartesianGrid stroke="#edf0f4" vertical={false} />
@@ -6302,23 +6332,7 @@ function App() {
                           )}
                           activeDot={false}
                           key={series.key}
-                        >
-                          {!isSeparateChart ? (
-                            <LabelList
-                              dataKey={series.key}
-                              position="top"
-                              offset={10}
-                              className="main-chart-point-label"
-                              formatter={(value) => {
-                                const numeric = typeof value === 'number' ? value : Number(value);
-                                if (!Number.isFinite(numeric)) {
-                                  return '';
-                                }
-                                return formatMainChartValue(numeric, appliedFilters.metricMode);
-                              }}
-                            />
-                          ) : null}
-                        </Line>
+                        />
                       ))}
                     </LineChart>
                   </ResponsiveContainer>

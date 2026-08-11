@@ -1395,7 +1395,7 @@ button {
 
 .chart-left,
 .chart-viewport {
-  min-height: 372px;
+  min-height: 420px;
   border-bottom: 1px solid var(--soft-line);
 }
 
@@ -1930,11 +1930,47 @@ button {
   opacity: 0.55;
 }
 
-.main-chart-point-label {
-  fill: #30343b;
-  font-size: 11px;
+.main-chart-values {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: min(148px, 28vh);
+  margin: 0 0 8px;
+  overflow: auto;
+  padding: 0 0 2px;
+}
+
+.main-chart-values-row {
+  display: grid;
+  align-items: center;
+  min-height: 32px;
+}
+
+.main-chart-values-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: #30343b;
+  font-size: 12px;
   font-weight: 650;
-  pointer-events: none;
+  line-height: 1.2;
+  padding-right: 4px;
+}
+
+.main-chart-values-label > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main-chart-value-cell {
+  min-height: 28px;
+  height: auto;
+  min-width: 0;
+  padding: 0 4px;
+  font-size: 12px;
 }
 
 .chart-loading-overlay {

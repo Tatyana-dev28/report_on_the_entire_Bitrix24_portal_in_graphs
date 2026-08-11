@@ -629,6 +629,16 @@ export function InstructionModal({
 const employeeDisplayName = (employee: ReportEmployee) =>
   getEmployeeFullName(employee);
 
+const allEmployeeIds = (employees: ReportEmployee[]) => employees.map((employee) => employee.id);
+
+const resolveDefaultEmployeeIds = (selectedIds: string[], employees: ReportEmployee[]) => {
+  if (selectedIds.length === 0 && employees.length > 0) {
+    return allEmployeeIds(employees);
+  }
+
+  return [...selectedIds];
+};
+
 export function EmployeeMultiSelect({
   label,
   employees,
@@ -642,11 +652,26 @@ export function EmployeeMultiSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [], { closeOnScroll: false });
+  const [draftIds, setDraftIds] = useState<string[]>(selectedIds);
+  const ref = useOutsideClose<HTMLDivElement>(open, () => {
+    setOpen(false);
+    setQuery('');
+  }, [], { closeOnScroll: false });
+
+  useEffect(() => {
+    if (!open) {
+      setDraftIds(selectedIds);
+    }
+  }, [open, selectedIds]);
+
   const selectedEmployees = employees.filter((employee) => selectedIds.includes(employee.id));
   const selectedUnknownIds = selectedIds.filter(
     (employeeId) => !employees.some((employee) => employee.id === employeeId),
   );
+  const allSelected =
+    employees.length > 0
+    && employees.every((employee) => selectedIds.includes(employee.id))
+    && selectedIds.every((employeeId) => employees.some((employee) => employee.id === employeeId));
   const normalizedQuery = query.trim().toLowerCase();
   const filteredEmployees = employees.filter((employee) => {
     const name = employeeDisplayName(employee).toLowerCase();
@@ -659,11 +684,25 @@ export function EmployeeMultiSelect({
   });
 
   const toggleEmployee = (employeeId: string) => {
-    onChange(
-      selectedIds.includes(employeeId)
-        ? selectedIds.filter((id) => id !== employeeId)
-        : [...selectedIds, employeeId],
+    setDraftIds((current) =>
+      current.includes(employeeId)
+        ? current.filter((id) => id !== employeeId)
+        : [...current, employeeId],
     );
+  };
+
+  const handleSelectAll = () => {
+    setDraftIds(allEmployeeIds(employees));
+  };
+
+  const handleReset = () => {
+    setDraftIds([]);
+  };
+
+  const handleApply = () => {
+    onChange(draftIds);
+    setOpen(false);
+    setQuery('');
   };
 
   return (
@@ -676,7 +715,9 @@ export function EmployeeMultiSelect({
         onClick={() => setOpen((current) => !current)}
       >
         <span className="employee-chip-list">
-          {selectedEmployees.length || selectedUnknownIds.length ? (
+          {allSelected ? (
+            <span className="employee-placeholder is-filled">Все сотрудники</span>
+          ) : selectedEmployees.length || selectedUnknownIds.length ? (
             <>
               {selectedEmployees.map((employee) => (
                 <span className="employee-chip" key={employee.id}>
@@ -707,13 +748,28 @@ export function EmployeeMultiSelect({
               <X size={14} />
             </button>
           </div>
+          <div className="multi-actions">
+            <button type="button" className="multi-action-button" onClick={handleSelectAll}>
+              Выбрать все
+            </button>
+            <button type="button" className="multi-action-button" onClick={handleReset}>
+              Сбросить
+            </button>
+            <button
+              type="button"
+              className="multi-action-button multi-action-button--primary"
+              onClick={handleApply}
+            >
+              Применить
+            </button>
+          </div>
           <div className="employee-multi-list">
             {filteredEmployees.length ? (
               filteredEmployees.map((employee) => (
                 <label className="employee-multi-option" key={employee.id}>
                   <input
                     type="checkbox"
-                    checked={selectedIds.includes(employee.id)}
+                    checked={draftIds.includes(employee.id)}
                     onChange={() => toggleEmployee(employee.id)}
                   />
                   <span>{employeeDisplayName(employee)}</span>
@@ -730,6 +786,7 @@ export function EmployeeMultiSelect({
     </div>
   );
 }
+
 export function AppSettingsModal({
   settings,
   employees,
@@ -744,12 +801,38 @@ export function AppSettingsModal({
   onOpenPro: () => void;
 }) {
   const [draftSettings, setDraftSettings] = useState<AppSettings>(() => ({
-    reportBuilderUserIds: [...settings.reportBuilderUserIds],
-    moneyViewerUserIds: [...settings.moneyViewerUserIds],
-    viewSaverUserIds: [...settings.viewSaverUserIds],
+    reportBuilderUserIds: resolveDefaultEmployeeIds(settings.reportBuilderUserIds, employees),
+    moneyViewerUserIds: resolveDefaultEmployeeIds(settings.moneyViewerUserIds, employees),
+    viewSaverUserIds: resolveDefaultEmployeeIds(settings.viewSaverUserIds, employees),
   }));
+  const seededEmptyFieldsRef = useRef({
+    reportBuilderUserIds: settings.reportBuilderUserIds.length === 0,
+    moneyViewerUserIds: settings.moneyViewerUserIds.length === 0,
+    viewSaverUserIds: settings.viewSaverUserIds.length === 0,
+  });
+
+  useEffect(() => {
+    if (!employees.length) {
+      return;
+    }
+
+    setDraftSettings((current) => {
+      let changed = false;
+      const next: AppSettings = { ...current };
+
+      (['reportBuilderUserIds', 'moneyViewerUserIds', 'viewSaverUserIds'] as const).forEach((field) => {
+        if (seededEmptyFieldsRef.current[field] && current[field].length === 0) {
+          next[field] = allEmployeeIds(employees);
+          changed = true;
+        }
+      });
+
+      return changed ? next : current;
+    });
+  }, [employees]);
 
   const updateField = (field: keyof AppSettings, values: string[]) => {
+    seededEmptyFieldsRef.current[field] = false;
     setDraftSettings((current) => ({
       ...current,
       [field]: values,

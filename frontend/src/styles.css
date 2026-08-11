@@ -4089,14 +4089,23 @@ button {
   position: static;
   display: grid;
   width: 100%;
-  max-height: min(280px, calc(100vh - 220px));
-  grid-template-rows: auto minmax(0, 1fr);
+  max-height: min(340px, calc(100vh - 220px));
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 8px;
   border: 1px solid #dde2e8;
   border-radius: 16px;
   background: #ffffff;
   box-shadow: 0 14px 32px rgba(15, 23, 42, 0.1);
   padding: 10px;
+}
+
+.employee-multi-popover .multi-actions {
+  margin: 0;
+}
+
+.employee-placeholder.is-filled {
+  color: #2b3038;
+  font-weight: 600;
 }
 
 .employee-multi-head {

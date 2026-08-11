@@ -38,6 +38,7 @@ import ReportBuildLoader from './app/components/ReportBuildLoader';
 import ReportOnboarding from './app/components/ReportOnboarding';
 import {
   CartesianGrid,
+  LabelList,
   Line,
   LineChart,
   ReferenceLine,
@@ -6206,7 +6207,7 @@ function App() {
                   <ResponsiveContainer width="100%" height={280}>
                     <LineChart
                       data={chartData}
-                      margin={{ top: 18, right: 0, left: 0, bottom: 8 }}
+                      margin={{ top: 28, right: 8, left: 0, bottom: 8 }}
                       onMouseLeave={() => setActiveMainChartPoint(null)}
                     >
                       <CartesianGrid stroke="#edf0f4" vertical={false} />
@@ -6301,7 +6302,23 @@ function App() {
                           )}
                           activeDot={false}
                           key={series.key}
-                        />
+                        >
+                          {!isSeparateChart ? (
+                            <LabelList
+                              dataKey={series.key}
+                              position="top"
+                              offset={10}
+                              className="main-chart-point-label"
+                              formatter={(value) => {
+                                const numeric = typeof value === 'number' ? value : Number(value);
+                                if (!Number.isFinite(numeric)) {
+                                  return '';
+                                }
+                                return formatMainChartValue(numeric, appliedFilters.metricMode);
+                              }}
+                            />
+                          ) : null}
+                        </Line>
                       ))}
                     </LineChart>
                   </ResponsiveContainer>

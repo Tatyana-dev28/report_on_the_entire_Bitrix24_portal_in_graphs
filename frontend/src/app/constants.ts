@@ -41,7 +41,7 @@ export const isProUser = false;
 
 export const buttonLabels = {
   build: 'Построить отчёт',
-  download: 'Скачать Excel',
+  download: 'Скачать',
 };
 
 export const chartDisplayModeOptions: SelectOption<ChartDisplayMode>[] = [

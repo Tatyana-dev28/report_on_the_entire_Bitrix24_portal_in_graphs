@@ -1,5 +1,5 @@
 import type { jsPDF } from 'jspdf';
-import { MIN_TABLE_ROW_HEIGHT_MM } from './pdfHelpers';
+import { getPdfThresholdStyle, MIN_TABLE_ROW_HEIGHT_MM } from './pdfHelpers';
 import { PDF_FONT_FAMILY } from './pdfFonts';
 import type { PdfPageChrome, PdfPageFormat, PdfTablePageSpec } from './pdfTypes';
 
@@ -169,8 +169,12 @@ export const drawNativeTablePage = (
     });
 
     row.cells.forEach((cell, cellIndex) => {
+      const thresholdStyle = getPdfThresholdStyle(row.thresholdClasses?.[cellIndex]);
       drawCell(cellIndex + 1, tableRowIndex, cell, {
         align: 'center',
+        fill: thresholdStyle?.fill,
+        textColor: thresholdStyle?.text,
+        bold: Boolean(thresholdStyle),
       });
     });
   });

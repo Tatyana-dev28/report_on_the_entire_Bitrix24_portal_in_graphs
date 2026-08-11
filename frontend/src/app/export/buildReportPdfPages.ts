@@ -1,14 +1,23 @@
 import { formatMetricValue } from '../../services/report/reportCatalog';
 import type { MetricRow } from '../../services/report/reportCatalog';
-import { resolveDisplayedThresholdAverage } from '../utils/thresholds';
+import {
+  MAIN_INDICATOR_DIRECTION_KEY,
+  resolveMetricDirection,
+  resolveMetricDirectionForIds,
+  type MetricDirection,
+} from '../config/metricDirections';
+import { resolveDisplayedThresholdAverage, getThresholdClass } from '../utils/thresholds';
 import { getEmployeeFullName } from '../utils/employees';
+import type { TableRow, ThresholdValues } from '../types';
 import {
   buildSourceMetricActionIds,
   chunk,
   escapeHtml,
   getEmployeePeriodMetricValue,
+  getPdfThresholdStyle,
   getValueCellDisplayLabel,
   readValuesByPeriod,
+  resolveThresholdForIds,
 } from './pdfHelpers';
 import type {
   ExportReportPdfInput,
@@ -16,6 +25,191 @@ import type {
   PdfPageSpec,
   PdfTableRow,
 } from './pdfTypes';
+
+type RowChartSpec = {
+  title: string;
+  values: number[];
+  metricType: MetricRow['type'];
+  threshold?: ThresholdValues;
+  direction: MetricDirection;
+};
+
+const collectTableRowCharts = (input: ExportReportPdfInput): RowChartSpec[] => {
+  const {
+    tableRows,
+    reportData,
+    hasBuiltReport,
+    rowThresholds = {},
+    employeeThresholdsByMetricId = {},
+    metricDirectionsById = {},
+    sourceMetrics,
+  } = input;
+
+  const charts: RowChartSpec[] = [];
+
+  // Build charts from data rows — not from on-screen expand state — so
+  // «PDF с графиками» always includes every metric/employee chart in the table.
+  tableRows.forEach((row: TableRow) => {
+    if (row.kind === 'metric') {
+      const threshold = rowThresholds[row.metric.id];
+      const direction = resolveMetricDirection(row.metric.id, metricDirectionsById);
+      const values = reportData.map((point) => {
+        const raw = point.values[row.metric.id];
+        const numeric = typeof raw === 'number' ? raw : Number(raw);
+        return Number.isFinite(numeric) ? numeric : 0;
+      });
+
+      charts.push({
+        title: row.metric.label,
+        values,
+        metricType: row.metric.type,
+        threshold,
+        direction,
+      });
+      return;
+    }
+
+    if (row.kind === 'source_metric') {
+      const sourceData = sourceMetrics[row.sourceId];
+      const metricData = sourceData?.metrics[row.metricKey];
+      const actionIds = buildSourceMetricActionIds(row.sourceId, row.metricKey, sourceData);
+      const threshold = resolveThresholdForIds(actionIds, rowThresholds);
+      const direction = resolveMetricDirectionForIds(actionIds, metricDirectionsById);
+      const valueType: MetricRow['type'] =
+        row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number';
+      const values = reportData.map((point) => {
+        const value = readValuesByPeriod(metricData?.valuesByPeriod, point.key);
+        return Number.isFinite(value) ? value : 0;
+      });
+
+      charts.push({
+        title: row.metricLabel,
+        values,
+        metricType: valueType,
+        threshold,
+        direction,
+      });
+      return;
+    }
+
+    if (row.kind === 'employee') {
+      const threshold = employeeThresholdsByMetricId[row.metric.id] ?? rowThresholds[row.metric.id];
+      const direction = resolveMetricDirection(row.metric.id, metricDirectionsById);
+      const values = reportData.map((point) => {
+        const value = hasBuiltReport
+          ? getEmployeePeriodMetricValue(row.employee, point, row.metric.id)
+          : 0;
+        return Number.isFinite(value) ? value : 0;
+      });
+
+      charts.push({
+        title: `${row.metric.label} · ${getEmployeeFullName(row.employee)}`,
+        values,
+        metricType: row.metric.type,
+        threshold,
+        direction,
+      });
+    }
+  });
+
+  return charts;
+};
+
+const makeSeriesChartSvg = ({
+  values,
+  labels,
+  width,
+  height,
+  metricType,
+  threshold,
+  direction,
+}: {
+  values: number[];
+  labels: string[];
+  width: number;
+  height: number;
+  metricType: MetricRow['type'];
+  threshold?: ThresholdValues;
+  direction: MetricDirection;
+}) => {
+  const left = 54;
+  const right = 16;
+  const top = 14;
+  const bottom = 30;
+  const innerWidth = width - left - right;
+  const innerHeight = height - top - bottom;
+  const upperRaw = String(threshold?.upper ?? '').trim();
+  const lowerRaw = String(threshold?.lower ?? '').trim();
+  const averageRaw = String(threshold?.average ?? '').trim();
+  const boundCandidates = [upperRaw, lowerRaw, averageRaw]
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item));
+  const chartMax = Math.max(1, ...values, ...boundCandidates);
+  const chartMin = Math.min(0, ...values, ...boundCandidates);
+  const yFor = (value: number) =>
+    top + innerHeight - ((value - chartMin) / Math.max(1, chartMax - chartMin)) * innerHeight;
+  const xFor = (index: number) =>
+    left + (values.length <= 1 ? innerWidth / 2 : (index / (values.length - 1)) * innerWidth);
+  const points = values.map((value, index) => `${xFor(index)},${yFor(value)}`).join(' ');
+
+  const upperBound = upperRaw ? Number(upperRaw) : Number.NaN;
+  const lowerBound = lowerRaw ? Number(lowerRaw) : Number.NaN;
+  const hasCorridorBand = Number.isFinite(upperBound) && Number.isFinite(lowerBound);
+  const corridorBand = hasCorridorBand
+    ? (() => {
+        const yTop = yFor(Math.max(upperBound, lowerBound));
+        const yBottom = yFor(Math.min(upperBound, lowerBound));
+        return `<rect x="${left}" y="${yTop}" width="${innerWidth}" height="${Math.max(0, yBottom - yTop)}" fill="#edf9f1" fill-opacity="0.55" />`;
+      })()
+    : '';
+
+  const thresholdLines = [
+    { value: upperRaw, color: '#1f9d55' },
+    { value: averageRaw, color: '#d89a00' },
+    { value: lowerRaw, color: '#d64545' },
+  ]
+    .filter((item) => item.value !== '' && Number.isFinite(Number(item.value)))
+    .map((item) => {
+      const y = yFor(Number(item.value));
+      return `<line x1="${left}" y1="${y}" x2="${width - right}" y2="${y}" stroke="${item.color}" stroke-width="1.4" stroke-dasharray="6 5" />`;
+    })
+    .join('');
+
+  const labelStep = Math.max(1, Math.ceil(labels.length / 8));
+  const axisLabels = labels
+    .map((label, index) => ({ label, index }))
+    .filter(({ index }) => index === 0 || index === labels.length - 1 || index % labelStep === 0)
+    .map(({ label, index }, labelIndex, items) => {
+      const x = xFor(index);
+      const anchor = labelIndex === 0 ? 'start' : labelIndex === items.length - 1 ? 'end' : 'middle';
+      return `<text x="${x}" y="${height - 8}" text-anchor="${anchor}" font-size="11" fill="#5f6b7a">${escapeHtml(label)}</text>`;
+    })
+    .join('');
+
+  const chartDots = values.map((value, index) => {
+    const style = getPdfThresholdStyle(getThresholdClass(value, threshold, direction));
+    const stroke = style?.stroke ?? '#2274ff';
+    const fill = style?.fillHex ?? '#ffffff';
+    return `<circle cx="${xFor(index)}" cy="${yFor(value)}" r="3.2" fill="${fill}" stroke="${stroke}" stroke-width="2.2" />`;
+  }).join('');
+
+  return `
+    <div class="pdf-chart-wrap pdf-block">
+      <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" style="background:#ffffff">
+        <rect x="0" y="0" width="${width}" height="${height}" rx="8" fill="#ffffff" stroke="#dfe7f1" />
+        <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}" stroke="#dfe7f1" />
+        <line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" stroke="#dfe7f1" />
+        <text x="14" y="${top + 6}" font-size="11" fill="#7b8794">${escapeHtml(formatMetricValue(chartMax, metricType))}</text>
+        <text x="14" y="${height - bottom}" font-size="11" fill="#7b8794">${escapeHtml(formatMetricValue(chartMin, metricType))}</text>
+        ${corridorBand}
+        ${thresholdLines}
+        <polyline points="${points}" fill="none" stroke="#2274ff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+        ${chartDots}
+        ${axisLabels}
+      </svg>
+    </div>
+  `;
+};
 
 export type BuiltReportPdfPages = {
   format: PdfPageFormat;
@@ -139,6 +333,9 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
     chartData,
     appliedFilters,
     mainThreshold,
+    rowThresholds = {},
+    employeeThresholdsByMetricId = {},
+    metricDirectionsById = {},
     sourceMetrics,
     valueStates,
     currentViewLabel,
@@ -192,12 +389,21 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
       }
 
       if (row.kind === 'employee') {
+        const threshold = employeeThresholdsByMetricId[row.metric.id] ?? rowThresholds[row.metric.id];
+        const direction = resolveMetricDirection(row.metric.id, metricDirectionsById);
+        const values = reportData.map((point) => {
+          const value = hasBuiltReport ? getEmployeePeriodMetricValue(row.employee, point, row.metric.id) : 0;
+          return getValueCellDisplayLabel(value, row.metric.type, valueStates[point.key]?.[row.metric.id]);
+        });
+        const thresholdClasses = reportData.map((point) => {
+          const value = hasBuiltReport ? getEmployeePeriodMetricValue(row.employee, point, row.metric.id) : Number.NaN;
+          return getThresholdClass(value, threshold, direction);
+        });
+
         return {
           label: `  ${getEmployeeFullName(row.employee)}`.trim(),
-          values: reportData.map((point) => {
-            const value = hasBuiltReport ? getEmployeePeriodMetricValue(row.employee, point, row.metric.id) : 0;
-            return getValueCellDisplayLabel(value, row.metric.type, valueStates[point.key]?.[row.metric.id]);
-          }),
+          values,
+          thresholdClasses,
           kind: 'employee' as const,
         };
       }
@@ -207,31 +413,48 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
         const metricData = sourceData?.metrics[row.metricKey];
         const valueType = row.valueType === 'money' ? 'money' : row.valueType === 'percent' ? 'percent' : 'number';
         const actionIds = buildSourceMetricActionIds(row.sourceId, row.metricKey, sourceData);
+        const threshold = resolveThresholdForIds(actionIds, rowThresholds);
+        const direction = resolveMetricDirectionForIds(actionIds, metricDirectionsById);
+        const values = reportData.map((point) => {
+          const value = readValuesByPeriod(metricData?.valuesByPeriod, point.key);
+          return getValueCellDisplayLabel(value, valueType, getSourceMetricState(point.key, actionIds));
+        });
+        const thresholdClasses = reportData.map((point) => {
+          const value = readValuesByPeriod(metricData?.valuesByPeriod, point.key);
+          return getThresholdClass(value, threshold, direction);
+        });
 
         return {
           label: `  ${row.metricLabel}`.trim(),
-          values: reportData.map((point) => {
-            const value = readValuesByPeriod(metricData?.valuesByPeriod, point.key);
-            return getValueCellDisplayLabel(value, valueType, getSourceMetricState(point.key, actionIds));
-          }),
+          values,
+          thresholdClasses,
           kind: 'metric' as const,
         };
       }
 
+      const threshold = rowThresholds[row.metric.id];
+      const direction = resolveMetricDirection(row.metric.id, metricDirectionsById);
+      const values = reportData.map((point) =>
+        getValueCellDisplayLabel(
+          point.values[row.metric.id],
+          row.metric.type,
+          valueStates[point.key]?.[row.metric.id],
+        ),
+      );
+      const thresholdClasses = reportData.map((point) =>
+        getThresholdClass(point.values[row.metric.id], threshold, direction),
+      );
+
       return {
         label: row.metric.label,
-        values: reportData.map((point) =>
-          getValueCellDisplayLabel(
-            point.values[row.metric.id],
-            row.metric.type,
-            valueStates[point.key]?.[row.metric.id],
-          ),
-        ),
+        values,
+        thresholdClasses,
         kind: 'metric' as const,
       };
     });
 
   const displayedAverage = resolveDisplayedThresholdAverage(mainThreshold);
+  const mainDirection = resolveMetricDirection(MAIN_INDICATOR_DIRECTION_KEY, metricDirectionsById);
   const thresholdSummary = [
     { label: 'Верхняя граница', value: mainThreshold.upper, color: '#1f9d55' },
     {
@@ -243,60 +466,19 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
   ];
   const chartMetricType: MetricRow['type'] = appliedFilters.metricMode === 'money' ? 'money' : 'number';
   const chartValues = chartData.map((point) => Number(point.indicator) || 0);
-  const chartMax = Math.max(1, ...chartValues, ...thresholdSummary.map((item) => Number(item.value) || 0));
-  const chartMin = Math.min(0, ...chartValues);
 
-  const makeChartSvg = () => {
-    const width = contentWidth - 18;
-    const height = format === 'a3' ? 280 : 210;
-    const left = 62;
-    const right = 20;
-    const top = 18;
-    const bottom = 38;
-    const innerWidth = width - left - right;
-    const innerHeight = height - top - bottom;
-    const yFor = (value: number) =>
-      top + innerHeight - ((value - chartMin) / Math.max(1, chartMax - chartMin)) * innerHeight;
-    const xFor = (index: number) =>
-      left + (chartValues.length <= 1 ? innerWidth / 2 : (index / (chartValues.length - 1)) * innerWidth);
-    const points = chartValues.map((value, index) => `${xFor(index)},${yFor(value)}`).join(' ');
-
-    const thresholdLines = thresholdSummary
-      .map((item) => ({ value: Number(item.value), color: item.color }))
-      .filter((item) => Number.isFinite(item.value))
-      .map((item) => {
-        const y = yFor(item.value);
-        return `<line x1="${left}" y1="${y}" x2="${width - right}" y2="${y}" stroke="${item.color}" stroke-width="1.6" stroke-dasharray="7 6" />`;
-      })
-      .join('');
-
-    const labelStep = Math.max(1, Math.ceil(reportData.length / (format === 'a3' ? 10 : 8)));
-    const labels = reportData
-      .map((point, index) => ({ point, index }))
-      .filter(({ index }) => index === 0 || index === reportData.length - 1 || index % labelStep === 0)
-      .map(({ point, index }, labelIndex, items) => {
-        const x = xFor(index);
-        const anchor = labelIndex === 0 ? 'start' : labelIndex === items.length - 1 ? 'end' : 'middle';
-        return `<text x="${x}" y="${height - 10}" text-anchor="${anchor}" font-size="12" fill="#5f6b7a">${escapeHtml(point.label)}</text>`;
-      })
-      .join('');
-
-    return `
-      <div class="pdf-chart-wrap pdf-block">
-        <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" style="background:#ffffff">
-          <rect x="0" y="0" width="${width}" height="${height}" rx="8" fill="#ffffff" stroke="#dfe7f1" />
-          <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}" stroke="#dfe7f1" />
-          <line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" stroke="#dfe7f1" />
-          <text x="18" y="${top + 6}" font-size="12" fill="#7b8794">${escapeHtml(formatMetricValue(chartMax, chartMetricType))}</text>
-          <text x="18" y="${height - bottom}" font-size="12" fill="#7b8794">${escapeHtml(formatMetricValue(chartMin, chartMetricType))}</text>
-          ${thresholdLines}
-          <polyline points="${points}" fill="none" stroke="#2274ff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />
-          ${chartValues.map((value, index) => `<circle cx="${xFor(index)}" cy="${yFor(value)}" r="3.5" fill="#ffffff" stroke="#2274ff" stroke-width="2.5" />`).join('')}
-          ${labels}
-        </svg>
-      </div>
-    `;
-  };
+  const makeChartSvg = () => makeSeriesChartSvg({
+    values: chartValues,
+    labels: reportData.map((point) => point.label),
+    width: contentWidth - 18,
+    height: format === 'a3' ? 280 : 210,
+    metricType: chartMetricType,
+    threshold: {
+      ...mainThreshold,
+      average: displayedAverage !== null ? String(displayedAverage) : (mainThreshold.average ?? ''),
+    },
+    direction: mainDirection,
+  });
 
   const pages: PdfPageSpec[] = [];
 
@@ -363,11 +545,66 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
             kind: row.kind,
             label: row.label,
             cells: periodChunk.map(({ index }) => row.values[index] ?? ''),
+            thresholdClasses: periodChunk.map(({ index }) => row.thresholdClasses?.[index] ?? ''),
           };
         }),
       });
     });
   });
+
+  if (tableRowChartsMode === 'with_charts') {
+    const rowChartSpecs = collectTableRowCharts(input);
+    const chartsPerPage = format === 'a3' ? 4 : 3;
+    const chartChunks = chunk(rowChartSpecs, chartsPerPage);
+
+    if (chartChunks.length === 0) {
+      pages.push({
+        kind: 'html',
+        title: 'Графики по строкам',
+        buildBody: () => `
+          <div class="pdf-block">
+            <div class="pdf-section-title">Графики по строкам таблицы</div>
+            <div class="pdf-meta">
+              В таблице нет показателей или сотрудников для графиков — в PDF только главный график и числа.
+            </div>
+          </div>
+        `,
+      });
+    } else {
+      chartChunks.forEach((chartChunk, chunkIndex) => {
+        const part = chartChunks.length > 1 ? ` · ${chunkIndex + 1}/${chartChunks.length}` : '';
+        pages.push({
+          kind: 'html',
+          title: `Графики по строкам${part}`,
+          buildBody: () => `
+            <div class="pdf-block">
+              <div class="pdf-section-title">Графики по строкам таблицы${escapeHtml(part)}</div>
+              ${chartChunk
+                .map((spec) => {
+                  const miniWidth = contentWidth - 18;
+                  const miniHeight = format === 'a3' ? 168 : 142;
+                  return `
+                    <div class="pdf-block" style="margin-top:10px">
+                      <div class="pdf-meta" style="margin-bottom:4px">${escapeHtml(spec.title)}</div>
+                      ${makeSeriesChartSvg({
+                        values: spec.values,
+                        labels: reportData.map((point) => point.label),
+                        width: miniWidth,
+                        height: miniHeight,
+                        metricType: spec.metricType,
+                        threshold: spec.threshold,
+                        direction: spec.direction,
+                      })}
+                    </div>
+                  `;
+                })
+                .join('')}
+            </div>
+          `,
+        });
+      });
+    }
+  }
 
   return {
     format,

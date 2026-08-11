@@ -1,5 +1,6 @@
 import type { MetricRow, Period, ReportPoint, DateRange } from '../../services/report/reportCatalog';
 import type { SourceMetricsData, ValueStateMap } from '../../services/report/reportTypes';
+import type { MetricDirection } from '../config/metricDirections';
 import type { TableRow, ThresholdValues } from '../types';
 
 export type PdfPageFormat = 'a4' | 'a3';
@@ -7,6 +8,7 @@ export type PdfPageFormat = 'a4' | 'a3';
 export type PdfTableRow = {
   label: string;
   values: string[];
+  thresholdClasses?: string[];
   kind: 'section' | 'metric' | 'employee';
 };
 
@@ -14,6 +16,7 @@ export type PdfNativeTableRow = {
   kind: 'section' | 'metric' | 'employee';
   label: string;
   cells: string[];
+  thresholdClasses?: string[];
 };
 
 export type PdfHtmlPageSpec = {
@@ -42,6 +45,9 @@ export type ExportReportPdfInput = {
     metricMode: 'money' | 'number' | string;
   };
   mainThreshold: ThresholdValues;
+  rowThresholds?: Record<string, ThresholdValues>;
+  employeeThresholdsByMetricId?: Record<string, ThresholdValues>;
+  metricDirectionsById?: Record<string, MetricDirection>;
   sourceMetrics: Record<string, SourceMetricsData>;
   valueStates: ValueStateMap;
   currentViewLabel: string;

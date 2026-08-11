@@ -122,3 +122,42 @@ export const resolveThresholdForIds = (
 
   return thresholds[actionIds[0] ?? ''] ?? { upper: '', lower: '', mode: null };
 };
+
+/** RGB fills/text matching on-screen corridor cell colors (styles.css value-cell.*). */
+export const getPdfThresholdStyle = (thresholdClass: string | undefined) => {
+  switch (thresholdClass) {
+    case 'is-above-threshold':
+    case 'is-inside-range-threshold':
+      return {
+        fill: [237, 249, 241] as const,
+        text: [34, 132, 90] as const,
+        stroke: '#22845a',
+        fillHex: '#edf9f1',
+      };
+    case 'is-below-threshold':
+    case 'is-outside-range-threshold':
+      return {
+        fill: [255, 240, 240] as const,
+        text: [201, 51, 51] as const,
+        stroke: '#c93333',
+        fillHex: '#fff0f0',
+      };
+    case 'is-outside-range-warning':
+      return {
+        fill: [255, 251, 235] as const,
+        text: [180, 83, 9] as const,
+        stroke: '#b45309',
+        fillHex: '#fffbeb',
+      };
+    case 'is-above-corridor-neutral':
+    case 'is-below-corridor-neutral':
+      return {
+        fill: [243, 245, 248] as const,
+        text: [75, 85, 99] as const,
+        stroke: '#4b5563',
+        fillHex: '#f3f5f8',
+      };
+    default:
+      return null;
+  }
+};

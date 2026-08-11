@@ -1223,6 +1223,7 @@ export function ThresholdEditor({
   );
   const [errors, setErrors] = useState<CorridorValidationErrors>({});
   const [showReplaceConfirm, setShowReplaceConfirm] = useState(false);
+  const [isApplied, setIsApplied] = useState(false);
 
   const isAutoMode = editorMode === 'recommended';
   const displayUpper = isAutoMode ? formatCorridorFieldValue(recommended.upper) : upper;
@@ -1232,9 +1233,14 @@ export function ThresholdEditor({
   const canSaveAuto =
     parseThreshold(recommended.upper) !== null && parseThreshold(recommended.lower) !== null;
 
+  const markDirty = () => {
+    setIsApplied(false);
+  };
+
   const switchMode = (nextMode: 'manual' | 'recommended') => {
     setErrors({});
     setShowReplaceConfirm(false);
+    setIsApplied(false);
     setEditorMode(nextMode);
 
     if (nextMode === 'manual') {
@@ -1268,6 +1274,7 @@ export function ThresholdEditor({
       average: average.trim(),
       mode: 'manual',
     });
+    setIsApplied(true);
   };
 
   const applyAutomatic = () => {
@@ -1281,9 +1288,15 @@ export function ThresholdEditor({
       average: recommended.average,
       mode: 'recommended',
     });
+    setShowReplaceConfirm(false);
+    setIsApplied(true);
   };
 
   const handleSave = () => {
+    if (isApplied) {
+      return;
+    }
+
     if (editorMode === 'manual') {
       applyManual();
       return;
@@ -1305,6 +1318,7 @@ export function ThresholdEditor({
     setShowReplaceConfirm(false);
     setEditorMode('recommended');
     onReset();
+    setIsApplied(true);
   };
 
   const fieldError = (key: CorridorFieldKey) => errors[key];
@@ -1333,7 +1347,10 @@ export function ThresholdEditor({
           <span>Как оценивать показатель?</span>
           <select
             value={direction}
-            onChange={(event) => onDirectionChange(event.target.value as MetricDirection)}
+            onChange={(event) => {
+              markDirty();
+              onDirectionChange(event.target.value as MetricDirection);
+            }}
             aria-label="Как оценивать показатель?"
           >
             {METRIC_DIRECTION_OPTIONS.map((option) => (
@@ -1374,6 +1391,7 @@ export function ThresholdEditor({
             value={displayUpper}
             readOnly={isAutoMode}
             onChange={(event) => {
+              markDirty();
               setUpper(event.target.value);
               setErrors((current) => {
                 const next = { ...current };
@@ -1392,6 +1410,7 @@ export function ThresholdEditor({
             value={displayAverage}
             readOnly={isAutoMode}
             onChange={(event) => {
+              markDirty();
               setAverage(event.target.value);
               setErrors((current) => {
                 const next = { ...current };
@@ -1410,6 +1429,7 @@ export function ThresholdEditor({
             value={displayLower}
             readOnly={isAutoMode}
             onChange={(event) => {
+              markDirty();
               setLower(event.target.value);
               setErrors((current) => {
                 const next = { ...current };
@@ -1457,12 +1477,19 @@ export function ThresholdEditor({
             Сбросить
           </button>
           <button
-            className={`threshold-apply-button ${isAutoMode ? 'recommended-apply-button' : 'manual-apply-button'}`}
+            className={`threshold-apply-button ${
+              isApplied
+                ? 'is-applied'
+                : isAutoMode
+                  ? 'recommended-apply-button'
+                  : 'manual-apply-button'
+            }`}
             type="button"
-            disabled={isAutoMode && !canSaveAuto}
+            disabled={isApplied || (isAutoMode && !canSaveAuto)}
             onClick={handleSave}
+            aria-label={isApplied ? 'Применено' : 'Применить'}
           >
-            Применить
+            {isApplied ? 'Применено' : 'Применить'}
           </button>
         </div>
       )}
@@ -1550,7 +1577,7 @@ export function ThresholdMenu({
           popoverRef={popoverRef}
           open={open}
           className="settings-popover threshold-popover"
-          expectedWidth={360}
+          expectedWidth={268}
           expectedHeight={480}
         >
           <ThresholdEditor
@@ -2257,8 +2284,8 @@ export function RowActionsMenu({
           popoverRef={popoverRef}
           open={open}
           className={`settings-popover row-actions-popover ${mode === 'employees' ? 'is-employee-selector-popover' : ''}`}
-          expectedWidth={mode === 'thresholds' || mode === 'employeeThresholds' ? 520 : mode === 'employees' ? 430 : 280}
-          expectedHeight={mode === 'thresholds' || mode === 'employeeThresholds' ? 330 : mode === 'employees' ? 620 : 200}
+          expectedWidth={mode === 'thresholds' || mode === 'employeeThresholds' ? 268 : mode === 'employees' ? 430 : 280}
+          expectedHeight={mode === 'thresholds' || mode === 'employeeThresholds' ? 480 : mode === 'employees' ? 620 : 200}
           constrainHeight={mode !== 'employees'}
           updateOnScroll={mode === 'actions'}
           verticalPlacement={mode === 'employees' ? 'anchor-start' : 'auto'}

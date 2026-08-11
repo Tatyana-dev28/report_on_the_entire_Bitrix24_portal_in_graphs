@@ -264,7 +264,9 @@ button {
 .threshold-popover {
   right: auto;
   left: 0;
-  width: min(300px, calc(100vw - 40px));
+  width: min(268px, calc(100vw - 40px));
+  max-width: var(--left-column-width, 280px);
+  box-sizing: border-box;
 }
 
 .row-threshold-popover {
@@ -646,6 +648,15 @@ button {
 .threshold-apply-button:disabled {
   cursor: default;
   opacity: 0.45;
+}
+
+.threshold-apply-button.is-applied,
+.threshold-apply-button.is-applied:disabled {
+  border-color: #c5d4c9;
+  background: #e8f2eb;
+  color: #5f7a68;
+  opacity: 1;
+  cursor: default;
 }
 
 .manual-apply-button {

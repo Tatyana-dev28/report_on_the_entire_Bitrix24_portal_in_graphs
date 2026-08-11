@@ -322,7 +322,10 @@ export const getChartSumValue = (
 export const MIN_TREND_POINTS = 2;
 
 /**
- * Linear trend over the visible period. Not a forecast — no future extension.
+ * Linear OLS trend over the visible period: y = a + b·t
+ *   b = Σ((t_i - t̄)(y_i - ȳ)) / Σ((t_i - t̄)²)
+ *   a = ȳ - b·t̄
+ * Not a forecast — no future extension.
  * Returns [] when there are too few points to draw a meaningful trend (F-11).
  */
 export function buildTrend(values: number[]): number[] {
@@ -331,21 +334,27 @@ export function buildTrend(values: number[]): number[] {
   }
 
   const n = values.length;
-  const finiteValues = values.map((value) => (Number.isFinite(value) ? value : 0));
-  const sumX = finiteValues.reduce((sum, _value, index) => sum + index, 0);
-  const sumY = finiteValues.reduce((sum, value) => sum + value, 0);
-  const sumXY = finiteValues.reduce((sum, value, index) => sum + index * value, 0);
-  const sumXX = finiteValues.reduce((sum, _value, index) => sum + index * index, 0);
-  const denominator = n * sumXX - sumX * sumX;
+  const ys = values.map((value) => (Number.isFinite(value) ? value : 0));
+  const meanT = (n - 1) / 2;
+  const meanY = ys.reduce((sum, value) => sum + value, 0) / n;
+
+  let numerator = 0;
+  let denominator = 0;
+
+  for (let index = 0; index < n; index += 1) {
+    const dt = index - meanT;
+    numerator += dt * (ys[index] - meanY);
+    denominator += dt * dt;
+  }
 
   if (denominator === 0) {
     return [];
   }
 
-  const slope = (n * sumXY - sumX * sumY) / denominator;
-  const intercept = (sumY - slope * sumX) / n;
+  const slope = numerator / denominator;
+  const intercept = meanY - slope * meanT;
 
-  return finiteValues.map((_value, index) => Math.round(intercept + slope * index));
+  return ys.map((_value, index) => intercept + slope * index);
 }
 
 export const getEmployeeInitials = (employee: MockEmployee) =>

@@ -3146,7 +3146,7 @@ function App() {
       items.push({
         label: 'Тренд',
         value: formatMainChartValue(Number(activeValues.trend), appliedFilters.metricMode),
-        color: 'rgba(34, 116, 255, 0.45)',
+        color: 'rgba(34, 116, 255, 0.55)',
       });
     }
 
@@ -6276,8 +6276,8 @@ function App() {
                           dataKey="trend"
                           name="Тренд"
                           stroke="#2274ff"
-                          strokeOpacity={0.28}
-                          strokeWidth={2}
+                          strokeOpacity={0.45}
+                          strokeWidth={2.5}
                           dot={false}
                           activeDot={false}
                           isAnimationActive={false}

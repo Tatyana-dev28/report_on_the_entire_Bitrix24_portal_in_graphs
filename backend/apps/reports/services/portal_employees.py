@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from apps.bitrix.models import BitrixPortal
-from apps.bitrix.services.rest_client import BitrixRestClient, BitrixRestError
+from apps.bitrix.services.rest_client import BitrixRestClient, BitrixRestError, build_batch_command
 
 logger = logging.getLogger(__name__)
 
@@ -29,16 +30,29 @@ def load_portal_employees(portal: BitrixPortal) -> list[dict[str, Any]]:
     try:
         client = BitrixRestClient(portal)
         # Without ACTIVE filter so the UI can optionally show dismissed users.
-        users = client.call_list("user.get", {})
+        # ADMIN_MODE helps return UF_DEPARTMENT for department grouping.
+        users = client.call_list(
+            "user.get",
+            {
+                "ADMIN_MODE": True,
+            },
+        )
     except BitrixRestError:
         logger.warning("Failed to load portal employees via user.get.", exc_info=True)
         return []
 
-    department_names = _load_department_names(portal)
+    needed_department_ids: set[str] = set()
+    for user in users:
+        if isinstance(user, dict):
+            needed_department_ids.update(_department_ids(user.get("UF_DEPARTMENT")))
+
+    department_names = _load_department_names(portal, needed_ids=needed_department_ids)
 
     employees: list[dict[str, Any]] = []
 
     for user in users:
+        if not isinstance(user, dict):
+            continue
         normalized = _normalize_portal_user(user, department_names)
         if normalized:
             employees.append(normalized)
@@ -70,6 +84,7 @@ def resolve_user_names_by_ids(
                 "user.get",
                 {
                     "FILTER": {"ID": unique_ids},
+                    "ADMIN_MODE": True,
                 },
             )
         except BitrixRestError:
@@ -92,7 +107,7 @@ def resolve_user_names_by_ids(
         missing_ids = [user_id for user_id in unique_ids if user_id not in resolved]
         for user_id in missing_ids:
             try:
-                response = client.call_method("user.get", {"ID": user_id})
+                response = client.call_method("user.get", {"ID": user_id, "ADMIN_MODE": True})
             except BitrixRestError:
                 continue
 
@@ -173,7 +188,7 @@ def _normalize_portal_user(user: dict[str, Any], department_names: dict[str, str
     departments = [
         {
             "id": department_id,
-            "name": department_names.get(department_id) or f"Подразделение {department_id}",
+            "name": department_names.get(department_id) or f"Отдел {department_id}",
         }
         for department_id in department_ids
     ]
@@ -216,25 +231,161 @@ def _is_generic_employee_payload_name(employee: dict[str, Any]) -> bool:
     return not name or name == f"Сотрудник {employee_id}"
 
 
-def _load_department_names(portal: BitrixPortal) -> dict[str, str]:
+def _load_department_names(
+    portal: BitrixPortal,
+    *,
+    needed_ids: set[str] | None = None,
+) -> dict[str, str]:
+    """Load department NAME by ID via department.get; fill gaps via batch/ID lookup."""
+    names: dict[str, str] = {}
+    needed_ids = {department_id for department_id in (needed_ids or set()) if department_id}
+
     try:
         client = BitrixRestClient(portal)
-        departments = client.call_list("department.get", {})
-    except BitrixRestError:
-        logger.warning("Failed to load portal departments via department.get.", exc_info=True)
-        return {}
+    except Exception:
+        logger.warning("Could not create Bitrix REST client for departments.", exc_info=True)
+        return names
+
+    token_scope = ""
+    try:
+        token_scope = str(getattr(client.auth_token, "scope", "") or "")
+    except Exception:
+        token_scope = ""
+
+    if token_scope and "department" not in {
+        part.strip().lower() for part in token_scope.replace(";", ",").split(",") if part.strip()
+    }:
+        logger.warning(
+            "Portal %s OAuth scope has no `department` (%s). "
+            "Add «Структура компании» in the Bitrix app and reinstall to load department names.",
+            portal.domain,
+            token_scope,
+        )
+
+    try:
+        departments = client.call_list(
+            "department.get",
+            {
+                "sort": "NAME",
+                "order": "ASC",
+            },
+        )
+        names.update(_department_names_from_rows(departments))
+    except BitrixRestError as error:
+        error_code = str(getattr(error, "error_code", "") or "").lower()
+        logger.warning(
+            "Failed to load portal departments via department.get (%s): %s",
+            error_code or "unknown",
+            error,
+            exc_info=True,
+        )
     except Exception:
         logger.warning("Unexpected error while loading portal departments.", exc_info=True)
-        return {}
 
+    missing_ids = sorted(needed_ids - set(names.keys()))
+    if missing_ids:
+        logger.info(
+            "Resolving %s missing department names for portal %s",
+            len(missing_ids),
+            portal.domain,
+        )
+        names.update(_resolve_department_names_by_ids(client, missing_ids))
+
+    if needed_ids and not names:
+        logger.warning(
+            "No department names resolved for portal %s (needed=%s). "
+            "Check that the app has the `department` scope and reinstall if needed.",
+            portal.domain,
+            len(needed_ids),
+        )
+    elif needed_ids:
+        still_missing = needed_ids - set(names.keys())
+        if still_missing:
+            logger.warning(
+                "Department names still missing for portal %s: %s",
+                portal.domain,
+                ", ".join(sorted(still_missing)[:20]),
+            )
+
+    return names
+
+
+def _resolve_department_names_by_ids(
+    client: BitrixRestClient,
+    department_ids: list[str],
+) -> dict[str, str]:
     names: dict[str, str] = {}
 
-    for department in departments:
-        if not isinstance(department, dict):
+    for offset in range(0, len(department_ids), 50):
+        chunk = department_ids[offset : offset + 50]
+        commands: dict[str, str] = {}
+        for index, department_id in enumerate(chunk):
+            try:
+                bitrix_id: Any = int(department_id) if department_id.isdigit() else department_id
+            except (TypeError, ValueError):
+                bitrix_id = department_id
+            commands[f"d{index}"] = build_batch_command("department.get", {"ID": bitrix_id})
+
+        try:
+            response = client.call_batch(commands, halt=False)
+        except BitrixRestError:
+            for department_id in chunk:
+                names.update(_fetch_one_department_name(client, department_id))
             continue
 
-        department_id = str(department.get("ID") or "").strip()
-        name = str(department.get("NAME") or "").strip()
+        result = response.result if isinstance(response.result, dict) else {}
+        result_map = result.get("result") if isinstance(result.get("result"), dict) else None
+
+        if not isinstance(result_map, dict):
+            for department_id in chunk:
+                names.update(_fetch_one_department_name(client, department_id))
+            continue
+
+        for command_key in commands:
+            names.update(_department_names_from_rows(_coerce_department_result(result_map.get(command_key))))
+
+    still_missing = [department_id for department_id in department_ids if department_id not in names]
+    for department_id in still_missing:
+        names.update(_fetch_one_department_name(client, department_id))
+
+    return names
+
+
+def _fetch_one_department_name(client: BitrixRestClient, department_id: str) -> dict[str, str]:
+    try:
+        bitrix_id: Any = int(department_id) if department_id.isdigit() else department_id
+        response = client.call_method("department.get", {"ID": bitrix_id})
+    except (BitrixRestError, TypeError, ValueError):
+        return {}
+
+    return _department_names_from_rows(_coerce_department_result(response.result))
+
+
+def _coerce_department_result(result: Any) -> list[Any]:
+    if result is None:
+        return []
+    if isinstance(result, list):
+        return result
+    if isinstance(result, dict):
+        if isinstance(result.get("items"), list):
+            return result["items"]
+        # Single department row.
+        if "ID" in result or "NAME" in result or "id" in result or "name" in result:
+            return [result]
+        # id → row map
+        return [value for value in result.values() if isinstance(value, dict)]
+    return []
+
+
+def _department_names_from_rows(rows: list[Any]) -> dict[str, str]:
+    names: dict[str, str] = {}
+
+    for row in _coerce_department_result(rows):
+        if not isinstance(row, dict):
+            continue
+
+        department_id = _normalize_department_id(row.get("ID") if "ID" in row else row.get("id"))
+        name = str(row.get("NAME") or row.get("name") or row.get("TITLE") or "").strip()
 
         if department_id and name:
             names[department_id] = name
@@ -267,12 +418,44 @@ def _is_technical_user(user: dict[str, Any]) -> bool:
     return user_type in {"email", "extranet"} and external_auth != ""
 
 
+def _normalize_department_id(value: Any) -> str:
+    if value is None or value is False:
+        return ""
+
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+
+    if isinstance(value, int):
+        return str(value)
+
+    text = str(value).strip()
+    if not text:
+        return ""
+
+    # JSON/PHP quirks: "101.0"
+    if re.fullmatch(r"\d+\.0+", text):
+        return text.split(".", 1)[0]
+
+    return text
+
+
 def _department_ids(raw_departments: Any) -> list[str]:
-    if raw_departments is None:
+    if raw_departments is None or raw_departments is False:
         return []
 
-    if isinstance(raw_departments, list):
-        return [str(item).strip() for item in raw_departments if str(item).strip()]
+    if isinstance(raw_departments, (list, tuple, set)):
+        collected: list[str] = []
+        for item in raw_departments:
+            if isinstance(item, (list, tuple, set)):
+                collected.extend(_department_ids(item))
+                continue
+            department_id = _normalize_department_id(item)
+            if department_id and department_id not in collected:
+                collected.append(department_id)
+        return collected
 
-    text = str(raw_departments).strip()
+    if isinstance(raw_departments, dict):
+        return _department_ids(list(raw_departments.values()))
+
+    text = _normalize_department_id(raw_departments)
     return [text] if text else []

@@ -13,7 +13,7 @@ export type EmployeeDirectoryItem = PortalEmployeeItem & {
 };
 
 export const NO_DEPARTMENT_ID = '__none__';
-export const NO_DEPARTMENT_LABEL = 'Без подразделения';
+export const NO_DEPARTMENT_LABEL = 'Без отдела';
 
 export type EmployeeDepartmentGroup = {
   id: string;
@@ -195,7 +195,7 @@ const resolveEmployeeDepartments = (
 
   return departmentIds.map((id, index) => ({
     id,
-    name: names[index] || (departmentIds.length === 1 ? (employee.department || `Подразделение ${id}`) : `Подразделение ${id}`),
+    name: names[index] || (departmentIds.length === 1 ? (employee.department || `Отдел ${id}`) : `Отдел ${id}`),
   }));
 };
 
@@ -213,7 +213,10 @@ export const buildEmployeeDepartmentGroups = (
         existing.employeeIds.push(employeeId);
       }
 
-      if (existing.label.startsWith('Подразделение ') && !label.startsWith('Подразделение ')) {
+      if (
+        (existing.label.startsWith('Подразделение ') || existing.label.startsWith('Отдел '))
+        && !(label.startsWith('Подразделение ') || label.startsWith('Отдел '))
+      ) {
         existing.label = label;
       }
 

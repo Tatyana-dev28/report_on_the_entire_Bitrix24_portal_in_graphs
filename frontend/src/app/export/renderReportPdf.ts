@@ -65,9 +65,18 @@ const renderHtmlPage = async (
   const pdfHeight = pdf.internal.pageSize.getHeight();
 
   const page = document.createElement('section');
-  page.className = 'pdf-page';
+  const chartsChrome = pageSpec.chrome === 'charts';
+  page.className = chartsChrome ? 'pdf-page is-charts-chrome' : 'pdf-page';
   page.style.background = '#ffffff';
-  page.innerHTML = `
+  page.innerHTML = chartsChrome
+    ? `
+    <div class="pdf-content">${pageSpec.buildBody()}</div>
+    <div class="pdf-footer">
+      <span>${escapeHtml(currentViewLabel)}</span>
+      <span>Страница ${pageIndex + 1} из ${pageCount}</span>
+    </div>
+  `
+    : `
     <div class="pdf-header">
       <div>
         <div class="pdf-title">${escapeHtml(pageSpec.title)}</div>

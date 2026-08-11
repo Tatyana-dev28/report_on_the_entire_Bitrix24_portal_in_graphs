@@ -905,7 +905,7 @@ export function TableSettingsMenu({
               <p className="table-settings-group-title">Графики в таблице</p>
               <p className="table-settings-group-hint">
                 {tableRowChartsMode === 'with_charts'
-                  ? 'Разово открыть или закрыть графики у всех строк.'
+                  ? 'Открыть или закрыть графики у всех строк.'
                   : 'Сначала включите режим «С графиками».'}
               </p>
               <div className="table-settings-chart-actions">

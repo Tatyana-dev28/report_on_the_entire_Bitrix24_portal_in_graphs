@@ -1,4 +1,3 @@
-import { formatMetricValue } from '../../services/report/reportCatalog';
 import type { MetricRow } from '../../services/report/reportCatalog';
 import {
   MAIN_INDICATOR_DIRECTION_KEY,
@@ -8,6 +7,7 @@ import {
 } from '../config/metricDirections';
 import { resolveDisplayedThresholdAverage, getThresholdClass } from '../utils/thresholds';
 import { getEmployeeFullName } from '../utils/employees';
+import { formatAxisTick, getChartDomain } from '../utils/reportCalculations';
 import type { TableRow, ThresholdValues } from '../types';
 import {
   buildSourceMetricActionIds,
@@ -115,6 +115,31 @@ const collectTableRowCharts = (input: ExportReportPdfInput): RowChartSpec[] => {
   return charts;
 };
 
+const buildNiceYTicks = (min: number, max: number, targetCount = 5): number[] => {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return [0, 1];
+  }
+
+  if (max <= min) {
+    return [min];
+  }
+
+  const roughStep = (max - min) / Math.max(1, targetCount - 1);
+  const magnitude = 10 ** Math.floor(Math.log10(Math.max(roughStep, Number.EPSILON)));
+  const residual = roughStep / magnitude;
+  const niceResidual = residual <= 1 ? 1 : residual <= 2 ? 2 : residual <= 5 ? 5 : 10;
+  const step = niceResidual * magnitude;
+  const niceMin = Math.floor(min / step) * step;
+  const niceMax = Math.ceil(max / step) * step;
+  const ticks: number[] = [];
+
+  for (let value = niceMin; value <= niceMax + step * 0.5; value += step) {
+    ticks.push(Number(value.toFixed(10)));
+  }
+
+  return ticks.length ? ticks : [min, max];
+};
+
 const makeSeriesChartSvg = ({
   values,
   labels,
@@ -132,7 +157,7 @@ const makeSeriesChartSvg = ({
   threshold?: ThresholdValues;
   direction: MetricDirection;
 }) => {
-  const left = 54;
+  const left = 58;
   const right = 16;
   const top = 14;
   const bottom = 30;
@@ -144,10 +169,13 @@ const makeSeriesChartSvg = ({
   const boundCandidates = [upperRaw, lowerRaw, averageRaw]
     .map((item) => Number(item))
     .filter((item) => Number.isFinite(item));
-  const chartMax = Math.max(1, ...values, ...boundCandidates);
-  const chartMin = Math.min(0, ...values, ...boundCandidates);
+  const [domainMin, domainMax] = getChartDomain([...values, ...boundCandidates]);
+  const yTicks = buildNiceYTicks(domainMin, domainMax, 5);
+  const chartMin = yTicks[0] ?? domainMin;
+  const chartMax = yTicks[yTicks.length - 1] ?? domainMax;
+  const ySpan = Math.max(chartMax - chartMin, 1);
   const yFor = (value: number) =>
-    top + innerHeight - ((value - chartMin) / Math.max(1, chartMax - chartMin)) * innerHeight;
+    top + innerHeight - ((value - chartMin) / ySpan) * innerHeight;
   const xFor = (index: number) =>
     left + (values.length <= 1 ? innerWidth / 2 : (index / (values.length - 1)) * innerWidth);
   const points = values.map((value, index) => `${xFor(index)},${yFor(value)}`).join(' ');
@@ -175,6 +203,20 @@ const makeSeriesChartSvg = ({
     })
     .join('');
 
+  const gridLines = yTicks
+    .map((tick) => {
+      const y = yFor(tick);
+      return `<line x1="${left}" y1="${y}" x2="${width - right}" y2="${y}" stroke="#edf0f4" stroke-width="1" />`;
+    })
+    .join('');
+
+  const yAxisLabels = yTicks
+    .map((tick) => {
+      const y = yFor(tick);
+      return `<text x="${left - 8}" y="${y + 4}" text-anchor="end" font-size="11" fill="#707782">${escapeHtml(formatAxisTick(tick, metricType))}</text>`;
+    })
+    .join('');
+
   const labelStep = Math.max(1, Math.ceil(labels.length / 8));
   const axisLabels = labels
     .map((label, index) => ({ label, index }))
@@ -197,10 +239,10 @@ const makeSeriesChartSvg = ({
     <div class="pdf-chart-wrap pdf-block">
       <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" style="background:#ffffff">
         <rect x="0" y="0" width="${width}" height="${height}" rx="8" fill="#ffffff" stroke="#dfe7f1" />
+        ${gridLines}
         <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}" stroke="#dfe7f1" />
         <line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" stroke="#dfe7f1" />
-        <text x="14" y="${top + 6}" font-size="11" fill="#7b8794">${escapeHtml(formatMetricValue(chartMax, metricType))}</text>
-        <text x="14" y="${height - bottom}" font-size="11" fill="#7b8794">${escapeHtml(formatMetricValue(chartMin, metricType))}</text>
+        ${yAxisLabels}
         ${corridorBand}
         ${thresholdLines}
         <polyline points="${points}" fill="none" stroke="#2274ff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
@@ -287,11 +329,21 @@ export const getPdfPageStyles = (
   .pdf-title { font-size: ${format === 'a3' ? 28 : 24}px; font-weight: 700; line-height: 1.15; color: #202938; }
   .pdf-meta { margin-top: 6px; color: #5f6b7a; font-size: 13px; }
   .pdf-meta div + div { margin-top: 3px; }
+  .pdf-chart-caption {
+    margin: 0 0 4px;
+    color: #111827;
+    font-size: ${format === 'a3' ? 15 : 14}px;
+    font-weight: 700;
+    line-height: 1.25;
+  }
   .pdf-generated { color: #5f6b7a; font-size: 12px; text-align: right; white-space: nowrap; background: #ffffff; }
   .pdf-content {
     height: ${pageHeight - pagePadding * 2 - 86}px;
     overflow: hidden;
     background: #ffffff;
+  }
+  .pdf-page.is-charts-chrome .pdf-content {
+    height: ${pageHeight - pagePadding * 2 - 42}px;
   }
   .pdf-block { break-inside: avoid; page-break-inside: avoid; background: #ffffff; }
   .pdf-section-title { margin: 14px 0 8px; font-size: ${format === 'a3' ? 18 : 16}px; font-weight: 700; color: #202938; }
@@ -561,9 +613,9 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
       pages.push({
         kind: 'html',
         title: 'Графики по строкам',
+        chrome: 'charts',
         buildBody: () => `
           <div class="pdf-block">
-            <div class="pdf-section-title">Графики по строкам таблицы</div>
             <div class="pdf-meta">
               В таблице нет показателей или сотрудников для графиков — в PDF только главный график и числа.
             </div>
@@ -572,20 +624,20 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
       });
     } else {
       chartChunks.forEach((chartChunk, chunkIndex) => {
-        const part = chartChunks.length > 1 ? ` · ${chunkIndex + 1}/${chartChunks.length}` : '';
         pages.push({
           kind: 'html',
-          title: `Графики по строкам${part}`,
+          title: `Графики по строкам`,
+          chrome: 'charts',
           buildBody: () => `
             <div class="pdf-block">
-              <div class="pdf-section-title">Графики по строкам таблицы${escapeHtml(part)}</div>
               ${chartChunk
-                .map((spec) => {
+                .map((spec, specIndex) => {
                   const miniWidth = contentWidth - 18;
                   const miniHeight = format === 'a3' ? 168 : 142;
+                  const topGap = specIndex === 0 ? '0' : '12px';
                   return `
-                    <div class="pdf-block" style="margin-top:10px">
-                      <div class="pdf-meta" style="margin-bottom:4px">${escapeHtml(spec.title)}</div>
+                    <div class="pdf-block" style="margin-top:${topGap}">
+                      <div class="pdf-chart-caption">${escapeHtml(spec.title)}</div>
                       ${makeSeriesChartSvg({
                         values: spec.values,
                         labels: reportData.map((point) => point.label),

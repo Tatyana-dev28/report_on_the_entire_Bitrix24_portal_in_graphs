@@ -23,6 +23,8 @@ export type PdfHtmlPageSpec = {
   kind: 'html';
   title: string;
   buildBody: () => string;
+  /** `charts` skips the portal/period header above row-chart pages. */
+  chrome?: 'full' | 'charts';
 };
 
 export type PdfTablePageSpec = {

@@ -22,8 +22,6 @@ import {
   ChevronUp,
   Cog,
   Crown,
-  Download,
-  FileText,
   LifeBuoy,
   MoreVertical,
   Minus,
@@ -82,7 +80,6 @@ import {
   MIN_PERIOD_COLUMN_WIDTH,
   MONTH_LABELS,
   PERIOD_COLUMN_WIDTH,
-  buttonLabels,
   chartDisplayModeOptions,
   chartMetricModeOptions,
   chartSeriesColors,
@@ -222,6 +219,7 @@ import {
 import {
   ConfigureChartMenu,
   DateRangePicker,
+  ReportDownloadMenu,
   RowActionsMenu,
   RowMetricChart,
   SavedViewsSelect,
@@ -5762,7 +5760,7 @@ function App() {
     valueStates,
   ]);
 
-  const exportPdf = useCallback(async () => {
+  const exportPdf = useCallback(async (includeRowCharts: boolean) => {
     if (!hasBuiltReport || !reportData.length || pdfExporting) {
       return;
     }
@@ -5772,25 +5770,16 @@ function App() {
     const portalLabel = params.get('DOMAIN') || params.get('domain') || 'Портал Bitrix24';
     const periodOptionLabel = periodOptions.find((option) => option.value === appliedFilters.period)?.label ?? 'Группировка';
     const periodLabel = formatRangeLabel(appliedFilters.period, appliedFilters.dateRange);
-    const exportMode = tableRowChartsMode === 'with_charts' ? 'with_charts' : 'compact';
-    // PDF cannot embed every row mini-chart; offer compact numbers table when charts mode is on.
-    const includeRowChartsInPdf =
-      exportMode === 'with_charts'
-      && window.confirm(
-        'Сейчас открыт режим «С графиками».\n\nOK — PDF как на экране (раскрытые строки; строковые графики в PDF не рисуются).\nОтмена — компактная таблица только с числами.',
-      );
 
     setPdfExporting(true);
-    setNotification('Формируем PDF…');
+    setNotification(includeRowCharts ? 'Формируем PDF с графиками…' : 'Формируем PDF…');
 
     try {
       await exportReportPdf(
         {
           hasBuiltReport,
           reportData,
-          tableRows: includeRowChartsInPdf
-            ? tableRows
-            : tableRows.filter((row) => row.kind !== 'chart' && row.kind !== 'employee_chart'),
+          tableRows: tableRows.filter((row) => row.kind !== 'chart' && row.kind !== 'employee_chart'),
           chartData,
           appliedFilters: {
             period: appliedFilters.period,
@@ -5798,18 +5787,25 @@ function App() {
             metricMode: appliedFilters.metricMode,
           },
           mainThreshold,
+          rowThresholds,
+          employeeThresholdsByMetricId,
+          metricDirectionsById,
           sourceMetrics,
           valueStates,
           currentViewLabel,
           portalLabel,
           periodOptionLabel,
           periodLabel,
-          tableRowChartsMode: includeRowChartsInPdf ? 'with_charts' : 'compact',
+          tableRowChartsMode: includeRowCharts ? 'with_charts' : 'compact',
           mainChartSourcesLabel: mainIndicatorCaption.titleFull,
         },
         {
           onProgress: (current, total) => {
-            setNotification(`Формируем PDF… страница ${current} из ${total}`);
+            setNotification(
+              includeRowCharts
+                ? `Формируем PDF с графиками… страница ${current} из ${total}`
+                : `Формируем PDF… страница ${current} из ${total}`,
+            );
           },
         },
       );
@@ -5829,13 +5825,15 @@ function App() {
     hasBuiltReport,
     mainIndicatorCaption.titleFull,
     mainThreshold,
+    metricDirectionsById,
+    employeeThresholdsByMetricId,
     pdfExporting,
     periodOptions,
     reportData,
+    rowThresholds,
     savedViews,
     selectedView,
     sourceMetrics,
-    tableRowChartsMode,
     tableRows,
     valueStates,
   ]);
@@ -5903,27 +5901,17 @@ function App() {
             >
               <Crown size={18} className={`pro-crown-icon${!isProUser ? ' pro-crown-icon--promo' : ''}`} />
             </TooltipButton>
-            <TooltipButton
-              label="Построить отчёт"
-              onClick={runUnifiedReportBuild}
-              className="build-report-icon-button"
-              disabled={reportLoading || Boolean(sectionRetryingId)}
-            >
-              <Play size={18} />
-            </TooltipButton>
-            <button className="action-button green-button" type="button" onClick={exportExcel}>
-              <Download size={17} />
-              <span>{buttonLabels.download}</span>
-            </button>
-            <button
-              className="action-button purple-button"
-              type="button"
-              onClick={exportPdf}
-              disabled={pdfExporting}
-            >
-              <FileText size={17} />
-              <span>Скачать PDF</span>
-            </button>
+            <ReportDownloadMenu
+              disabled={!hasBuiltReport || !reportData.length || reportLoading}
+              pdfBusy={pdfExporting}
+              onSelect={(option) => {
+                if (option === 'excel') {
+                  void exportExcel();
+                  return;
+                }
+                void exportPdf(option === 'pdf_charts');
+              }}
+            />
           </div>
         </header>
 
@@ -5998,15 +5986,6 @@ function App() {
                     <span>Рассчитать коридоры и подсветить отклонения</span>
                   </label>
                   <button
-                    className="left-panel-action-button"
-                    type="button"
-                    onClick={runAutomaticReportBuild}
-                    disabled={reportLoading || Boolean(sectionRetryingId)}
-                  >
-                    <Play size={16} />
-                    <span>Построить автоматически</span>
-                  </button>
-                  <button
                     className="left-panel-action-button left-build-button"
                     type="button"
                     onClick={runUnifiedReportBuild}
@@ -6014,6 +5993,15 @@ function App() {
                   >
                     <Play size={16} />
                     <span>Построить отчёт</span>
+                  </button>
+                  <button
+                    className="left-panel-action-button left-auto-build-button"
+                    type="button"
+                    onClick={runAutomaticReportBuild}
+                    disabled={reportLoading || Boolean(sectionRetryingId)}
+                  >
+                    <Play size={16} />
+                    <span>Построить автоматически</span>
                   </button>
                 </div>
               </div>

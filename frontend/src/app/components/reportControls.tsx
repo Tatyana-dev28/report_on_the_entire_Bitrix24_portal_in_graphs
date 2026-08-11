@@ -13,6 +13,9 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Download,
+  FileSpreadsheet,
+  FileText,
   MoreVertical,
   Settings2,
   SlidersHorizontal,
@@ -858,8 +861,8 @@ export function TableSettingsMenu({
           popoverRef={popoverRef}
           open={open}
           className="settings-popover table-settings-popover"
-          expectedWidth={300}
-          expectedHeight={760}
+          expectedWidth={320}
+          expectedHeight={860}
           updateOnScroll={false}
         >
           <div className="table-settings-head">
@@ -874,49 +877,61 @@ export function TableSettingsMenu({
             </button>
           </div>
           <div className="table-settings-display-block">
-            <p className="table-settings-group-title">Отображение строк</p>
-            <p className="table-settings-group-hint">
-              Компактный — только числа. С графиками — графики под выбранными строками.
-            </p>
-            <div className="table-settings-mode-options" role="radiogroup" aria-label="Режим отображения таблицы">
-              <label className={`table-settings-mode-option ${tableRowChartsMode === 'compact' ? 'is-active' : ''}`}>
-                <input
-                  type="radio"
-                  name="table-row-charts-mode"
-                  checked={tableRowChartsMode === 'compact'}
-                  onChange={() => onTableRowChartsModeChange?.('compact')}
-                />
-                <span>Компактный</span>
-              </label>
-              <label className={`table-settings-mode-option ${tableRowChartsMode === 'with_charts' ? 'is-active' : ''}`}>
-                <input
-                  type="radio"
-                  name="table-row-charts-mode"
-                  checked={tableRowChartsMode === 'with_charts'}
-                  onChange={() => onTableRowChartsModeChange?.('with_charts')}
-                />
-                <span>С графиками</span>
-              </label>
+            <div className="table-settings-section">
+              <p className="table-settings-group-title">Как показывать строки</p>
+              <div className="table-settings-mode-options" role="radiogroup" aria-label="Как показывать строки">
+                <label className={`table-settings-mode-option ${tableRowChartsMode === 'compact' ? 'is-active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="table-row-charts-mode"
+                    checked={tableRowChartsMode === 'compact'}
+                    onChange={() => onTableRowChartsModeChange?.('compact')}
+                  />
+                  <span>Компактный</span>
+                </label>
+                <label className={`table-settings-mode-option ${tableRowChartsMode === 'with_charts' ? 'is-active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="table-row-charts-mode"
+                    checked={tableRowChartsMode === 'with_charts'}
+                    onChange={() => onTableRowChartsModeChange?.('with_charts')}
+                  />
+                  <span>С графиками</span>
+                </label>
+              </div>
             </div>
-            <div className="table-settings-chart-actions">
-              <button
-                className="table-settings-chart-action"
-                type="button"
-                onClick={() => {
-                  onExpandAllRowCharts?.();
-                }}
-              >
-                Развернуть все графики
-              </button>
-              <button
-                className="table-settings-chart-action"
-                type="button"
-                onClick={() => {
-                  onCollapseAllRowCharts?.();
-                }}
-              >
-                Свернуть все графики
-              </button>
+
+            <div className="table-settings-section">
+              <p className="table-settings-group-title">Графики в таблице</p>
+              <p className="table-settings-group-hint">
+                {tableRowChartsMode === 'with_charts'
+                  ? 'Разово открыть или закрыть графики у всех строк.'
+                  : 'Сначала включите режим «С графиками».'}
+              </p>
+              <div className="table-settings-chart-actions">
+                <button
+                  className="table-settings-chart-button"
+                  type="button"
+                  disabled={tableRowChartsMode !== 'with_charts'}
+                  title={tableRowChartsMode !== 'with_charts' ? 'Сначала включите режим «С графиками»' : undefined}
+                  onClick={() => {
+                    onExpandAllRowCharts?.();
+                  }}
+                >
+                  Развернуть все
+                </button>
+                <button
+                  className="table-settings-chart-button"
+                  type="button"
+                  disabled={tableRowChartsMode !== 'with_charts'}
+                  title={tableRowChartsMode !== 'with_charts' ? 'Сначала включите режим «С графиками»' : undefined}
+                  onClick={() => {
+                    onCollapseAllRowCharts?.();
+                  }}
+                >
+                  Свернуть все
+                </button>
+              </div>
             </div>
           </div>
           <div className="table-settings-sources-block">
@@ -1253,7 +1268,6 @@ export function ThresholdEditor({
       average: average.trim(),
       mode: 'manual',
     });
-    onClose();
   };
 
   const applyAutomatic = () => {
@@ -1267,7 +1281,6 @@ export function ThresholdEditor({
       average: recommended.average,
       mode: 'recommended',
     });
-    onClose();
   };
 
   const handleSave = () => {
@@ -1300,8 +1313,13 @@ export function ThresholdEditor({
     <div className="threshold-editor">
       <div className="threshold-popover-head">
         <p>Коридор показателя</p>
-        <button className="popover-reset-button compact-reset-button" type="button" onClick={resetValues}>
-          Сбросить
+        <button
+          className="row-menu-close"
+          type="button"
+          aria-label="Закрыть настройки коридора"
+          onClick={onClose}
+        >
+          <X size={14} />
         </button>
       </div>
       {calculationPeriodLabel ? (
@@ -1430,14 +1448,23 @@ export function ThresholdEditor({
           </div>
         </div>
       ) : (
-        <button
-          className={`threshold-apply-button threshold-save-button ${isAutoMode ? 'recommended-apply-button' : 'manual-apply-button'}`}
-          type="button"
-          disabled={isAutoMode && !canSaveAuto}
-          onClick={handleSave}
-        >
-          Сохранить коридор
-        </button>
+        <div className="threshold-editor-actions">
+          <button
+            className="popover-reset-button"
+            type="button"
+            onClick={resetValues}
+          >
+            Сбросить
+          </button>
+          <button
+            className={`threshold-apply-button ${isAutoMode ? 'recommended-apply-button' : 'manual-apply-button'}`}
+            type="button"
+            disabled={isAutoMode && !canSaveAuto}
+            onClick={handleSave}
+          >
+            Применить
+          </button>
+        </div>
       )}
     </div>
   );
@@ -1468,7 +1495,8 @@ export function ThresholdMenu({
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
+  // Corridor panel closes only via the editor × — not outside click / Apply / Reset.
+  const ref = useOutsideClose<HTMLDivElement>(false, () => setOpen(false), [popoverRef]);
 
   useEffect(() => {
     if (!menuGroup || !menuKey) {
@@ -1490,18 +1518,18 @@ export function ThresholdMenu({
     };
   }, [menuGroup, menuKey]);
 
-  const toggleOpen = () => {
-    setOpen((current) => {
-      const nextOpen = !current;
+  const openCorridor = () => {
+    if (open) {
+      return;
+    }
 
-      if (nextOpen && menuGroup && menuKey) {
-        window.dispatchEvent(new CustomEvent('nested-menu-open', {
-          detail: { group: menuGroup, key: menuKey },
-        }));
-      }
+    if (menuGroup && menuKey) {
+      window.dispatchEvent(new CustomEvent('nested-menu-open', {
+        detail: { group: menuGroup, key: menuKey },
+      }));
+    }
 
-      return nextOpen;
-    });
+    setOpen(true);
   };
 
   return (
@@ -1510,7 +1538,7 @@ export function ThresholdMenu({
         className="threshold-trigger"
         type="button"
         aria-expanded={open}
-        onClick={toggleOpen}
+        onClick={openCorridor}
       >
         <SlidersHorizontal size={17} />
         <span>Коридор показателя</span>
@@ -2354,7 +2382,7 @@ export function RowActionsMenu({
                   type="search"
                   placeholder={
                     showDepartmentList
-                      ? 'Поиск по подразделениям'
+                      ? 'Поиск по отделам'
                       : 'Поиск по сотрудникам'
                   }
                   value={employeeSearch}
@@ -2415,7 +2443,7 @@ export function RowActionsMenu({
                       ))
                     ) : (
                       <div className="employee-selector-empty">
-                        Подразделения не найдены
+                        Отделы не найдены
                       </div>
                     )
                   ) : (
@@ -2495,8 +2523,8 @@ export function RowActionsMenu({
                   type="button"
                   role="tab"
                   aria-selected={employeeBrowseMode === 'departments'}
-                  title="Подразделения"
-                  aria-label="Подразделения"
+                  title="Отделы"
+                  aria-label="Отделы"
                   onClick={() => setBrowseMode('departments')}
                 >
                   <Network size={16} />
@@ -2505,19 +2533,6 @@ export function RowActionsMenu({
             </div>
           ) : mode === 'thresholds' ? (
             <div className="row-threshold-fields">
-              <div className="row-popover-head">
-                <button type="button" onClick={() => setMode('actions')}>
-                  Назад
-                </button>
-                <button
-                  className="row-menu-close"
-                  type="button"
-                  aria-label="Закрыть меню"
-                  onClick={() => setOpen(false)}
-                >
-                  <X size={14} />
-                </button>
-              </div>
               <ThresholdEditor
                 threshold={threshold}
                 recommended={recommendedThreshold}
@@ -2527,24 +2542,11 @@ export function RowActionsMenu({
                 onDirectionChange={onDirectionChange}
                 onApply={onThresholdChange}
                 onReset={() => onThresholdChange({ upper: '', lower: '', mode: null })}
-                onClose={() => setOpen(false)}
+                onClose={() => setMode('actions')}
               />
             </div>
           ) : (
             <div className="row-threshold-fields">
-              <div className="row-popover-head">
-                <button type="button" onClick={() => setMode('actions')}>
-                  Назад
-                </button>
-                <button
-                  className="row-menu-close"
-                  type="button"
-                  aria-label="Закрыть меню"
-                  onClick={() => setOpen(false)}
-                >
-                  <X size={14} />
-                </button>
-              </div>
               <ThresholdEditor
                 threshold={employeeThreshold}
                 recommended={employeeRecommendedThreshold}
@@ -2554,7 +2556,7 @@ export function RowActionsMenu({
                 onDirectionChange={onDirectionChange}
                 onApply={onEmployeeThresholdChange}
                 onReset={() => onEmployeeThresholdChange({ upper: '', lower: '', mode: null })}
-                onClose={() => setOpen(false)}
+                onClose={() => setMode('actions')}
               />
             </div>
           )}
@@ -2792,6 +2794,97 @@ function RowMetricChartContent({
           valueFormatter={(value) => formatMetricValue(value, metric.type)}
           summary={tooltipSummary}
         />
+      )}
+    </div>
+  );
+}
+
+export type ReportDownloadOption = 'excel' | 'pdf' | 'pdf_charts';
+
+export function ReportDownloadMenu({
+  disabled = false,
+  pdfBusy = false,
+  onSelect,
+}: {
+  disabled?: boolean;
+  pdfBusy?: boolean;
+  onSelect: (option: ReportDownloadOption) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
+  const busy = disabled || pdfBusy;
+
+  return (
+    <div className={`report-download-shell ${open ? 'is-open' : ''}`} ref={ref}>
+      <button
+        className="action-button green-button report-download-trigger"
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        disabled={busy}
+        onClick={() => {
+          if (busy) {
+            return;
+          }
+          setOpen((current) => !current);
+        }}
+      >
+        <Download size={17} />
+        <span>{pdfBusy ? 'Формируем PDF…' : 'Скачать'}</span>
+        <ChevronDown size={16} />
+      </button>
+      {open && (
+        <FloatingPopover
+          anchorRef={ref}
+          popoverRef={popoverRef}
+          open={open}
+          className="settings-popover report-download-popover"
+          expectedWidth={280}
+          expectedHeight={180}
+        >
+          <div className="report-download-menu" role="menu" aria-label="Скачать отчёт">
+            <button
+              type="button"
+              role="menuitem"
+              className="report-download-option"
+              onClick={() => {
+                setOpen(false);
+                onSelect('excel');
+              }}
+            >
+              <FileSpreadsheet size={16} />
+              <span>Excel</span>
+              <em>таблица без графиков</em>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="report-download-option"
+              onClick={() => {
+                setOpen(false);
+                onSelect('pdf');
+              }}
+            >
+              <FileText size={16} />
+              <span>PDF без графиков</span>
+              <em>цифры + главный график</em>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="report-download-option"
+              onClick={() => {
+                setOpen(false);
+                onSelect('pdf_charts');
+              }}
+            >
+              <FileText size={16} />
+              <span>PDF с графиками</span>
+              <em>главный + все строки таблицы</em>
+            </button>
+          </div>
+        </FloatingPopover>
       )}
     </div>
   );

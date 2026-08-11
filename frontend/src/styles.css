@@ -568,7 +568,15 @@ button {
   gap: 8px;
 }
 
-.threshold-save-button {
+.threshold-editor-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.threshold-editor-actions .popover-reset-button,
+.threshold-editor-actions .threshold-apply-button {
   width: 100%;
 }
 
@@ -841,24 +849,71 @@ button {
   background: #7c5cff;
 }
 
+.report-download-shell {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.report-download-trigger {
+  min-width: 0;
+}
+
+.report-download-popover {
+  padding: 6px;
+}
+
+.report-download-menu {
+  display: grid;
+  gap: 4px;
+}
+
+.report-download-option {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  row-gap: 2px;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #242932;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.report-download-option svg {
+  grid-row: 1 / span 2;
+  color: #5b6573;
+}
+
+.report-download-option span {
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.report-download-option em {
+  grid-column: 2;
+  color: #6b7280;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.25;
+}
+
+.report-download-option:hover,
+.report-download-option:focus-visible {
+  background: #f3f7fc;
+}
+
 .action-button:disabled {
   opacity: 0.72;
   cursor: wait;
-}
-
-.build-report-icon-button {
-  width: 42px;
-  height: 42px;
-  border-color: #2274ff;
-  background: var(--blue);
-  color: #ffffff;
-}
-
-.build-report-icon-button:hover,
-.build-report-icon-button:focus-visible {
-  border-color: #1e66dc;
-  background: #1e66dc;
-  color: #ffffff;
 }
 
 .action-button:hover {
@@ -930,7 +985,9 @@ button {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 10px;
-  max-height: min(680px, calc(100vh - 72px));
+  /* Tall panel so the sources list gets most of the viewport for browsing. */
+  height: min(860px, calc(100vh - 48px));
+  max-height: min(860px, calc(100vh - 48px));
   overflow: hidden;
 }
 
@@ -971,10 +1028,16 @@ button {
 .table-settings-display-block {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 0 0 12px;
+  gap: 10px;
+  padding: 0 0 10px;
   border-bottom: 1px solid #e7edf5;
   min-height: 0;
+}
+
+.table-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .table-settings-popover .table-settings-group-title,
@@ -983,25 +1046,28 @@ button {
 }
 
 .table-settings-popover .table-settings-group-hint {
-  margin-bottom: 4px;
+  margin-bottom: 0;
 }
 
 .table-settings-mode-options {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
 
 .table-settings-mode-option {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 8px;
   border: 1px solid #d9e2ef;
   border-radius: 8px;
   cursor: pointer;
   color: #30343b;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
 .table-settings-mode-option.is-active {
@@ -1011,29 +1077,40 @@ button {
 
 .table-settings-mode-option input {
   margin: 0;
+  flex: 0 0 auto;
 }
 
 .table-settings-chart-actions {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
 
-.table-settings-chart-action {
-  border: 1px solid #d9e2ef;
-  background: #fff;
+.table-settings-chart-button {
+  min-height: 30px;
+  border: 1px solid #2274ff;
+  background: #2274ff;
   border-radius: 8px;
-  padding: 8px 10px;
-  text-align: left;
+  padding: 0 8px;
+  text-align: center;
   cursor: pointer;
-  color: #30343b;
-  font-size: 13px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.2;
 }
 
-.table-settings-chart-action:hover,
-.table-settings-chart-action:focus-visible {
-  border-color: #8bbcff;
-  background: #f7fbff;
+.table-settings-chart-button:hover,
+.table-settings-chart-button:focus-visible {
+  border-color: #1b63db;
+  background: #1b63db;
+}
+
+.table-settings-chart-button:disabled {
+  border-color: #d7dde7;
+  background: #eef1f5;
+  color: #9aa3af;
+  cursor: default;
 }
 
 .row-chart-lazy-host {
@@ -1055,6 +1132,7 @@ button {
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+  flex: 1 1 auto;
 }
 
 .table-settings-sources-block .table-settings-group-title {
@@ -1435,6 +1513,19 @@ button {
 
 .left-build-toggle span {
   min-width: 0;
+}
+
+.left-auto-build-button {
+  border-color: #8bbcff;
+  background: #eef5ff;
+  color: #1a5fd4;
+}
+
+.left-auto-build-button:hover,
+.left-auto-build-button:focus-visible {
+  border-color: #6aa8ff;
+  background: #e3efff;
+  color: #154db0;
 }
 
 .left-build-button {
@@ -4414,8 +4505,7 @@ button {
     height: 38px;
   }
 
-  .icon-button,
-  .build-report-icon-button {
+  .icon-button {
     width: 38px;
     height: 38px;
     flex-basis: 38px;
@@ -4562,12 +4652,6 @@ button {
   }
 
   .icon-button {
-    width: 34px;
-    height: 34px;
-    flex-basis: 34px;
-  }
-
-  .build-report-icon-button {
     width: 34px;
     height: 34px;
     flex-basis: 34px;

@@ -611,6 +611,24 @@ const getValueCellDisplay = (
   };
 };
 
+/** True when a cell shows a real non-zero number (not 0 and not «—»). */
+const isNonZeroPeriodValue = (
+  value: number | undefined,
+  state?: ValueStateMap[string][string],
+) => {
+  if (state) {
+    return false;
+  }
+
+  return typeof value === 'number' && Number.isFinite(value) && value !== 0;
+};
+
+const reportRowHasNonZeroValues = (
+  points: ReportPoint[],
+  readValue: (point: ReportPoint) => number | undefined,
+  readState?: (point: ReportPoint) => ValueStateMap[string][string] | undefined,
+) => points.some((point) => isNonZeroPeriodValue(readValue(point), readState?.(point)));
+
 const getValueCellOpenTooltip = (
   value: number | undefined,
   metricLabel: string,
@@ -1479,6 +1497,7 @@ function App() {
   const [expandedChartMetricIds, setExpandedChartMetricIds] = useState<Set<string>>(() => new Set());
   const [expandedEmployeeChartIds, setExpandedEmployeeChartIds] = useState<Set<string>>(() => new Set());
   const [tableRowChartsMode, setTableRowChartsMode] = useState<TableRowChartsMode>('compact');
+  const [hideZeroRows, setHideZeroRows] = useState(false);
 
   const suppressNextReportSettingsTouch = useCallback(() => {
     suppressReportSettingsTouchRef.current = true;
@@ -1599,7 +1618,7 @@ function App() {
     setExpandedEmployeeMetricIds(new Set());
     setExpandedChartMetricIds(new Set());
     setExpandedEmployeeChartIds(new Set());
-    // Keep tableRowChartsMode — user preference across rebuilds.
+    // Keep tableRowChartsMode / hideZeroRows — user preference across rebuilds.
     setDetailContext(null);
     setTableLeadingSourceId(null);
   }, []);
@@ -3200,8 +3219,50 @@ function App() {
       const activeMetricIdsBySection = hasBuiltReport
         ? appliedEnabledMetricIdsBySection
         : enabledMetricIdsBySection;
+      const shouldHideZeroRows = hideZeroRows && hasBuiltReport && reportData.length > 0;
+
+      const metricHasNonZero = (metricId: string) =>
+        reportRowHasNonZeroValues(
+          reportData,
+          (point) => point.values[metricId],
+          (point) => valueStates[point.key]?.[metricId],
+        );
+
+      const sourceMetricHasNonZero = (
+        valuesByPeriod: Record<string, number> | undefined,
+        actionIds: string[],
+      ) =>
+        reportRowHasNonZeroValues(
+          reportData,
+          (point) => readValuesByPeriod(valuesByPeriod, point.key),
+          (point) => resolvePeriodValueState(valueStates, point.key, actionIds),
+        );
+
+      const employeeHasNonZero = (employee: ReportEmployee, metricId: string) =>
+        reportRowHasNonZeroValues(
+          reportData,
+          (point) => getEmployeePeriodMetricValue(employee, point, metricId),
+          (point) => valueStates[point.key]?.[metricId],
+        );
 
       const standardRows: TableRow[] = visibleSections.flatMap((section) => {
+        const orderedMetricIds = mergeIdOrder(
+          metricOrderBySection[section.id] ?? [],
+          section.metricIds,
+        );
+        const enabledMetricIds = activeMetricIdsBySection[section.id] ?? new Set<string>();
+        const enabledMetrics = orderedMetricIds
+          .filter((metricId) => enabledMetricIds.has(metricId))
+          .map((metricId) => metricMap.get(metricId))
+          .filter((metric): metric is MetricRow => Boolean(metric));
+        const visibleMetrics = shouldHideZeroRows
+          ? enabledMetrics.filter((metric) => metricHasNonZero(metric.id))
+          : enabledMetrics;
+
+        if (shouldHideZeroRows && visibleMetrics.length === 0) {
+          return [];
+        }
+
         const rows: TableRow[] = [
           { kind: 'section', rowId: `section-${section.id}`, sectionId: section.id, label: section.label },
         ];
@@ -3210,24 +3271,7 @@ function App() {
           return rows;
         }
 
-        const orderedMetricIds = mergeIdOrder(
-          metricOrderBySection[section.id] ?? [],
-          section.metricIds,
-        );
-
-        const enabledMetricIds = activeMetricIdsBySection[section.id] ?? new Set<string>();
-
-        orderedMetricIds.forEach((metricId) => {
-          if (!enabledMetricIds.has(metricId)) {
-            return;
-          }
-
-          const metric = metricMap.get(metricId);
-
-          if (!metric) {
-            return;
-          }
-
+        visibleMetrics.forEach((metric) => {
           rows.push({
             kind: 'metric',
             rowId: `metric-${metric.id}`,
@@ -3258,6 +3302,10 @@ function App() {
             });
 
             detailResolution.employees.forEach((employee, employeeIndex) => {
+              if (shouldHideZeroRows && !employeeHasNonZero(employee, metric.id)) {
+                return;
+              }
+
               rows.push({
                 kind: 'employee',
                 rowId: `employee-${metric.id}-${employee.id}`,
@@ -3370,14 +3418,18 @@ function App() {
 
           const sourceData = sourceItem.data;
           const isPlaceholder = sourceItem.isPlaceholder;
-          sourceSectionRows.push({
-            kind: 'source_section',
-            rowId: `source-section-${sourceKey}`,
-            sourceId: sourceKey,
-            label: sourceItem.label,
-          });
 
           if (!sourceData) {
+            if (shouldHideZeroRows) {
+              return;
+            }
+
+            sourceSectionRows.push({
+              kind: 'source_section',
+              rowId: `source-section-${sourceKey}`,
+              sourceId: sourceKey,
+              label: sourceItem.label,
+            });
             return;
           }
 
@@ -3386,42 +3438,78 @@ function App() {
             sourceMetricOrderBySource[sourceKey] ?? [],
             defaultMetricKeys,
           );
+          const activeSourceMetricKeys = hasBuiltReport
+            ? appliedEnabledMetricKeysBySource[sourceKey]
+            : enabledMetricKeysBySource[sourceKey];
+
+          const visibleSourceMetrics = orderedMetricKeys.flatMap((metricKey) => {
+            const metric = sourceData.metrics[metricKey];
+            if (!metric) {
+              return [];
+            }
+
+            // Missing entry = default "all enabled"; empty Set = none.
+            if (!isPlaceholder && activeSourceMetricKeys && !activeSourceMetricKeys.has(metricKey)) {
+              return [];
+            }
+
+            const actionIds = buildSourceMetricActionIds(sourceKey, metricKey, sourceData);
+            if (
+              shouldHideZeroRows
+              && !sourceMetricHasNonZero(metric.valuesByPeriod, actionIds)
+            ) {
+              return [];
+            }
+
+            const actionId = buildSourceMetricActionId(sourceKey, metricKey);
+            const valueType: MetricRow['type'] =
+              metric.valueType === 'money'
+                ? 'money'
+                : metric.valueType === 'percent'
+                  ? 'percent'
+                  : 'number';
+
+            return [{
+              metricKey,
+              metric,
+              actionId,
+              valueType,
+              syntheticMetric: {
+                id: actionId,
+                label: metric.label,
+                type: valueType,
+                base: 0,
+              } satisfies MetricRow,
+              detailSourceIds: sourceData.detailSourceIds ?? [],
+              detailMetricIds: metric.detailMetricIds ?? [],
+            }];
+          });
+
+          if (shouldHideZeroRows && visibleSourceMetrics.length === 0) {
+            return;
+          }
+
+          sourceSectionRows.push({
+            kind: 'source_section',
+            rowId: `source-section-${sourceKey}`,
+            sourceId: sourceKey,
+            label: sourceItem.label,
+          });
 
           // Same as CRM sections: collapsed source blocks only keep the header row.
           if (!expandedSourceSections.has(sourceKey)) {
             return;
           }
 
-          orderedMetricKeys.forEach((metricKey) => {
-            const metric = sourceData.metrics[metricKey];
-            if (!metric) {
-              return;
-            }
-
-            const activeSourceMetricKeys = hasBuiltReport
-              ? appliedEnabledMetricKeysBySource[sourceKey]
-              : enabledMetricKeysBySource[sourceKey];
-            // Missing entry = default "all enabled"; empty Set = none.
-            if (!isPlaceholder && activeSourceMetricKeys && !activeSourceMetricKeys.has(metricKey)) {
-              return;
-            }
-
-            const actionId = buildSourceMetricActionId(sourceKey, metricKey);
-            const valueType =
-              metric.valueType === 'money'
-                ? 'money'
-                : metric.valueType === 'percent'
-                  ? 'percent'
-                  : 'number';
-            const syntheticMetric: MetricRow = {
-              id: actionId,
-              label: metric.label,
-              type: valueType,
-              base: 0,
-            };
-            const detailSourceIds = sourceData.detailSourceIds ?? [];
-            const detailMetricIds = metric.detailMetricIds ?? [];
-
+          visibleSourceMetrics.forEach(({
+            metricKey,
+            metric,
+            actionId,
+            valueType,
+            syntheticMetric,
+            detailSourceIds,
+            detailMetricIds,
+          }) => {
             sourceSectionRows.push({
               kind: 'source_metric',
               rowId: `source-metric-${sourceKey}-${metricKey}`,
@@ -3467,6 +3555,10 @@ function App() {
               });
 
               detailResolution.employees.forEach((employee, employeeIndex) => {
+                if (shouldHideZeroRows && !employeeHasNonZero(employee, actionId)) {
+                  return;
+                }
+
                 sourceSectionRows.push({
                   kind: 'employee',
                   rowId: `employee-${actionId}-${employee.id}`,
@@ -3492,7 +3584,6 @@ function App() {
                   });
                 }
               });
-
             }
 
             if (tableRowChartsMode === 'with_charts' && expandedChartMetricIds.has(actionId)) {
@@ -3538,9 +3629,12 @@ function App() {
         expandedEmployeeChartIds,
         expandedChartMetricIds,
         tableRowChartsMode,
+        hideZeroRows,
         crmSources,
         sourceMetrics,
         reportDetails,
+        reportData,
+        valueStates,
         hasBuiltReport,
         tableSelectedSources,
         tableLeadingSourceId,
@@ -5189,6 +5283,7 @@ function App() {
       expandedChartMetricIds: [...expandedChartMetricIds],
       expandedEmployeeChartIds: [...expandedEmployeeChartIds],
       tableRowChartsMode,
+      hideZeroRows,
     }),
     [
       appliedEmployeeIdsByMetricId,
@@ -5203,6 +5298,7 @@ function App() {
       expandedEmployeeChartIds,
       expandedEmployeeMetricIds,
       expandedSections,
+      hideZeroRows,
       mainThreshold,
       metricDirectionsById,
       metricOrderBySection,
@@ -5439,6 +5535,7 @@ function App() {
     setTableRowChartsMode(
       state.tableRowChartsMode === 'with_charts' ? 'with_charts' : 'compact',
     );
+    setHideZeroRows(Boolean(state.hideZeroRows));
     setHasBuiltReport(true);
     setBuildMoment(Date.now());
     // Trigger report build for the restored view state
@@ -5490,6 +5587,7 @@ function App() {
     setExpandedChartMetricIds(new Set());
     setExpandedEmployeeChartIds(new Set());
     setTableRowChartsMode('compact');
+    setHideZeroRows(false);
     setHasBuiltReport(true);
     setBuildMoment(Date.now());
     setReportBuildRequest((current) => current + 1);
@@ -5873,6 +5971,11 @@ function App() {
               onApply={applyTableSettings}
               tableRowChartsMode={tableRowChartsMode}
               onTableRowChartsModeChange={setTableRowChartsModeAndSync}
+              hideZeroRows={hideZeroRows}
+              onHideZeroRowsChange={(value) => {
+                markUserSettingsChange();
+                setHideZeroRows(value);
+              }}
               onExpandAllRowCharts={expandAllRowCharts}
               onCollapseAllRowCharts={collapseAllRowCharts}
             />
@@ -5972,6 +6075,11 @@ function App() {
                   onApply={applyTableSettings}
                   tableRowChartsMode={tableRowChartsMode}
                   onTableRowChartsModeChange={setTableRowChartsModeAndSync}
+                  hideZeroRows={hideZeroRows}
+                  onHideZeroRowsChange={(value) => {
+                    markUserSettingsChange();
+                    setHideZeroRows(value);
+                  }}
                   onExpandAllRowCharts={expandAllRowCharts}
                   onCollapseAllRowCharts={collapseAllRowCharts}
                   trigger="text"

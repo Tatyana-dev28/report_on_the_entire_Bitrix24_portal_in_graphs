@@ -1124,6 +1124,47 @@ button {
   cursor: default;
 }
 
+.table-settings-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid #d9e2ef;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #30343b;
+}
+
+.table-settings-checkbox.is-active {
+  border-color: #8bbcff;
+  background: #eef6ff;
+}
+
+.table-settings-checkbox input {
+  margin: 2px 0 0;
+  flex: 0 0 auto;
+}
+
+.table-settings-checkbox span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.table-settings-checkbox strong {
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.table-settings-checkbox em {
+  color: #6b7280;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.3;
+}
+
 .row-chart-lazy-host {
   width: 100%;
   min-height: 150px;

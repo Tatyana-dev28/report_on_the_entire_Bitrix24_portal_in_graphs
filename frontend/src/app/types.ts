@@ -235,6 +235,8 @@ export type SavedReportViewState = {
   expandedEmployeeChartIds?: string[];
   /** F-17: compact table vs row charts under selected metrics/employees. */
   tableRowChartsMode?: TableRowChartsMode;
+  /** Hide metrics/employees where every period is 0 or «—». */
+  hideZeroRows?: boolean;
 };
 
 export type SavedReportViewOption = SelectOption<string> & {

@@ -809,6 +809,8 @@ export function TableSettingsMenu({
   onApply,
   tableRowChartsMode = 'compact',
   onTableRowChartsModeChange,
+  hideZeroRows = false,
+  onHideZeroRowsChange,
   onExpandAllRowCharts,
   onCollapseAllRowCharts,
   trigger = 'icon',
@@ -819,6 +821,8 @@ export function TableSettingsMenu({
   onApply: () => void;
   tableRowChartsMode?: TableRowChartsMode;
   onTableRowChartsModeChange?: (mode: TableRowChartsMode) => void;
+  hideZeroRows?: boolean;
+  onHideZeroRowsChange?: (value: boolean) => void;
   onExpandAllRowCharts?: () => void;
   onCollapseAllRowCharts?: () => void;
   trigger?: 'icon' | 'text';
@@ -932,6 +936,21 @@ export function TableSettingsMenu({
                   Свернуть все
                 </button>
               </div>
+            </div>
+
+            <div className="table-settings-section">
+              <p className="table-settings-group-title">Пустые строки</p>
+              <label className={`table-settings-checkbox ${hideZeroRows ? 'is-active' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={hideZeroRows}
+                  onChange={(event) => onHideZeroRowsChange?.(event.target.checked)}
+                />
+                <span>
+                  <strong>Скрыть нулевые показатели</strong>
+                  <em>Прячет показатели и сотрудников, у которых за весь период только 0 или «—».</em>
+                </span>
+              </label>
             </div>
           </div>
           <div className="table-settings-sources-block">

@@ -6019,7 +6019,7 @@ function App() {
 
         <section className={`report-surface ${isPinned ? 'is-pinned' : ''}`} style={reportSurfaceStyle}>
           <div className="fixed-column">
-            <div className="left-pane chart-left">
+            <div className={`left-pane chart-left${mainIndicatorCaption.empty ? ' is-empty' : ''}`}>
               <div className="section-title-row">
                 <p>Главный показатель</p>
                 <div className="section-title-actions">
@@ -6105,14 +6105,18 @@ function App() {
           </div>
 
           <div className="scroll-column">
-            <div className="sync-viewport chart-viewport">
+            <div className={`sync-viewport chart-viewport${mainIndicatorCaption.empty ? ' is-empty' : ''}`}>
               {reportLoading && (
                 <div className="chart-loading-overlay">
                   <ReportBuildLoader stageLabel={reportBuildStage} />
                 </div>
               )}
-              <div className="sync-content chart-sync-content" style={syncedContentStyle} ref={chartContentRef}>
-                <div className="chart-top-block">
+              <div
+                className={`sync-content chart-sync-content${mainIndicatorCaption.empty ? ' is-empty' : ''}`}
+                style={syncedContentStyle}
+                ref={chartContentRef}
+              >
+                <div className={`chart-top-block${mainIndicatorCaption.empty ? ' is-empty' : ''}`}>
                   <div
                     className="main-indicator-caption"
                     title={mainIndicatorCaption.titleFull !== mainIndicatorCaption.title ? mainIndicatorCaption.titleFull : undefined}
@@ -6237,7 +6241,7 @@ function App() {
                   <ResponsiveContainer width="100%" height={280}>
                     <LineChart
                       data={chartData}
-                      margin={{ top: 18, right: 0, left: 0, bottom: 8 }}
+                      margin={{ top: 6, right: 0, left: 0, bottom: 4 }}
                       onMouseLeave={() => setActiveMainChartPoint(null)}
                     >
                       <CartesianGrid stroke="#edf0f4" vertical={false} />
@@ -6350,6 +6354,7 @@ function App() {
                 </div>
                 ) : null}
               </div>
+              {!mainIndicatorCaption.empty ? (
               <div className="chart-zoom-controls" aria-label="Масштаб графика">
                 <TooltipButton
                   label="Увеличить масштаб"
@@ -6381,6 +6386,7 @@ function App() {
                   <RotateCcw size={16} />
                 </TooltipButton>
               </div>
+              ) : null}
             </div>
 
             <div className="sync-viewport indicator-viewport">

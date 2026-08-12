@@ -157,13 +157,20 @@ button {
 }
 
 .period-select {
-  flex: 0 1 clamp(132px, 12vw, 200px);
-  min-width: 112px;
+  flex: 1 1 clamp(180px, 22vw, 280px);
+  min-width: 168px;
 }
 
 .date-picker-shell {
-  min-width: 168px;
-  flex: 1 1 clamp(190px, 22vw, 330px);
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.date-picker-shell .date-trigger {
+  width: auto;
+  max-width: 100%;
 }
 
 .select-trigger,
@@ -956,11 +963,14 @@ button {
   }
 
   .period-select {
-    flex-basis: clamp(124px, 11vw, 180px);
+    flex-basis: clamp(168px, 20vw, 260px);
+    min-width: 156px;
   }
 
   .date-picker-shell {
-    flex-basis: clamp(178px, 20vw, 300px);
+    flex: 0 0 auto;
+    width: max-content;
+    max-width: min(100%, 280px);
   }
 
   .action-button {
@@ -1403,7 +1413,7 @@ button {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 6px 10px;
+  gap: 4px 10px;
   min-width: 0;
   padding: 0;
   box-sizing: border-box;
@@ -1415,7 +1425,7 @@ button {
   color: #202938;
   font-size: 14px;
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.15;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1426,7 +1436,7 @@ button {
   min-width: 0;
   color: #6a7482;
   font-size: 12px;
-  line-height: 1.25;
+  line-height: 1.15;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1438,9 +1448,10 @@ button {
   align-items: flex-start;
   justify-content: center;
   gap: 6px;
-  min-height: 240px;
+  width: 100%;
+  min-height: 120px;
   margin: 0;
-  padding: 20px 18px;
+  padding: 16px 18px;
   border: 1px dashed #dfe7f1;
   border-radius: 12px;
   background: #fbfdff;
@@ -1829,7 +1840,15 @@ button {
 .chart-sync-content {
   height: auto;
   min-height: 372px;
-  padding: 12px 0;
+  padding: 2px 0 4px;
+  box-sizing: border-box;
+}
+
+.chart-sync-content.is-empty {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 372px;
   box-sizing: border-box;
 }
 
@@ -1837,14 +1856,31 @@ button {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
-  padding: 0 12px;
+  gap: 4px 16px;
+  margin-bottom: 2px;
+  padding: 2px 12px;
   box-sizing: border-box;
+}
+
+.chart-top-block.is-empty {
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 0;
 }
 
 .chart-top-block .main-indicator-caption {
   flex: 1 1 220px;
   min-width: 0;
+}
+
+.chart-top-block.is-empty .main-indicator-caption {
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+.chart-top-block.is-empty .main-indicator-empty {
+  flex: 1 1 auto;
 }
 
 .chart-top-block .chart-series-legend {
@@ -1952,9 +1988,9 @@ button {
   flex-direction: column;
   gap: 4px;
   max-height: min(148px, 28vh);
-  margin: 0 0 8px;
+  margin: 0;
   overflow: auto;
-  padding: 0 0 2px;
+  padding: 0;
 }
 
 .main-chart-values-row {
@@ -2005,7 +2041,7 @@ button {
 .chart-zoom-controls {
   position: absolute;
   z-index: 20;
-  bottom: 12px;
+  bottom: 6px;
   left: 12px;
   display: flex;
   gap: 6px;
@@ -4679,6 +4715,11 @@ button {
     height: auto;
   }
 
+  .chart-sync-content.is-empty {
+    height: 100%;
+    min-height: 348px;
+  }
+
   .chart-wrap {
     height: auto;
   }
@@ -4889,6 +4930,11 @@ button {
   .chart-sync-content {
     min-height: 372px;
     height: auto;
+  }
+
+  .chart-sync-content.is-empty {
+    height: 100%;
+    min-height: 372px;
   }
 
   .chart-wrap {

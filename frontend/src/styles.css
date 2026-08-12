@@ -1996,30 +1996,11 @@ button {
 .main-chart-values-row {
   display: grid;
   align-items: center;
-  min-height: 32px;
-}
-
-.main-chart-values-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: #30343b;
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 1.2;
-  padding-right: 4px;
-}
-
-.main-chart-values-label > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-height: 28px;
 }
 
 .main-chart-value-cell {
-  min-height: 28px;
+  min-height: 24px;
   height: auto;
   min-width: 0;
   padding: 0 4px;

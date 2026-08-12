@@ -6146,15 +6146,9 @@ function App() {
                         className="main-chart-values-row"
                         key={`values-${series.key}`}
                         style={{ ...syncedContentStyle, ...gridStyle }}
+                        aria-label={series.label}
                       >
-                        <span className="main-chart-values-label" title={series.label}>
-                          <i
-                            className="chart-legend-swatch"
-                            style={{ background: series.color }}
-                            aria-hidden="true"
-                          />
-                          <span>{series.label}</span>
-                        </span>
+                        <span className="period-axis-gutter" aria-hidden="true" />
                         {chartData.map((point) => {
                           const rawValue = point[series.key as keyof typeof point];
                           const value = typeof rawValue === 'number' ? rawValue : Number(rawValue);

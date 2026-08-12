@@ -6186,10 +6186,10 @@ function App() {
                       </div>
                     ))}
                   </div>
-                  <ResponsiveContainer width="100%" height={280}>
+                  <ResponsiveContainer width="100%" height={240}>
                     <LineChart
                       data={chartData}
-                      margin={{ top: 6, right: 0, left: 0, bottom: 4 }}
+                      margin={{ top: 4, right: 0, left: 0, bottom: 0 }}
                       onMouseLeave={() => setActiveMainChartPoint(null)}
                     >
                       <CartesianGrid stroke="#edf0f4" vertical={false} />

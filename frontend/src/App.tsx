@@ -6180,10 +6180,11 @@ function App() {
                       </div>
                     ))}
                   </div>
-                  <ResponsiveContainer width="100%" height={240}>
+                  <div className="main-chart-plot">
+                  <ResponsiveContainer width="100%" height="100%">
                     <LineChart
                       data={chartData}
-                      margin={{ top: 4, right: 0, left: 0, bottom: 0 }}
+                      margin={{ top: 8, right: 8, left: 0, bottom: 10 }}
                       onMouseLeave={() => setActiveMainChartPoint(null)}
                     >
                       <CartesianGrid stroke="#edf0f4" vertical={false} />
@@ -6282,6 +6283,37 @@ function App() {
                       ))}
                     </LineChart>
                   </ResponsiveContainer>
+                  <div className="chart-zoom-controls" aria-label="Масштаб графика">
+                    <TooltipButton
+                      label="Увеличить масштаб"
+                      onClick={() =>
+                        setPeriodColumnWidth((current) =>
+                          Math.min(MAX_PERIOD_COLUMN_WIDTH, current + 8),
+                        )
+                      }
+                      className="zoom-icon-button"
+                    >
+                      <Plus size={16} />
+                    </TooltipButton>
+                    <TooltipButton
+                      label="Уменьшить масштаб"
+                      onClick={() =>
+                        setPeriodColumnWidth((current) =>
+                          Math.max(MIN_PERIOD_COLUMN_WIDTH, current - 8),
+                        )
+                      }
+                      className="zoom-icon-button"
+                    >
+                      <Minus size={16} />
+                    </TooltipButton>
+                    <TooltipButton
+                      label="Сбросить масштаб"
+                      onClick={() => setPeriodColumnWidth(PERIOD_COLUMN_WIDTH)}
+                      className="zoom-icon-button"
+                    >
+                      <RotateCcw size={16} />
+                    </TooltipButton>
+                  </div>
                   {activeMainChartPoint && activeMainChartDataPoint && (
                     <ChartPointTooltip
                       point={activeMainChartPoint}
@@ -6293,42 +6325,10 @@ function App() {
                       summary={mainChartTooltipSummary}
                     />
                   )}
+                  </div>
                 </div>
                 ) : null}
               </div>
-              {!mainIndicatorCaption.empty ? (
-              <div className="chart-zoom-controls" aria-label="Масштаб графика">
-                <TooltipButton
-                  label="Увеличить масштаб"
-                  onClick={() =>
-                    setPeriodColumnWidth((current) =>
-                      Math.min(MAX_PERIOD_COLUMN_WIDTH, current + 8),
-                    )
-                  }
-                  className="zoom-icon-button"
-                >
-                  <Plus size={16} />
-                </TooltipButton>
-                <TooltipButton
-                  label="Уменьшить масштаб"
-                  onClick={() =>
-                    setPeriodColumnWidth((current) =>
-                      Math.max(MIN_PERIOD_COLUMN_WIDTH, current - 8),
-                    )
-                  }
-                  className="zoom-icon-button"
-                >
-                  <Minus size={16} />
-                </TooltipButton>
-                <TooltipButton
-                  label="Сбросить масштаб"
-                  onClick={() => setPeriodColumnWidth(PERIOD_COLUMN_WIDTH)}
-                  className="zoom-icon-button"
-                >
-                  <RotateCcw size={16} />
-                </TooltipButton>
-              </div>
-              ) : null}
             </div>
 
             <div className="sync-viewport indicator-viewport">

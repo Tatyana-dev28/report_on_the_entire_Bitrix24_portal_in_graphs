@@ -1838,9 +1838,11 @@ button {
 }
 
 .chart-sync-content {
-  height: auto;
-  min-height: 336px;
-  padding: 2px 0 36px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 100%;
+  padding: 2px 0 0;
   box-sizing: border-box;
 }
 
@@ -1848,7 +1850,7 @@ button {
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: 336px;
+  min-height: 100%;
   box-sizing: border-box;
 }
 
@@ -1857,6 +1859,7 @@ button {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 16px;
+  flex: 0 0 auto;
   margin-bottom: 2px;
   padding: 2px 12px;
   box-sizing: border-box;
@@ -1888,58 +1891,12 @@ button {
   min-width: 0;
 }
 
-.chart-wrap {
-  position: relative;
-  width: 100%;
-}
-
 .chart-series-legend {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px 16px;
   min-height: 24px;
-}
-
-.chart-series-legend.is-collapsible {
-  display: grid;
-  gap: 6px;
-}
-
-.chart-series-legend-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 14px;
-  min-height: 24px;
-}
-
-.chart-legend-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 2px 0;
-  border: 0;
-  background: transparent;
-  color: #2274ff;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 1.3;
-  cursor: pointer;
-}
-
-.chart-legend-toggle:hover,
-.chart-legend-toggle:focus-visible {
-  color: #165fd1;
-}
-
-.chart-series-legend-list {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px 16px;
 }
 
 .chart-legend-item {
@@ -1983,8 +1940,18 @@ button {
   opacity: 0.55;
 }
 
+.chart-wrap {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+}
+
 .main-chart-values {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 4px;
   max-height: min(148px, 28vh);
@@ -2007,6 +1974,18 @@ button {
   font-size: 12px;
 }
 
+.main-chart-plot {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 180px;
+  overflow: visible;
+}
+
+.main-chart-plot .recharts-surface {
+  overflow: visible;
+}
+
 .chart-loading-overlay {
   position: absolute;
   inset: 0;
@@ -2022,6 +2001,7 @@ button {
 .chart-zoom-controls {
   position: absolute;
   z-index: 20;
+  right: auto;
   bottom: 2px;
   left: 12px;
   display: flex;
@@ -4692,17 +4672,18 @@ button {
   }
 
   .chart-sync-content {
-    min-height: 308px;
-    height: auto;
+    height: 100%;
+    min-height: 100%;
   }
 
   .chart-sync-content.is-empty {
     height: 100%;
-    min-height: 308px;
+    min-height: 100%;
   }
 
   .chart-wrap {
-    height: auto;
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   .metric-left-row,
@@ -4909,17 +4890,18 @@ button {
   }
 
   .chart-sync-content {
-    min-height: 336px;
-    height: auto;
+    height: 100%;
+    min-height: 100%;
   }
 
   .chart-sync-content.is-empty {
     height: 100%;
-    min-height: 336px;
+    min-height: 100%;
   }
 
   .chart-wrap {
-    height: auto;
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   .metric-left-row,

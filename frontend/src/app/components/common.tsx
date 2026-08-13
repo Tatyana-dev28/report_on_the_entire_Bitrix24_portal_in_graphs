@@ -151,6 +151,7 @@ export function FloatingPopover({
   constrainHeight = true,
   offsetLeft = 0,
   pinLeft,
+  matchAnchorWidth = true,
 }: {
   anchorRef: RefObject<HTMLElement | null>;
   anchorRect?: Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'> | null;
@@ -168,6 +169,8 @@ export function FloatingPopover({
   offsetLeft?: number;
   /** Pin left edge to this offset (px) from the report-card left; takes priority over anchor-based left. */
   pinLeft?: number;
+  /** When false, keep expectedWidth instead of stretching to the trigger width. */
+  matchAnchorWidth?: boolean;
 }) {
   const [layer, setLayer] = useState<HTMLElement | null>(null);
   const [style, setStyle] = useState<CSSProperties>({
@@ -222,8 +225,8 @@ export function FloatingPopover({
       const visibleTop = Math.max(appRect.top, 0);
       const visibleBottom = Math.min(appRect.bottom, window.innerHeight);
       const boundaryWidth = Math.max(180, visibleRight - visibleLeft - padding * 2);
-      // pinLeft: keep expectedWidth — do not stretch to a full table-row anchor.
-      const desiredWidth = typeof pinLeft === 'number'
+      // pinLeft / matchAnchorWidth=false: keep expectedWidth — do not stretch to a full-width trigger.
+      const desiredWidth = typeof pinLeft === 'number' || !matchAnchorWidth
         ? expectedWidth
         : Math.max(expectedWidth, resolvedAnchorRect.width);
       const width = Math.min(desiredWidth, boundaryWidth);
@@ -231,7 +234,9 @@ export function FloatingPopover({
       const maxViewportLeft = visibleRight - padding - width;
       const preferredViewportLeft = typeof pinLeft === 'number'
         ? appRect.left + pinLeft
-        : resolvedAnchorRect.right - width + offsetLeft;
+        : !matchAnchorWidth
+          ? resolvedAnchorRect.left + offsetLeft
+          : resolvedAnchorRect.right - width + offsetLeft;
       const minViewportTop = visibleTop + padding;
       const maxViewportTop = visibleBottom - padding - expectedHeight;
       const preferredViewportTop = verticalPlacement === 'anchor-start'
@@ -281,7 +286,7 @@ export function FloatingPopover({
         window.removeEventListener('scroll', scheduleUpdate, true);
       }
     };
-  }, [anchorRect, anchorRef, constrainHeight, expectedHeight, expectedWidth, offsetLeft, open, pinLeft, updateOnScroll, verticalPlacement]);
+  }, [anchorRect, anchorRef, constrainHeight, expectedHeight, expectedWidth, matchAnchorWidth, offsetLeft, open, pinLeft, updateOnScroll, verticalPlacement]);
 
   if (!open || !layer) {
     return null;

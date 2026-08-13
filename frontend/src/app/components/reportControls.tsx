@@ -450,12 +450,15 @@ export function MultiSelect({
   onReset,
   onApply,
   closeOnApply = false,
+  commitOnApply = false,
   menuGroup,
   menuKey,
   variant = 'dropdown',
   selectionMode = 'multi',
   triggerLabel,
   ariaLabel = 'Выбор источников отчета',
+  menuWidth = 240,
+  matchAnchorWidth = false,
 }: {
   values: string[];
   options: SelectOption<string>[];
@@ -466,6 +469,8 @@ export function MultiSelect({
   onReset?: () => void;
   onApply?: () => void;
   closeOnApply?: boolean;
+  /** Keep checkbox changes local until «Применить»; discard on close without apply. */
+  commitOnApply?: boolean;
   menuGroup?: string;
   menuKey?: string;
   variant?: 'dropdown' | 'inline';
@@ -474,15 +479,24 @@ export function MultiSelect({
   /** Closed-field summary, e.g. «Выбрано: 18» (W08). */
   triggerLabel?: string;
   ariaLabel?: string;
+  /** Dropdown menu width in px (ignored for inline variant). */
+  menuWidth?: number;
+  /** Stretch menu to the trigger width. Default false keeps a compact list. */
+  matchAnchorWidth?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [draftValues, setDraftValues] = useState<string[]>(values);
   const popoverRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const ref = useOutsideClose<HTMLDivElement>(open, () => {
+  const closeMenu = () => {
     setOpen(false);
     setSearchQuery('');
-  }, [popoverRef]);
+    if (commitOnApply) {
+      setDraftValues([...values]);
+    }
+  };
+  const ref = useOutsideClose<HTMLDivElement>(open, closeMenu, [popoverRef]);
   useEffect(() => {
     if (!menuGroup || !menuKey) {
       return undefined;
@@ -492,8 +506,7 @@ export function MultiSelect({
       const detail = (event as CustomEvent<{ group?: string; key?: string }>).detail;
 
       if (detail?.group === menuGroup && detail.key !== menuKey) {
-        setOpen(false);
-        setSearchQuery('');
+        closeMenu();
       }
     };
 
@@ -502,7 +515,12 @@ export function MultiSelect({
     return () => {
       window.removeEventListener('nested-menu-open', handleMenuOpen);
     };
-  }, [menuGroup, menuKey]);
+  }, [commitOnApply, menuGroup, menuKey, values]);
+  useEffect(() => {
+    if (open && commitOnApply) {
+      setDraftValues([...values]);
+    }
+  }, [open, commitOnApply, values]);
   const optionLabelByValue = useMemo(
     () => new Map(options.map((option) => [option.value, option.label])),
     [options],
@@ -511,6 +529,7 @@ export function MultiSelect({
     () => options.filter((option) => !option.disabled),
     [options],
   );
+  const activeValues = commitOnApply ? draftValues : values;
   const label = triggerLabel
     ?? (
       availableOptions.length > 0
@@ -560,15 +579,26 @@ export function MultiSelect({
     return groups;
   }, [filteredOptions]);
   const hasGroupedOptions = groupedOptions.length > 0;
+  const showSelectAll = Boolean(onSelectAll) || commitOnApply;
+  const showReset = Boolean(onReset) || commitOnApply;
+  const showApply = Boolean(onApply) || commitOnApply;
 
   const clearSearch = () => {
     setSearchQuery('');
     searchInputRef.current?.focus();
   };
 
+  const commitValues = (nextValues: string[]) => {
+    if (commitOnApply) {
+      setDraftValues(nextValues);
+      return;
+    }
+    onChange(nextValues);
+  };
+
   const toggleValue = (value: string) => {
     const option = options.find((item) => item.value === value);
-    const isSelected = values.includes(value);
+    const isSelected = activeValues.includes(value);
 
     // Allow unchecking a previously selected unavailable source; block new selection.
     if (option?.disabled && !isSelected) {
@@ -576,22 +606,41 @@ export function MultiSelect({
     }
 
     if (selectionMode === 'single') {
-      onChange(isSelected ? [] : [value]);
+      commitValues(isSelected ? [] : [value]);
       return;
     }
 
     if (isSelected) {
-      onChange(values.filter((item) => item !== value));
+      commitValues(activeValues.filter((item) => item !== value));
       return;
     }
 
-    onChange([...values, value]);
+    commitValues([...activeValues, value]);
+  };
+
+  const handleSelectAll = () => {
+    if (onSelectAll && !commitOnApply) {
+      onSelectAll();
+      return;
+    }
+    commitValues(availableOptions.map((option) => option.value));
+  };
+
+  const handleReset = () => {
+    if (onReset && !commitOnApply) {
+      onReset();
+      return;
+    }
+    commitValues([]);
   };
 
   const applySelection = () => {
+    if (commitOnApply) {
+      onChange([...draftValues]);
+    }
     onApply?.();
 
-    if (closeOnApply) {
+    if (closeOnApply || commitOnApply) {
       setOpen(false);
       setSearchQuery('');
     }
@@ -607,6 +656,11 @@ export function MultiSelect({
         }));
       }
 
+      if (!nextOpen && commitOnApply) {
+        setDraftValues([...values]);
+        setSearchQuery('');
+      }
+
       return nextOpen;
     });
   };
@@ -618,8 +672,8 @@ export function MultiSelect({
     >
       <input
         type="checkbox"
-        checked={values.includes(option.value)}
-        disabled={Boolean(option.disabled) && !values.includes(option.value)}
+        checked={activeValues.includes(option.value)}
+        disabled={Boolean(option.disabled) && !activeValues.includes(option.value)}
         onChange={() => toggleValue(option.value)}
       />
       <span className="multi-option-main">
@@ -653,19 +707,19 @@ export function MultiSelect({
           </button>
         )}
       </div>
-      {(onSelectAll || onReset || onApply) && (
+      {(showSelectAll || showReset || showApply) && (
         <div className="multi-actions">
-          {onSelectAll && (
-            <button type="button" className="multi-action-button" onClick={onSelectAll}>
-              Выбрать все
-            </button>
-          )}
-          {onReset && (
-            <button type="button" className="multi-action-button" onClick={onReset}>
+          {showReset && (
+            <button type="button" className="multi-action-button" onClick={handleReset}>
               Сбросить
             </button>
           )}
-          {onApply && (
+          {showSelectAll && (
+            <button type="button" className="multi-action-button" onClick={handleSelectAll}>
+              Выбрать все
+            </button>
+          )}
+          {showApply && (
             <button type="button" className="multi-action-button multi-action-button--primary" onClick={applySelection}>
               Применить
             </button>
@@ -714,8 +768,9 @@ export function MultiSelect({
           popoverRef={popoverRef}
           open={open}
           className="select-menu multi-menu"
-          expectedWidth={280}
+          expectedWidth={menuWidth}
           expectedHeight={680}
+          matchAnchorWidth={matchAnchorWidth}
         >
           {renderOptionsList()}
         </FloatingPopover>

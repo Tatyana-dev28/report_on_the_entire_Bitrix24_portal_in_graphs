@@ -205,17 +205,8 @@ export default function IndicatorsSettingsPanel({
                 searchPlaceholder="Поиск по источникам"
                 menuGroup={menuGroup}
                 menuKey="main-sources"
-                onSelectAll={
-                  mainSelectionMode === 'multi'
-                    ? () =>
-                        handleMainSourcesChange(
-                          crmSourceOptions
-                            .filter((option) => !option.disabled)
-                            .map((option) => option.value),
-                        )
-                    : undefined
-                }
-                onReset={() => handleMainSourcesChange([])}
+                commitOnApply
+                menuWidth={240}
               />
             </div>
 
@@ -375,14 +366,8 @@ export default function IndicatorsSettingsPanel({
                 searchPlaceholder="Поиск по источникам и показателям"
                 menuGroup={menuGroup}
                 menuKey="table-sources"
-                onSelectAll={() =>
-                  updateDraft({
-                    tableSelectedSources: crmSourceOptions
-                      .filter((option) => !option.disabled)
-                      .map((option) => option.value),
-                  })
-                }
-                onReset={() => updateDraft({ tableSelectedSources: [] })}
+                commitOnApply
+                menuWidth={240}
               />
             </div>
 

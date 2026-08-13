@@ -4630,9 +4630,9 @@ function App() {
   }, [runAutomaticReportBuild]);
 
   const commitIndicatorsSettingsDraft = useCallback((draft: IndicatorsSettingsDraft) => {
-    const sanitizedSources = (!isProUser || !draft.useSumIndicators)
-      ? draft.chart.selectedSources.slice(0, 1)
-      : [...draft.chart.selectedSources];
+    const sanitizedSources = isProUser
+      ? [...draft.chart.selectedSources]
+      : draft.chart.selectedSources.slice(0, 1);
 
     applyChartSettings({
       selectedSources: sanitizedSources,
@@ -4714,10 +4714,12 @@ function App() {
     if (!indicatorsSettingsDraft) {
       return;
     }
-    if (
+    const scheduleError =
       draftFilters.period === 'hours'
-      && getWorkdayScheduleError(indicatorsSettingsDraft.chart.schedule)
-    ) {
+        ? getWorkdayScheduleError(indicatorsSettingsDraft.chart.schedule)
+        : null;
+    if (scheduleError) {
+      setNotification(scheduleError);
       return;
     }
     const draftSnapshot = indicatorsSettingsDraft;
@@ -4752,11 +4754,37 @@ function App() {
       setNotification('Укажите название набора');
       return;
     }
-    commitIndicatorsSettingsDraft(indicatorsSettingsDraft);
+    const scheduleError =
+      draftFilters.period === 'hours'
+        ? getWorkdayScheduleError(indicatorsSettingsDraft.chart.schedule)
+        : null;
+    if (scheduleError) {
+      setNotification(scheduleError);
+      return;
+    }
+    const draftSnapshot = indicatorsSettingsDraft;
+    commitIndicatorsSettingsDraft(draftSnapshot);
+    closeIndicatorsSettingsPanel();
+    if (canStartReportBuild()) {
+      if (draftSnapshot.highlightDeviations) {
+        buildReportWithAutomaticThresholds();
+      } else {
+        buildReport();
+      }
+    }
     setNewViewName(name);
     setEditingViewId(null);
     setIsSaveOpen(true);
-  }, [commitIndicatorsSettingsDraft, indicatorsSettingsDraft, isProUser]);
+  }, [
+    buildReport,
+    buildReportWithAutomaticThresholds,
+    canStartReportBuild,
+    closeIndicatorsSettingsPanel,
+    commitIndicatorsSettingsDraft,
+    draftFilters.period,
+    indicatorsSettingsDraft,
+    isProUser,
+  ]);
 
   const openDetail = useCallback((
     metric: MetricRow,

@@ -140,18 +140,16 @@ export default function IndicatorsSettingsPanel({
   };
 
   const handleMainSourcesChange = (selectedSources: string[]) => {
-    let nextSources = [...selectedSources];
-    if (!isProUser || !draft.useSumIndicators) {
-      nextSources = nextSources.slice(-1);
-    }
+    const nextSources = isProUser
+      ? [...selectedSources]
+      : selectedSources.slice(-1);
     updateChart({
       selectedSources: nextSources,
       chartDisplayMode: 'sum',
     });
   };
 
-  const canUseSum = isProUser;
-  const mainSelectionMode = canUseSum && draft.useSumIndicators ? 'multi' : 'single';
+  const mainSelectionMode = isProUser ? 'multi' : 'single';
 
   return (
     <div className="indicators-settings-layer" role="presentation">
@@ -200,63 +198,46 @@ export default function IndicatorsSettingsPanel({
             </div>
 
             <div className="indicators-settings-block">
-              <p className="indicators-settings-label">Источник главного показателя</p>
+              <p className="indicators-settings-label">
+                {mainSelectionMode === 'multi'
+                  ? 'Источники главного показателя'
+                  : 'Источник главного показателя'}
+                {isProUser ? null : <span className="indicators-pro-badge" title="Несколько источников — в PRO">PRO</span>}
+              </p>
               <MultiSelect
                 values={draft.chart.selectedSources}
                 options={crmSourceOptions}
                 onChange={handleMainSourcesChange}
                 selectionMode={mainSelectionMode}
                 triggerLabel={summarizeSelection(draft.chart.selectedSources.length)}
-                ariaLabel="Источник главного показателя"
+                ariaLabel={
+                  mainSelectionMode === 'multi'
+                    ? 'Источники главного показателя'
+                    : 'Источник главного показателя'
+                }
                 searchPlaceholder="Поиск по источникам"
                 menuGroup={menuGroup}
                 menuKey="main-sources"
-                commitOnApply
                 menuWidth={280}
+                onSelectAll={
+                  mainSelectionMode === 'multi'
+                    ? () =>
+                        handleMainSourcesChange(
+                          crmSourceOptions
+                            .filter((option) => !option.disabled)
+                            .map((option) => option.value),
+                        )
+                    : undefined
+                }
+                onReset={() => handleMainSourcesChange([])}
+                onApply={() => undefined}
+                closeOnApply
               />
-            </div>
-
-            <div className={`indicators-paid-row ${canUseSum ? '' : 'is-locked'}`}>
-              <div className="indicators-paid-copy">
-                <div>
-                  <strong className="indicators-paid-title">
-                    Использовать сумму показателей
-                    <ProFeatureBadge />
-                  </strong>
-                  <span>
-                    {canUseSum
-                      ? 'Суммируются в один главный показатель'
-                      : 'Доступно в платной версии'}
-                  </span>
-                </div>
-              </div>
-              <label className="indicators-switch">
-                <input
-                  type="checkbox"
-                  checked={canUseSum ? draft.useSumIndicators : false}
-                  disabled={!canUseSum}
-                  onChange={(event) => {
-                    const useSumIndicators = event.target.checked;
-                    const nextSources = useSumIndicators
-                      ? [...draft.chart.selectedSources]
-                      : draft.chart.selectedSources.slice(0, 1);
-                    onDraftChange({
-                      ...draft,
-                      useSumIndicators,
-                      chart: {
-                        ...draft.chart,
-                        selectedSources: nextSources,
-                        chartDisplayMode: 'sum',
-                        schedule: {
-                          ...draft.chart.schedule,
-                          weekendDayIds: [...draft.chart.schedule.weekendDayIds],
-                        },
-                      },
-                    });
-                  }}
-                />
-                <span />
-              </label>
+              <p className="indicators-settings-hint">
+                {isProUser
+                  ? 'Можно выбрать несколько — суммируются в один график. «Применить» закрывает список; в отчёт — через «Показать сводку».'
+                  : 'В бесплатной версии — только 1 источник. «Применить» закрывает список; в отчёт — через «Показать сводку».'}
+              </p>
             </div>
 
             <div className={`indicators-paid-row ${isProUser ? '' : 'is-locked'}`}>
@@ -384,9 +365,21 @@ export default function IndicatorsSettingsPanel({
                 searchPlaceholder="Поиск по источникам и показателям"
                 menuGroup={menuGroup}
                 menuKey="table-sources"
-                commitOnApply
                 menuWidth={280}
+                onSelectAll={() =>
+                  updateDraft({
+                    tableSelectedSources: crmSourceOptions
+                      .filter((option) => !option.disabled)
+                      .map((option) => option.value),
+                  })
+                }
+                onReset={() => updateDraft({ tableSelectedSources: [] })}
+                onApply={() => undefined}
+                closeOnApply
               />
+              <p className="indicators-settings-hint">
+                Можно выбрать несколько. «Применить» закрывает список; в отчёт — через «Показать сводку».
+              </p>
             </div>
 
             <label className={`table-settings-checkbox ${draft.highlightDeviations ? 'is-active' : ''}`}>

@@ -1692,10 +1692,21 @@ body > .floating-popover {
 }
 
 .indicators-settings-label {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
   margin: 0;
   color: #525a66;
   font-size: 12px;
   font-weight: 650;
+}
+
+.indicators-settings-hint {
+  margin: 0;
+  color: #6a7482;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .indicators-metric-mode {

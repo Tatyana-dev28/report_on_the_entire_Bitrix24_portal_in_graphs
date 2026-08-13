@@ -1275,6 +1275,7 @@ export function ThresholdEditor({
   onApply,
   onReset,
   onClose,
+  embedded = false,
 }: {
   threshold: ThresholdValues;
   recommended: RecommendedThresholdValues;
@@ -1285,7 +1286,9 @@ export function ThresholdEditor({
   onDirectionChange?: (direction: MetricDirection) => void;
   onApply: (value: ThresholdValues) => void;
   onReset: () => void;
-  onClose: () => void;
+  onClose?: () => void;
+  /** WEB-SET-001: inline in settings panel without popover chrome. */
+  embedded?: boolean;
 }) {
   const initialMode: 'manual' | 'recommended' = threshold.mode === 'manual' ? 'manual' : 'recommended';
   const [editorMode, setEditorMode] = useState<'manual' | 'recommended'>(initialMode);
@@ -1403,22 +1406,19 @@ export function ThresholdEditor({
   const fieldError = (key: CorridorFieldKey) => errors[key];
 
   return (
-    <div className="threshold-editor">
-      <div className="threshold-popover-head">
-        <p>Коридор показателя</p>
-        <button
-          className="row-menu-close"
-          type="button"
-          aria-label="Закрыть настройки коридора"
-          onClick={onClose}
-        >
-          <X size={14} />
-        </button>
-      </div>
-      {calculationPeriodLabel ? (
-        <p className="threshold-period-hint">
-          Период расчёта: {calculationPeriodLabel} (совпадает с периодом отчёта)
-        </p>
+    <div className={`threshold-editor${embedded ? ' is-embedded' : ''}`}>
+      {!embedded ? (
+        <div className="threshold-popover-head">
+          <p>Коридор показателя</p>
+          <button
+            className="row-menu-close"
+            type="button"
+            aria-label="Закрыть настройки коридора"
+            onClick={() => onClose?.()}
+          >
+            <X size={14} />
+          </button>
+        </div>
       ) : null}
 
       {onDirectionChange ? (
@@ -1449,7 +1449,7 @@ export function ThresholdEditor({
           className={editorMode === 'recommended' ? 'is-active' : ''}
           onClick={() => switchMode('recommended')}
         >
-          Рассчитать автоматически
+          Настроен автоматически
         </button>
         <button
           type="button"
@@ -1462,64 +1462,75 @@ export function ThresholdEditor({
         </button>
       </div>
 
-      <div className="threshold-single-column">
-        <label className={`threshold-field compact-threshold-field ${fieldError('upper') ? 'has-error' : ''}`}>
-          <span>Верхняя граница</span>
-          <input
-            type={isAutoMode ? 'text' : 'number'}
-            value={displayUpper}
-            readOnly={isAutoMode}
-            onChange={(event) => {
-              markDirty();
-              setUpper(event.target.value);
-              setErrors((current) => {
-                const next = { ...current };
-                delete next.upper;
-                return next;
-              });
-            }}
-            placeholder="90"
-          />
-          {fieldError('upper') ? <em className="threshold-field-error">{fieldError('upper')}</em> : null}
-        </label>
-        <label className={`threshold-field compact-threshold-field ${fieldError('average') ? 'has-error' : ''}`}>
-          <span>Средний уровень</span>
-          <input
-            type={isAutoMode ? 'text' : 'number'}
-            value={displayAverage}
-            readOnly={isAutoMode}
-            onChange={(event) => {
-              markDirty();
-              setAverage(event.target.value);
-              setErrors((current) => {
-                const next = { ...current };
-                delete next.average;
-                return next;
-              });
-            }}
-            placeholder="60"
-          />
-          {fieldError('average') ? <em className="threshold-field-error">{fieldError('average')}</em> : null}
-        </label>
-        <label className={`threshold-field compact-threshold-field ${fieldError('lower') ? 'has-error' : ''}`}>
-          <span>Нижняя граница</span>
-          <input
-            type={isAutoMode ? 'text' : 'number'}
-            value={displayLower}
-            readOnly={isAutoMode}
-            onChange={(event) => {
-              markDirty();
-              setLower(event.target.value);
-              setErrors((current) => {
-                const next = { ...current };
-                delete next.lower;
-                return next;
-              });
-            }}
-            placeholder="30"
-          />
-          {fieldError('lower') ? <em className="threshold-field-error">{fieldError('lower')}</em> : null}
-        </label>
+      <div className={`threshold-embedded-body${embedded ? '' : ' is-stacked'}`}>
+        {calculationPeriodLabel ? (
+          <p className="threshold-period-hint">
+            Период расчёта: {calculationPeriodLabel}
+            <span className="threshold-period-hint-note"> (совпадает с периодом отчёта)</span>
+          </p>
+        ) : embedded ? (
+          <span className="threshold-period-hint-spacer" aria-hidden="true" />
+        ) : null}
+
+        <div className="threshold-single-column">
+          <label className={`threshold-field compact-threshold-field ${fieldError('upper') ? 'has-error' : ''}`}>
+            <span>Верхняя граница</span>
+            <input
+              type={isAutoMode ? 'text' : 'number'}
+              value={displayUpper}
+              readOnly={isAutoMode}
+              onChange={(event) => {
+                markDirty();
+                setUpper(event.target.value);
+                setErrors((current) => {
+                  const next = { ...current };
+                  delete next.upper;
+                  return next;
+                });
+              }}
+              placeholder="90"
+            />
+            {fieldError('upper') ? <em className="threshold-field-error">{fieldError('upper')}</em> : null}
+          </label>
+          <label className={`threshold-field compact-threshold-field ${fieldError('average') ? 'has-error' : ''}`}>
+            <span>Средний уровень</span>
+            <input
+              type={isAutoMode ? 'text' : 'number'}
+              value={displayAverage}
+              readOnly={isAutoMode}
+              onChange={(event) => {
+                markDirty();
+                setAverage(event.target.value);
+                setErrors((current) => {
+                  const next = { ...current };
+                  delete next.average;
+                  return next;
+                });
+              }}
+              placeholder="60"
+            />
+            {fieldError('average') ? <em className="threshold-field-error">{fieldError('average')}</em> : null}
+          </label>
+          <label className={`threshold-field compact-threshold-field ${fieldError('lower') ? 'has-error' : ''}`}>
+            <span>Нижняя граница</span>
+            <input
+              type={isAutoMode ? 'text' : 'number'}
+              value={displayLower}
+              readOnly={isAutoMode}
+              onChange={(event) => {
+                markDirty();
+                setLower(event.target.value);
+                setErrors((current) => {
+                  const next = { ...current };
+                  delete next.lower;
+                  return next;
+                });
+              }}
+              placeholder="30"
+            />
+            {fieldError('lower') ? <em className="threshold-field-error">{fieldError('lower')}</em> : null}
+          </label>
+        </div>
       </div>
 
       {showReplaceConfirm ? (

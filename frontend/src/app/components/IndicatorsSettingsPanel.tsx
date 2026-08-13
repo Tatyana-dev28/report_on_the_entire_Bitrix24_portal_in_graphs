@@ -13,7 +13,7 @@ import type {
   TableRowChartsMode,
   ThresholdValues,
 } from '../types';
-import { MultiSelect, ScheduleMenu, ThresholdMenu } from './reportControls';
+import { MultiSelect, ScheduleMenu, ThresholdEditor } from './reportControls';
 
 const ProFeatureBadge = () => (
   <span className="indicators-pro-badge" title="Доступно в PRO">
@@ -311,8 +311,9 @@ export default function IndicatorsSettingsPanel({
 
             <div className="indicators-settings-block">
               <p className="indicators-settings-label">Коридор главного показателя</p>
-              <ThresholdMenu
-                value={mainThreshold}
+              <ThresholdEditor
+                embedded
+                threshold={mainThreshold}
                 recommended={mainRecommendedThreshold}
                 calculationPeriodLabel={calculationPeriodLabel}
                 valueType={draft.chart.metricMode}
@@ -320,8 +321,6 @@ export default function IndicatorsSettingsPanel({
                 onDirectionChange={onMainDirectionChange}
                 onApply={onThresholdApply}
                 onReset={onThresholdReset}
-                menuGroup={menuGroup}
-                menuKey="thresholds"
               />
             </div>
 

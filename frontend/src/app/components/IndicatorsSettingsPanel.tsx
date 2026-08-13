@@ -208,7 +208,7 @@ export default function IndicatorsSettingsPanel({
                   <span>
                     {canUseSum
                       ? 'Включите, чтобы выбрать несколько источников в один главный показатель'
-                      : 'Доступно в платной версии'}
+                      : 'Доступно в про версии'}
                   </span>
                 </div>
               </div>
@@ -295,7 +295,7 @@ export default function IndicatorsSettingsPanel({
                   <span>
                     {isProUser
                       ? 'Только отображаемое имя, формула не меняется'
-                      : 'Редактирование названия — в платной версии'}
+                      : 'Редактирование названия — в про версии'}
                   </span>
                 </div>
               </div>
@@ -458,7 +458,7 @@ export default function IndicatorsSettingsPanel({
                     Сохранить набор
                     <ProFeatureBadge />
                   </strong>
-                  <span>{isProUser ? 'Для быстрого повторного запуска' : 'Доступно в платной версии'}</span>
+                  <span>{isProUser ? 'Для быстрого повторного запуска' : 'Доступно в про версии'}</span>
                 </div>
               </div>
               <input

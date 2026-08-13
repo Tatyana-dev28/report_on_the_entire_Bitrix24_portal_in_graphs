@@ -4340,7 +4340,7 @@ function App() {
 
   const applyReportBuild = useCallback((
     selectedSources: string[],
-    overrides: Partial<Pick<ReportFilters, 'period' | 'dateRange'>> = {},
+    overrides: Partial<Pick<ReportFilters, 'period' | 'dateRange' | 'metricMode' | 'chartDisplayMode' | 'schedule'>> = {},
   ) => {
     if (!canStartReportBuild()) {
       return;
@@ -4349,6 +4349,17 @@ function App() {
     markUserSettingsChange();
     const period = overrides.period ?? draftFilters.period;
     const dateRange = overrides.dateRange ?? draftFilters.dateRange;
+    const metricMode = overrides.metricMode ?? draftFilters.metricMode;
+    const chartDisplayMode = overrides.chartDisplayMode ?? draftFilters.chartDisplayMode;
+    const schedule = overrides.schedule
+      ? {
+          ...overrides.schedule,
+          weekendDayIds: [...overrides.schedule.weekendDayIds],
+        }
+      : {
+          ...draftFilters.schedule,
+          weekendDayIds: [...draftFilters.schedule.weekendDayIds],
+        };
 
     setHasBuiltReport(true);
     setDraftFilters((current) => ({
@@ -4356,6 +4367,9 @@ function App() {
       period,
       dateRange,
       selectedSources,
+      metricMode,
+      chartDisplayMode,
+      schedule,
     }));
     // Build updates chart filters + period only.
     // Table visibility stays under table settings (applied enabledSectionIds /
@@ -4365,19 +4379,35 @@ function App() {
       period,
       dateRange,
       selectedSources,
-      chartDisplayMode: draftFilters.chartDisplayMode,
-      metricMode: draftFilters.metricMode,
+      chartDisplayMode,
+      metricMode,
       schedule: {
-        ...draftFilters.schedule,
-        weekendDayIds: [...draftFilters.schedule.weekendDayIds],
+        ...schedule,
+        weekendDayIds: [...schedule.weekendDayIds],
       },
     }));
     setBuildMoment(Date.now());
     requestReportBuild();
   }, [canStartReportBuild, draftFilters, markUserSettingsChange, requestReportBuild]);
 
-  const buildReportFromDraft = useCallback((options?: { automaticThresholds?: boolean }) => {
+  type IndicatorsBuildSnapshot = {
+    chartSources: string[];
+    metricMode: ChartDraftSettings['metricMode'];
+    schedule: ChartDraftSettings['schedule'];
+    pipelineSourceIds: string[];
+    entitySourceIds: string[];
+    sectionIds: Set<string>;
+    enabledMetricIdsBySection: Record<string, Set<string>>;
+    tableRowChartsMode: IndicatorsSettingsDraft['tableRowChartsMode'];
+  };
+
+  const buildReportFromDraft = useCallback((options?: {
+    automaticThresholds?: boolean;
+    /** Explicit snapshot from settings panel — avoids stale React state after commit. */
+    fromIndicators?: IndicatorsBuildSnapshot;
+  }) => {
     const automaticThresholds = options?.automaticThresholds ?? false;
+    const fromIndicators = options?.fromIndicators;
     const restoredManualDateFilters = temporaryAutoReportModeRef.current
       ? manualDateFiltersBeforeAutoRef.current
       : null;
@@ -4389,28 +4419,80 @@ function App() {
     autoBuildDateFiltersRef.current = null;
     pendingAutoBuildSummaryRef.current = null;
     manualDateFiltersBeforeAutoRef.current = null;
-    const availableSectionIds = new Set(metricSections.map((section) => section.id));
-    const { pipelineSourceIds, entitySourceIds } = resolveTableSelectionFromSources(
-      draftTableSelectedSources,
-      crmSources,
-      availableSectionIds,
-    );
+
+    let pipelineSourceIds: string[];
+    let entitySourceIds: string[];
+    let nextEnabledMetricIdsBySection: Record<string, Set<string>>;
+    let nextEnabledSectionIds: Set<string>;
+    let chartSources: string[];
+    let chartMetricMode = draftFilters.metricMode;
+    let chartSchedule = draftFilters.schedule;
+    let nextTableRowChartsMode = tableRowChartsMode;
+
+    if (fromIndicators) {
+      pipelineSourceIds = [...fromIndicators.pipelineSourceIds];
+      entitySourceIds = [...fromIndicators.entitySourceIds];
+      nextEnabledSectionIds = new Set(fromIndicators.sectionIds);
+      nextEnabledMetricIdsBySection = Object.fromEntries(
+        Object.entries(fromIndicators.enabledMetricIdsBySection).map(([sectionId, metricIds]) => [
+          sectionId,
+          new Set(metricIds),
+        ]),
+      );
+      chartSources = sanitizeChartSources(fromIndicators.chartSources);
+      chartMetricMode = fromIndicators.metricMode;
+      chartSchedule = {
+        ...fromIndicators.schedule,
+        weekendDayIds: [...fromIndicators.schedule.weekendDayIds],
+      };
+      nextTableRowChartsMode = fromIndicators.tableRowChartsMode;
+    } else {
+      const availableSectionIds = new Set(metricSections.map((section) => section.id));
+      const resolved = resolveTableSelectionFromSources(
+        draftTableSelectedSources,
+        crmSources,
+        availableSectionIds,
+      );
+      pipelineSourceIds = resolved.pipelineSourceIds;
+      entitySourceIds = resolved.entitySourceIds;
+      nextEnabledSectionIds = new Set(draftFilters.enabledSectionIds);
+      nextEnabledMetricIdsBySection = Object.fromEntries(
+        Object.entries(enabledMetricIdsBySection).map(([sectionId, metricIds]) => [
+          sectionId,
+          new Set(metricIds),
+        ]),
+      );
+      chartSources = sanitizeChartSources(draftFilters.selectedSources);
+    }
 
     setTableSelectedSources(pipelineSourceIds);
     setTableEntitySourceIds(entitySourceIds);
-    setAppliedEnabledMetricIdsBySection(
+    setDraftTableSelectedSources([...entitySourceIds, ...pipelineSourceIds]);
+    setEnabledMetricIdsBySection(
       Object.fromEntries(
-        Object.entries(enabledMetricIdsBySection).map(([sectionId, metricIds]) => [
+        Object.entries(nextEnabledMetricIdsBySection).map(([sectionId, metricIds]) => [
           sectionId,
           new Set(metricIds),
         ]),
       ),
     );
+    setAppliedEnabledMetricIdsBySection(
+      Object.fromEntries(
+        Object.entries(nextEnabledMetricIdsBySection).map(([sectionId, metricIds]) => [
+          sectionId,
+          new Set(metricIds),
+        ]),
+      ),
+    );
+    setDraftFilters((current) => ({
+      ...current,
+      enabledSectionIds: new Set(nextEnabledSectionIds),
+    }));
     setAppliedFilters((current) => ({
       ...current,
-      enabledSectionIds: new Set(draftFilters.enabledSectionIds),
+      enabledSectionIds: new Set(nextEnabledSectionIds),
     }));
-    if (tableRowChartsMode === 'with_charts') {
+    if (nextTableRowChartsMode === 'with_charts') {
       pendingExpandRowChartsRef.current = true;
       sawReportLoadingForExpandRef.current = false;
     }
@@ -4421,11 +4503,18 @@ function App() {
     immediateAutoSaveRef.current = true;
     setAutoSaveRequest((current) => current + 1);
     // Empty chart selection stays empty — never expand to all/default sources.
-    applyReportBuild(sanitizeChartSources(draftFilters.selectedSources), restoredManualDateFilters ?? undefined);
+    applyReportBuild(chartSources, {
+      ...(restoredManualDateFilters ?? {}),
+      metricMode: chartMetricMode,
+      chartDisplayMode: 'sum',
+      schedule: chartSchedule,
+    });
   }, [
     applyReportBuild,
     crmSources,
     draftFilters.enabledSectionIds,
+    draftFilters.metricMode,
+    draftFilters.schedule,
     draftFilters.selectedSources,
     draftTableSelectedSources,
     enabledMetricIdsBySection,
@@ -4629,24 +4718,23 @@ function App() {
     setIsAutoSetupConfirmOpen(true);
   }, [runAutomaticReportBuild]);
 
-  const commitIndicatorsSettingsDraft = useCallback((draft: IndicatorsSettingsDraft) => {
+  const commitIndicatorsSettingsDraft = useCallback((draft: IndicatorsSettingsDraft): IndicatorsBuildSnapshot => {
     const sanitizedSources = (!isProUser || !draft.useSumIndicators)
       ? draft.chart.selectedSources.slice(0, 1)
       : [...draft.chart.selectedSources];
+    const chartSources = sanitizeChartSources(sanitizedSources);
+    const nextSchedule = {
+      ...draft.chart.schedule,
+      weekendDayIds: [...draft.chart.schedule.weekendDayIds],
+    };
 
     applyChartSettings({
-      selectedSources: sanitizedSources,
+      selectedSources: chartSources,
       chartDisplayMode: 'sum',
       metricMode: draft.chart.metricMode,
-      schedule: {
-        ...draft.chart.schedule,
-        weekendDayIds: [...draft.chart.schedule.weekendDayIds],
-      },
+      schedule: nextSchedule,
     });
 
-    setDraftTableSelectedSources([...draft.tableSelectedSources]);
-    // applyTableSettings reads draftTableSelectedSources from state — set then apply in rAF/timeout
-    // Use direct resolve path instead to avoid stale state.
     markUserSettingsChange();
     const availableSectionIds = new Set(metricSections.map((section) => section.id));
     const { sectionIds, pipelineSourceIds, entitySourceIds } = resolveTableSelectionFromSources(
@@ -4662,6 +4750,12 @@ function App() {
         return acc;
       },
       {},
+    );
+    const enabledMetricSnapshot = Object.fromEntries(
+      Object.entries(nextEnabledMetricIdsBySection).map(([sectionId, metricIds]) => [
+        sectionId,
+        new Set(metricIds),
+      ]),
     );
     setTableSelectedSources(pipelineSourceIds);
     setTableEntitySourceIds(entitySourceIds);
@@ -4702,12 +4796,24 @@ function App() {
     setHideZeroRows(draft.hideZeroRows);
     setHighlightDeviations(draft.highlightDeviations);
     setMainIndicatorCustomTitle(isProUser ? draft.customTitle.trim() : '');
+
+    return {
+      chartSources,
+      metricMode: draft.chart.metricMode,
+      schedule: nextSchedule,
+      pipelineSourceIds,
+      entitySourceIds,
+      sectionIds: new Set(sectionIds),
+      enabledMetricIdsBySection: enabledMetricSnapshot,
+      tableRowChartsMode: draft.tableRowChartsMode,
+    };
   }, [
     applyChartSettings,
     crmSources,
     isProUser,
     markUserSettingsChange,
     metricSections,
+    sanitizeChartSources,
   ]);
 
   const showSummaryFromPanel = useCallback(() => {
@@ -4723,21 +4829,17 @@ function App() {
       return;
     }
     const draftSnapshot = indicatorsSettingsDraft;
-    commitIndicatorsSettingsDraft(draftSnapshot);
+    const committed = commitIndicatorsSettingsDraft(draftSnapshot);
     closeIndicatorsSettingsPanel();
-    // Build after commit; highlightDeviations is set synchronously above but
-    // runUnifiedReportBuild closes over state — call build helpers with draft flag.
     if (!canStartReportBuild()) {
       return;
     }
-    if (draftSnapshot.highlightDeviations) {
-      buildReportWithAutomaticThresholds();
-      return;
-    }
-    buildReport();
+    buildReportFromDraft({
+      automaticThresholds: draftSnapshot.highlightDeviations,
+      fromIndicators: committed,
+    });
   }, [
-    buildReport,
-    buildReportWithAutomaticThresholds,
+    buildReportFromDraft,
     canStartReportBuild,
     closeIndicatorsSettingsPanel,
     commitIndicatorsSettingsDraft,
@@ -4763,21 +4865,19 @@ function App() {
       return;
     }
     const draftSnapshot = indicatorsSettingsDraft;
-    commitIndicatorsSettingsDraft(draftSnapshot);
+    const committed = commitIndicatorsSettingsDraft(draftSnapshot);
     closeIndicatorsSettingsPanel();
     if (canStartReportBuild()) {
-      if (draftSnapshot.highlightDeviations) {
-        buildReportWithAutomaticThresholds();
-      } else {
-        buildReport();
-      }
+      buildReportFromDraft({
+        automaticThresholds: draftSnapshot.highlightDeviations,
+        fromIndicators: committed,
+      });
     }
     setNewViewName(name);
     setEditingViewId(null);
     setIsSaveOpen(true);
   }, [
-    buildReport,
-    buildReportWithAutomaticThresholds,
+    buildReportFromDraft,
     canStartReportBuild,
     closeIndicatorsSettingsPanel,
     commitIndicatorsSettingsDraft,

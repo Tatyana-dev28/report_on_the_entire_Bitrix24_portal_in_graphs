@@ -241,7 +241,11 @@ export default function IndicatorsSettingsPanel({
               </label>
             </div>
 
-            <div className="indicators-settings-block">
+            <div
+              className={`indicators-settings-block indicators-picker-block${
+                draft.chart.selectedSources.length === 0 ? ' is-empty' : ''
+              }`}
+            >
               <p className="indicators-settings-label">
                 {mainSelectionMode === 'multi'
                   ? 'Источники главного показателя'
@@ -398,7 +402,11 @@ export default function IndicatorsSettingsPanel({
               </div>
             </div>
 
-            <div className="indicators-settings-block">
+            <div
+              className={`indicators-settings-block indicators-picker-block${
+                draft.tableSelectedSources.length === 0 ? ' is-empty' : ''
+              }`}
+            >
               <p className="indicators-settings-label">Выберите показатели</p>
               <MultiSelect
                 values={draft.tableSelectedSources}

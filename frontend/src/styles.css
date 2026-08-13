@@ -1750,6 +1750,38 @@ body > .floating-popover {
   gap: 8px;
 }
 
+.indicators-picker-block {
+  padding: 12px;
+  border: 1px solid #c5d6ef;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f3f7ff 0%, #eef4fc 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.indicators-picker-block .indicators-settings-label {
+  color: #2a3f63;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.indicators-picker-block .select-trigger {
+  border-color: #8fb0e0;
+  background: #ffffff;
+  box-shadow: 0 1px 0 rgba(42, 63, 99, 0.04);
+  font-weight: 600;
+}
+
+.indicators-picker-block .select-trigger:hover,
+.indicators-picker-block .select-shell.is-open .select-trigger {
+  border-color: #1a6bff;
+  background: #f8fbff;
+}
+
+.indicators-picker-block.is-empty .select-trigger {
+  border-color: #1a6bff;
+  background: #eef4ff;
+}
+
 .indicators-settings-label {
   display: inline-flex;
   align-items: center;

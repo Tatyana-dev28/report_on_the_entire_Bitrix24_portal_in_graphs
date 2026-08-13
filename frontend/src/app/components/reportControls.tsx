@@ -45,7 +45,6 @@ import {
   LAST_AVAILABLE_MONTH_INDEX,
   MONTH_LABELS,
   CHART_AXIS_WIDTH,
-  chartDisplayModeOptions,
   chartMetricModeOptions,
   createDefaultSchedule,
   scheduleTimeOptions,
@@ -454,6 +453,9 @@ export function MultiSelect({
   menuGroup,
   menuKey,
   variant = 'dropdown',
+  selectionMode = 'multi',
+  triggerLabel,
+  ariaLabel = 'Выбор источников отчета',
 }: {
   values: string[];
   options: SelectOption<string>[];
@@ -467,6 +469,11 @@ export function MultiSelect({
   menuGroup?: string;
   menuKey?: string;
   variant?: 'dropdown' | 'inline';
+  /** Free main indicator uses single-select; table/paid sum stay multi. */
+  selectionMode?: 'multi' | 'single';
+  /** Closed-field summary, e.g. «Выбрано: 18» (W08). */
+  triggerLabel?: string;
+  ariaLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -504,14 +511,16 @@ export function MultiSelect({
     () => options.filter((option) => !option.disabled),
     [options],
   );
-  const label =
-    availableOptions.length > 0
-    && availableOptions.every((option) => values.includes(option.value))
-    && values.every((value) => availableOptions.some((option) => option.value === value))
-      ? 'Все источники'
-      : values.length
-        ? values.map((value) => optionLabelByValue.get(value) ?? value).join(', ')
-        : 'Не выбрано';
+  const label = triggerLabel
+    ?? (
+      availableOptions.length > 0
+      && availableOptions.every((option) => values.includes(option.value))
+      && values.every((value) => availableOptions.some((option) => option.value === value))
+        ? 'Все источники'
+        : values.length
+          ? values.map((value) => optionLabelByValue.get(value) ?? value).join(', ')
+          : 'Не выбрано'
+    );
 
   const filteredOptions = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -563,6 +572,11 @@ export function MultiSelect({
 
     // Allow unchecking a previously selected unavailable source; block new selection.
     if (option?.disabled && !isSelected) {
+      return;
+    }
+
+    if (selectionMode === 'single') {
+      onChange(isSelected ? [] : [value]);
       return;
     }
 
@@ -687,7 +701,7 @@ export function MultiSelect({
       <button
         className="select-trigger"
         type="button"
-        aria-label="Выбор источников отчета"
+        aria-label={ariaLabel}
         aria-expanded={open}
         onClick={toggleOpen}
       >
@@ -1116,6 +1130,7 @@ export function ConfigureChartMenu({
                 updateDraftSettings((current) => ({
                   ...current,
                   selectedSources,
+                  chartDisplayMode: 'sum',
                 }))
               }
               onSelectAll={() =>
@@ -1124,6 +1139,7 @@ export function ConfigureChartMenu({
                   selectedSources: crmSourceOptions
                     .filter((option) => !option.disabled)
                     .map((option) => option.value),
+                  chartDisplayMode: 'sum',
                 }))
               }
               onReset={() =>
@@ -1137,22 +1153,11 @@ export function ConfigureChartMenu({
               menuGroup={chartMenuGroup}
               menuKey="sources"
             />
-            {draftSettings.selectedSources.length > 1 && (
-              <CustomSelect
-                options={chartDisplayModeOptions}
-                value={draftSettings.chartDisplayMode}
-                onChange={(chartDisplayMode) =>
-                  updateDraftSettings((current) => ({
-                    ...current,
-                    chartDisplayMode,
-                  }))
-                }
-                ariaLabel="Режим отображения CRM-разделов"
-                className="chart-mode-select"
-                menuGroup={chartMenuGroup}
-                menuKey="display-mode"
-              />
-            )}
+            {draftSettings.selectedSources.length > 1 ? (
+              <p className="configure-chart-sum-hint">
+                Несколько источников суммируются в один главный показатель.
+              </p>
+            ) : null}
             <CustomSelect
               options={chartMetricModeOptions}
               value={draftSettings.metricMode}
@@ -1627,12 +1632,17 @@ export function ScheduleMenu({
   onChange,
   menuGroup,
   menuKey,
+  triggerLabel = 'Рабочий календарь',
+  triggerCompact = false,
 }: {
   schedule: ScheduleFilters;
   period: Period;
   onChange: (schedule: ScheduleFilters) => void;
   menuGroup?: string;
   menuKey?: string;
+  triggerLabel?: string;
+  /** Compact text button for embedded panels (W01 «Изменить»). */
+  triggerCompact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [draftSchedule, setDraftSchedule] = useState<ScheduleFilters>(() => cloneScheduleFilters(schedule));
@@ -1708,14 +1718,14 @@ export function ScheduleMenu({
   return (
     <div className={`threshold-shell schedule-shell ${open ? 'is-open' : ''}`} ref={ref}>
       <button
-        className="threshold-trigger schedule-trigger"
+        className={`threshold-trigger schedule-trigger${triggerCompact ? ' is-compact' : ''}`}
         type="button"
         aria-expanded={open}
         onClick={open ? () => setOpen(false) : openMenu}
       >
-        <CalendarClock size={17} />
-        <span>Рабочий календарь</span>
-        <ChevronDown size={16} />
+        {triggerCompact ? null : <CalendarClock size={17} />}
+        <span>{triggerLabel}</span>
+        {triggerCompact ? null : <ChevronDown size={16} />}
       </button>
       {open && (
         <FloatingPopover

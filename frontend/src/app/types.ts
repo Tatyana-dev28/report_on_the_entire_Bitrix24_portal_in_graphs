@@ -237,6 +237,10 @@ export type SavedReportViewState = {
   tableRowChartsMode?: TableRowChartsMode;
   /** Hide metrics/employees where every period is 0 or «—». */
   hideZeroRows?: boolean;
+  /** WEB-SET-001: corridor highlight for table build. */
+  highlightDeviations?: boolean;
+  /** WEB-SET-001 paid custom main indicator title. */
+  mainIndicatorCustomTitle?: string;
 };
 
 export type SavedReportViewOption = SelectOption<string> & {

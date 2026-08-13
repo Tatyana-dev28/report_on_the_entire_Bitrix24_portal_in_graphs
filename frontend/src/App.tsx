@@ -29,12 +29,19 @@ import {
   Plus,
   Play,
   RotateCcw,
+  Settings2,
+  Sparkles,
   TrendingUp,
   GripVertical,
   X,
 } from 'lucide-react';
 import ReportBuildLoader from './app/components/ReportBuildLoader';
 import ReportOnboarding from './app/components/ReportOnboarding';
+import AutoSetupConfirmModal from './app/components/AutoSetupConfirmModal';
+import IndicatorsSettingsPanel, {
+  createIndicatorsSettingsDraft,
+  type IndicatorsSettingsDraft,
+} from './app/components/IndicatorsSettingsPanel';
 import {
   CartesianGrid,
   Line,
@@ -79,7 +86,6 @@ import {
   MIN_PERIOD_COLUMN_WIDTH,
   MONTH_LABELS,
   PERIOD_COLUMN_WIDTH,
-  chartDisplayModeOptions,
   chartMetricModeOptions,
   chartSeriesColors,
   createDefaultSchedule,
@@ -216,15 +222,17 @@ import {
   SaveViewModal,
 } from './app/components/modals';
 import {
-  ConfigureChartMenu,
   DateRangePicker,
   ReportDownloadMenu,
   RowActionsMenu,
   RowMetricChart,
   SavedViewsSelect,
   SectionMetricsMenu,
-  TableSettingsMenu,
 } from './app/components/reportControls';
+import {
+  isAutoSetupPromptSuppressed,
+  markAutoSetupPromptSuppressed,
+} from './app/utils/autoSetupPrompt';
 import { exportReportPdf } from './app/export/exportReportPdf';
 import { exportReportExcel } from './app/export/exportReportExcel';
 
@@ -1541,6 +1549,11 @@ function App() {
   // F-05: corridor highlight is an option for «Построить отчёт»;
   // «Построить автоматически» is a separate one-shot action.
   const [highlightDeviations, setHighlightDeviations] = useState(false);
+  // WEB-SET-001: left-zone settings panel / auto confirm / paid custom title.
+  const [isIndicatorsSettingsOpen, setIsIndicatorsSettingsOpen] = useState(false);
+  const [isAutoSetupConfirmOpen, setIsAutoSetupConfirmOpen] = useState(false);
+  const [indicatorsSettingsDraft, setIndicatorsSettingsDraft] = useState<IndicatorsSettingsDraft | null>(null);
+  const [mainIndicatorCustomTitle, setMainIndicatorCustomTitle] = useState('');
   const [sourceMetricOrderBySource, setSourceMetricOrderBySource] = useState<Record<string, string[]>>({});
   // Visibility of metrics inside source blocks (separate from CRM enabledMetricIdsBySection).
   const [enabledMetricKeysBySource, setEnabledMetricKeysBySource] = useState<Record<string, Set<string>>>({});
@@ -1957,8 +1970,9 @@ function App() {
           }
 
           if (!protectAutoBuildResults && typeof settings.chartDisplayMode === 'string') {
-            setDraftFilters((current) => ({ ...current, chartDisplayMode: settings.chartDisplayMode as ChartDisplayMode }));
-            setAppliedFilters((current) => ({ ...current, chartDisplayMode: settings.chartDisplayMode as ChartDisplayMode }));
+            // WEB-SET-001: separate main charts removed — always restore as sum.
+            setDraftFilters((current) => ({ ...current, chartDisplayMode: 'sum' }));
+            setAppliedFilters((current) => ({ ...current, chartDisplayMode: 'sum' }));
           }
 
           if (!protectAutoBuildResults && typeof settings.metricMode === 'string') {
@@ -2955,7 +2969,7 @@ function App() {
         chartSourceMetrics,
       );
 
-    return buildMainIndicatorCaption({
+    const caption = buildMainIndicatorCaption({
       sourceLabels: selectedChartSourceLabels,
       chartDisplayMode: appliedFilters.chartDisplayMode,
       metricMode: appliedFilters.metricMode,
@@ -2965,6 +2979,15 @@ function App() {
       hasBuiltReport,
       hasChartData,
     });
+    const customTitle = mainIndicatorCustomTitle.trim();
+    if (!customTitle || caption.empty) {
+      return caption;
+    }
+    return {
+      ...caption,
+      title: customTitle,
+      titleFull: customTitle,
+    };
   }, [
     appliedFilters.chartDisplayMode,
     appliedFilters.dateRange,
@@ -2973,6 +2996,7 @@ function App() {
     chartReportData.length,
     chartSourceMetrics,
     hasBuiltReport,
+    mainIndicatorCustomTitle,
     periodOptions,
     selectedChartSourceLabels,
     selectedChartSources,
@@ -4077,11 +4101,12 @@ function App() {
     setDraftTableSelectedSources(values);
   }, [markUserSettingsChange]);
 
-  const handleChartDisplayModeChange = useCallback((value: ChartDisplayMode) => {
+  const handleChartDisplayModeChange = useCallback((_value: ChartDisplayMode) => {
     markUserSettingsChange();
+    // WEB-SET-001: separate mode removed from product UI.
     setDraftFilters((current) => ({
       ...current,
-      chartDisplayMode: value,
+      chartDisplayMode: 'sum',
     }));
   }, [markUserSettingsChange]);
 
@@ -4130,30 +4155,33 @@ function App() {
       return;
     }
 
-    const nextSources = [...settings.selectedSources];
+    const nextSources = isProUser
+      ? [...settings.selectedSources]
+      : settings.selectedSources.slice(0, 1);
     const nextSchedule = {
       ...settings.schedule,
       weekendDayIds: [...settings.schedule.weekendDayIds],
     };
+    const nextDisplayMode = 'sum' as const;
 
     setDraftFilters((current) => ({
       ...current,
       selectedSources: nextSources,
-      chartDisplayMode: settings.chartDisplayMode,
+      chartDisplayMode: nextDisplayMode,
       metricMode: settings.metricMode,
       schedule: nextSchedule,
     }));
     setAppliedFilters((current) => ({
       ...current,
       selectedSources: nextSources,
-      chartDisplayMode: settings.chartDisplayMode,
+      chartDisplayMode: nextDisplayMode,
       metricMode: settings.metricMode,
       schedule: {
         ...nextSchedule,
         weekendDayIds: [...nextSchedule.weekendDayIds],
       },
     }));
-  }, [draftFilters.period, markUserSettingsChange]);
+  }, [draftFilters.period, isProUser, markUserSettingsChange]);
 
   // Table Apply — commits table source/section selection only.
   // Does not rebuild the report: data load stays on «Построить отчёт» / «Построить автоматически».
@@ -4526,6 +4554,8 @@ function App() {
     setExpandedEmployeeChartIds(new Set());
     setExpandedEmployeeMetricIds(new Set());
     setTableRowChartsMode('compact');
+    setHideZeroRows(true);
+    setHighlightDeviations(automaticThresholds);
 
     setHasBuiltReport(true);
     setBuildMoment(Date.now());
@@ -4554,8 +4584,179 @@ function App() {
     if (!canStartReportBuild()) {
       return;
     }
-    buildAutomaticReport({ automaticThresholds: highlightDeviations });
-  }, [buildAutomaticReport, canStartReportBuild, highlightDeviations]);
+    // WEB-SET-001 W04: auto-flow always enables corridors + deviation highlight.
+    buildAutomaticReport({ automaticThresholds: true });
+  }, [buildAutomaticReport, canStartReportBuild]);
+
+  const openIndicatorsSettingsPanel = useCallback(() => {
+    setIndicatorsSettingsDraft(
+      createIndicatorsSettingsDraft({
+        filters: {
+          ...draftFilters,
+          selectedSources: isProUser
+            ? [...draftFilters.selectedSources]
+            : draftFilters.selectedSources.slice(0, 1),
+          chartDisplayMode: 'sum',
+        },
+        tableSelectedSources: draftTableSelectedSources,
+        tableRowChartsMode,
+        hideZeroRows,
+        highlightDeviations,
+        customTitle: mainIndicatorCustomTitle,
+      }),
+    );
+    setIsIndicatorsSettingsOpen(true);
+  }, [
+    draftFilters,
+    draftTableSelectedSources,
+    hideZeroRows,
+    highlightDeviations,
+    isProUser,
+    mainIndicatorCustomTitle,
+    tableRowChartsMode,
+  ]);
+
+  const closeIndicatorsSettingsPanel = useCallback(() => {
+    setIsIndicatorsSettingsOpen(false);
+    setIndicatorsSettingsDraft(null);
+  }, []);
+
+  const handleAutoSetupClick = useCallback(() => {
+    if (isAutoSetupPromptSuppressed()) {
+      runAutomaticReportBuild();
+      return;
+    }
+    setIsAutoSetupConfirmOpen(true);
+  }, [runAutomaticReportBuild]);
+
+  const commitIndicatorsSettingsDraft = useCallback((draft: IndicatorsSettingsDraft) => {
+    const sanitizedSources = (!isProUser || !draft.useSumIndicators)
+      ? draft.chart.selectedSources.slice(0, 1)
+      : [...draft.chart.selectedSources];
+
+    applyChartSettings({
+      selectedSources: sanitizedSources,
+      chartDisplayMode: 'sum',
+      metricMode: draft.chart.metricMode,
+      schedule: {
+        ...draft.chart.schedule,
+        weekendDayIds: [...draft.chart.schedule.weekendDayIds],
+      },
+    });
+
+    setDraftTableSelectedSources([...draft.tableSelectedSources]);
+    // applyTableSettings reads draftTableSelectedSources from state — set then apply in rAF/timeout
+    // Use direct resolve path instead to avoid stale state.
+    markUserSettingsChange();
+    const availableSectionIds = new Set(metricSections.map((section) => section.id));
+    const { sectionIds, pipelineSourceIds, entitySourceIds } = resolveTableSelectionFromSources(
+      draft.tableSelectedSources,
+      crmSources,
+      availableSectionIds,
+    );
+    const nextEnabledMetricIdsBySection = metricSections.reduce<Record<string, Set<string>>>(
+      (acc, section) => {
+        acc[section.id] = sectionIds.has(section.id)
+          ? new Set(section.metricIds)
+          : new Set();
+        return acc;
+      },
+      {},
+    );
+    setTableSelectedSources(pipelineSourceIds);
+    setTableEntitySourceIds(entitySourceIds);
+    setDraftTableSelectedSources([...entitySourceIds, ...pipelineSourceIds]);
+    setDraftFilters((current) => ({
+      ...current,
+      enabledSectionIds: new Set(sectionIds),
+    }));
+    setAppliedFilters((current) => ({
+      ...current,
+      enabledSectionIds: new Set(sectionIds),
+    }));
+    setEnabledMetricIdsBySection(
+      Object.fromEntries(
+        Object.entries(nextEnabledMetricIdsBySection).map(([sectionId, metricIds]) => [
+          sectionId,
+          new Set(metricIds),
+        ]),
+      ),
+    );
+    setAppliedEnabledMetricIdsBySection(
+      Object.fromEntries(
+        Object.entries(nextEnabledMetricIdsBySection).map(([sectionId, metricIds]) => [
+          sectionId,
+          new Set(metricIds),
+        ]),
+      ),
+    );
+    setMetricOrderBySection((current) => {
+      const next = { ...current };
+      metricSections.forEach((section) => {
+        next[section.id] = mergeIdOrder(next[section.id] ?? [], section.metricIds);
+      });
+      return next;
+    });
+    setExpandedSections(new Set(sectionIds));
+    setTableRowChartsMode(draft.tableRowChartsMode);
+    setHideZeroRows(draft.hideZeroRows);
+    setHighlightDeviations(draft.highlightDeviations);
+    setMainIndicatorCustomTitle(isProUser ? draft.customTitle.trim() : '');
+  }, [
+    applyChartSettings,
+    crmSources,
+    isProUser,
+    markUserSettingsChange,
+    metricSections,
+  ]);
+
+  const showSummaryFromPanel = useCallback(() => {
+    if (!indicatorsSettingsDraft) {
+      return;
+    }
+    if (
+      draftFilters.period === 'hours'
+      && getWorkdayScheduleError(indicatorsSettingsDraft.chart.schedule)
+    ) {
+      return;
+    }
+    const draftSnapshot = indicatorsSettingsDraft;
+    commitIndicatorsSettingsDraft(draftSnapshot);
+    closeIndicatorsSettingsPanel();
+    // Build after commit; highlightDeviations is set synchronously above but
+    // runUnifiedReportBuild closes over state — call build helpers with draft flag.
+    if (!canStartReportBuild()) {
+      return;
+    }
+    if (draftSnapshot.highlightDeviations) {
+      buildReportWithAutomaticThresholds();
+      return;
+    }
+    buildReport();
+  }, [
+    buildReport,
+    buildReportWithAutomaticThresholds,
+    canStartReportBuild,
+    closeIndicatorsSettingsPanel,
+    commitIndicatorsSettingsDraft,
+    draftFilters.period,
+    indicatorsSettingsDraft,
+  ]);
+
+  const saveSetFromPanel = useCallback(() => {
+    if (!indicatorsSettingsDraft || !isProUser) {
+      return;
+    }
+    const name = indicatorsSettingsDraft.saveSetName.trim();
+    if (!name) {
+      setNotification('Укажите название набора');
+      return;
+    }
+    commitIndicatorsSettingsDraft(indicatorsSettingsDraft);
+    setNewViewName(name);
+    setEditingViewId(null);
+    setIsSaveOpen(true);
+  }, [commitIndicatorsSettingsDraft, indicatorsSettingsDraft, isProUser]);
 
   const openDetail = useCallback((
     metric: MetricRow,
@@ -5279,6 +5480,8 @@ function App() {
       expandedEmployeeChartIds: [...expandedEmployeeChartIds],
       tableRowChartsMode,
       hideZeroRows,
+      highlightDeviations,
+      mainIndicatorCustomTitle,
     }),
     [
       appliedEmployeeIdsByMetricId,
@@ -5294,6 +5497,8 @@ function App() {
       expandedEmployeeMetricIds,
       expandedSections,
       hideZeroRows,
+      highlightDeviations,
+      mainIndicatorCustomTitle,
       mainThreshold,
       metricDirectionsById,
       metricOrderBySection,
@@ -5435,12 +5640,26 @@ function App() {
     setIsSaveOpen(true);
   }, [isProUser, savedViews]);
 
-  const applySavedViewState = useCallback((state: SavedReportViewState) => {
+  const applySavedViewState = useCallback((
+    state: SavedReportViewState,
+    options?: { rebuild?: boolean },
+  ) => {
     dateRangeSelectedManuallyRef.current = true;
     const deserializedDraft = deserializeFilters(state.draftFilters);
     const deserializedApplied = deserializeFilters(state.appliedFilters);
-    setDraftFilters(deserializedDraft);
-    setAppliedFilters(deserializedApplied);
+    const sanitizeMainSources = (sources: string[]) => (
+      isProUser ? [...sources] : sources.slice(0, 1)
+    );
+    setDraftFilters({
+      ...deserializedDraft,
+      chartDisplayMode: 'sum',
+      selectedSources: sanitizeMainSources(deserializedDraft.selectedSources),
+    });
+    setAppliedFilters({
+      ...deserializedApplied,
+      chartDisplayMode: 'sum',
+      selectedSources: sanitizeMainSources(deserializedApplied.selectedSources),
+    });
     // Table sources are independent from chart sources.
     const restoredTableSources = Array.isArray(state.tableSelectedSources)
       ? [...state.tableSelectedSources]
@@ -5531,11 +5750,18 @@ function App() {
       state.tableRowChartsMode === 'with_charts' ? 'with_charts' : 'compact',
     );
     setHideZeroRows(Boolean(state.hideZeroRows));
+    setHighlightDeviations(Boolean(state.highlightDeviations));
+    setMainIndicatorCustomTitle(
+      typeof state.mainIndicatorCustomTitle === 'string' ? state.mainIndicatorCustomTitle : '',
+    );
+    if (options?.rebuild === false) {
+      return;
+    }
     setHasBuiltReport(true);
     setBuildMoment(Date.now());
     // Trigger report build for the restored view state
     setReportBuildRequest((current) => current + 1);
-  }, []);
+  }, [isProUser]);
 
   const applyDefaultOverviewView = useCallback(() => {
     dateRangeSelectedManuallyRef.current = false;
@@ -6016,7 +6242,7 @@ function App() {
           <div className="fixed-column">
             <div className={`left-pane chart-left${mainIndicatorCaption.empty ? ' is-empty' : ''}`}>
               <div className="section-title-row">
-                <p>Главный показатель</p>
+                <p>Показатели бизнеса</p>
                 <div className="section-title-actions">
                   <TooltipButton
                     label="Закрепить график при прокрутке"
@@ -6028,70 +6254,70 @@ function App() {
                   </TooltipButton>
                 </div>
               </div>
-              <div className="chart-controls chart-action-controls">
-                <ConfigureChartMenu
-                  filters={draftFilters}
-                  crmSourceOptions={crmSourceOptions}
-                  mainThreshold={mainThreshold}
-                  mainRecommendedThreshold={mainRecommendedThreshold}
-                  calculationPeriodLabel={corridorCalculationPeriodLabel}
-                  mainDirection={resolveMetricDirection(MAIN_INDICATOR_DIRECTION_KEY, metricDirectionsById)}
-                  onMainDirectionChange={(direction) => updateMetricDirection(MAIN_INDICATOR_DIRECTION_KEY, direction)}
-                  onApply={applyChartSettings}
-                  onDraftChange={updateChartDraftSettings}
-                  onThresholdApply={(value) => {
-                    markUserSettingsChange();
-                    setMainThreshold(value);
-                  }}
-                  onThresholdReset={() => {
-                    markUserSettingsChange();
-                    setMainThreshold({ upper: '', lower: '', mode: null });
-                  }}
-                />
-                <TableSettingsMenu
-                  selectedSources={draftTableSelectedSources}
-                  crmSourceOptions={crmSourceOptions}
-                  onSourcesChange={handleTableSelectedSourcesChange}
-                  onApply={applyTableSettings}
-                  tableRowChartsMode={tableRowChartsMode}
-                  onTableRowChartsModeChange={setTableRowChartsModeAndSync}
-                  hideZeroRows={hideZeroRows}
-                  onHideZeroRowsChange={(value) => {
-                    markUserSettingsChange();
-                    setHideZeroRows(value);
-                  }}
-                  onExpandAllRowCharts={expandAllRowCharts}
-                  onCollapseAllRowCharts={collapseAllRowCharts}
-                  trigger="text"
-                />
-                <div className="left-build-controls">
-                  <label className={`left-build-toggle ${highlightDeviations ? 'is-on' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={highlightDeviations}
-                      onChange={(event) => setHighlightDeviations(event.target.checked)}
+              <div className="business-indicators-actions">
+                <button
+                  type="button"
+                  className="business-action-card"
+                  onClick={handleAutoSetupClick}
+                  disabled={reportLoading || Boolean(sectionRetryingId)}
+                >
+                  <span className="business-action-card-icon" aria-hidden="true">
+                    <Sparkles size={18} />
+                  </span>
+                  <span className="business-action-card-copy">
+                    <strong>Показать автоматически</strong>
+                    <em>Система всё настроит за вас</em>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={`business-action-card ${isIndicatorsSettingsOpen ? 'is-active' : ''}`}
+                  onClick={openIndicatorsSettingsPanel}
+                  disabled={reportLoading || Boolean(sectionRetryingId)}
+                >
+                  <span className="business-action-card-icon" aria-hidden="true">
+                    <Settings2 size={18} />
+                  </span>
+                  <span className="business-action-card-copy">
+                    <strong>Настроить показатели</strong>
+                    <em>Период, главный и остальные</em>
+                  </span>
+                </button>
+                {isProUser && savedViews.some((view) => !view.isSystem) ? (
+                  <div className="business-saved-set-block">
+                    <p className="business-saved-set-label">Выбранный набор показателей</p>
+                    <SavedViewsSelect
+                      options={savedViews}
+                      value={selectedView}
+                      onChange={(value) => {
+                        const view = savedViews.find((item) => item.value === value);
+                        setSelectedView(value);
+                        if (view?.isSystem || !view?.state) {
+                          return;
+                        }
+                        // W05: apply set into state; build only on «Показать сводку».
+                        applySavedViewState(view.state, { rebuild: false });
+                      }}
+                      onSaveClick={openSaveCurrentView}
+                      onEdit={editSavedView}
+                      onDelete={(value) => setDeleteViewId(value)}
                     />
-                    <span>Рассчитать коридоры и подсветить отклонения</span>
-                  </label>
-                  <button
-                    className="left-panel-action-button left-build-button"
-                    type="button"
-                    onClick={runUnifiedReportBuild}
-                    disabled={reportLoading || Boolean(sectionRetryingId)}
-                  >
-                    <Play size={16} />
-                    <span>Построить отчёт</span>
-                  </button>
-                  <button
-                    className="left-panel-action-button left-auto-build-button"
-                    type="button"
-                    onClick={runAutomaticReportBuild}
-                    disabled={reportLoading || Boolean(sectionRetryingId)}
-                  >
-                    <Play size={16} />
-                    <span>Построить автоматически</span>
-                  </button>
-                </div>
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  className="business-action-card business-action-card--primary"
+                  onClick={runUnifiedReportBuild}
+                  disabled={reportLoading || Boolean(sectionRetryingId)}
+                >
+                  <span className="business-action-card-icon" aria-hidden="true">
+                    <Play size={18} />
+                  </span>
+                  <span className="business-action-card-copy">
+                    <strong>Показать сводку</strong>
+                    <em>Отобразить выбранный набор</em>
+                  </span>
+                </button>
               </div>
             </div>
 
@@ -7102,6 +7328,48 @@ function App() {
         <div className="floating-layer" />
       </section>
 
+      {indicatorsSettingsDraft && (
+        <IndicatorsSettingsPanel
+          open={isIndicatorsSettingsOpen}
+          isProUser={isProUser}
+          period={draftFilters.period}
+          crmSourceOptions={crmSourceOptions}
+          mainThreshold={mainThreshold}
+          mainRecommendedThreshold={mainRecommendedThreshold}
+          calculationPeriodLabel={corridorCalculationPeriodLabel}
+          mainDirection={resolveMetricDirection(MAIN_INDICATOR_DIRECTION_KEY, metricDirectionsById)}
+          draft={indicatorsSettingsDraft}
+          onDraftChange={setIndicatorsSettingsDraft}
+          onMainDirectionChange={(direction) => updateMetricDirection(MAIN_INDICATOR_DIRECTION_KEY, direction)}
+          onThresholdApply={(value) => {
+            markUserSettingsChange();
+            setMainThreshold(value);
+          }}
+          onThresholdReset={() => {
+            markUserSettingsChange();
+            setMainThreshold({ upper: '', lower: '', mode: null });
+          }}
+          onCancel={closeIndicatorsSettingsPanel}
+          onShowSummary={showSummaryFromPanel}
+          onSaveSet={saveSetFromPanel}
+          onExpandAllRowCharts={expandAllRowCharts}
+          onCollapseAllRowCharts={collapseAllRowCharts}
+        />
+      )}
+
+      {isAutoSetupConfirmOpen && (
+        <AutoSetupConfirmModal
+          onCancel={() => setIsAutoSetupConfirmOpen(false)}
+          onConfirm={(suppressPrompt) => {
+            if (suppressPrompt) {
+              markAutoSetupPromptSuppressed();
+            }
+            setIsAutoSetupConfirmOpen(false);
+            runAutomaticReportBuild();
+          }}
+        />
+      )}
+
       {isSaveOpen && (
         <SaveViewModal
           value={newViewName}
@@ -7112,7 +7380,7 @@ function App() {
             setNewViewName('');
           }}
           onSave={saveCurrentView}
-          title={editingViewId ? 'Редактировать отображение' : 'Сохранить отображение'}
+          title={editingViewId ? 'Редактировать набор' : 'Сохранить набор'}
         />
       )}
 

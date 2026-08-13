@@ -190,7 +190,9 @@ export function FloatingPopover({
 
     const app = anchor.closest('.report-card') as HTMLElement | null;
     const nextLayer = app?.querySelector('.floating-layer') as HTMLElement | null;
-    const targetLayer = nextLayer ?? app ?? document.body;
+    // Outside report-card (e.g. WEB-SET-001 settings panel) portal to body with fixed coords.
+    const targetLayer = nextLayer ?? document.body;
+    const useFixedLayer = targetLayer === document.body;
     setLayer(targetLayer);
 
     let frame = 0;
@@ -202,14 +204,16 @@ export function FloatingPopover({
       }
 
       const appElement = currentAnchor.closest('.report-card') as HTMLElement | null;
-      const appRect = appElement?.getBoundingClientRect() ?? {
-        left: 0,
-        top: 0,
-        right: window.innerWidth,
-        bottom: window.innerHeight,
-        width: window.innerWidth,
-        height: window.innerHeight,
-      };
+      const appRect = (!useFixedLayer && appElement)
+        ? appElement.getBoundingClientRect()
+        : {
+            left: 0,
+            top: 0,
+            right: window.innerWidth,
+            bottom: window.innerHeight,
+            width: window.innerWidth,
+            height: window.innerHeight,
+          };
       const resolvedAnchorRect = anchorRect ?? currentAnchor.getBoundingClientRect();
       const padding = 12;
       const gap = 8;
@@ -247,9 +251,11 @@ export function FloatingPopover({
           : clamp(preferredViewportTop, minViewportTop, maxViewportTop);
 
       setStyle({
+        position: useFixedLayer ? 'fixed' : undefined,
+        zIndex: useFixedLayer ? 5600 : undefined,
         width,
-        left: viewportLeft - appRect.left,
-        top: viewportTop - appRect.top,
+        left: useFixedLayer ? viewportLeft : viewportLeft - appRect.left,
+        top: useFixedLayer ? viewportTop : viewportTop - appRect.top,
         maxHeight: verticalPlacement === 'anchor-start' && constrainHeight
           ? Math.max(180, visibleBottom - padding - viewportTop)
           : undefined,

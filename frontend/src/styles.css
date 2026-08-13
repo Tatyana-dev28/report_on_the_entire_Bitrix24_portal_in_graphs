@@ -231,6 +231,11 @@ button {
   box-shadow: 0 18px 42px rgba(15, 23, 42, 0.12);
 }
 
+/* WEB-SET-001: popovers portaled to body must sit above the settings overlay. */
+body > .floating-popover {
+  z-index: 5600;
+}
+
 .floating-layer {
   position: absolute;
   inset: 0;
@@ -1781,9 +1786,18 @@ button {
 }
 
 .indicators-switch input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   opacity: 0;
-  width: 0;
-  height: 0;
+  cursor: pointer;
+}
+
+.indicators-switch input:disabled {
+  cursor: not-allowed;
 }
 
 .indicators-switch span {
@@ -1791,7 +1805,7 @@ button {
   inset: 0;
   border-radius: 999px;
   background: #d5dbe4;
-  cursor: pointer;
+  pointer-events: none;
   transition: background 160ms ease;
 }
 
@@ -1817,7 +1831,6 @@ button {
 
 .indicators-switch input:disabled + span {
   opacity: 0.55;
-  cursor: not-allowed;
 }
 
 .indicators-calendar-row {

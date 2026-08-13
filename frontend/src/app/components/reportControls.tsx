@@ -484,7 +484,7 @@ export function MultiSelect({
   menuWidth?: number;
   /** Stretch menu to the trigger width. Default false keeps a compact list. */
   matchAnchorWidth?: boolean;
-  /** Render menu under the trigger in-place (settings panel) instead of body portal. */
+  /** Render menu under the trigger for settings panel (portal, full trigger width). */
   anchorMenu?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -499,7 +499,10 @@ export function MultiSelect({
       setDraftValues([...values]);
     }
   };
-  const ref = useOutsideClose<HTMLDivElement>(open, closeMenu, [popoverRef]);
+  // Settings panel scrolls while menus stay open; scroll must not dismiss them.
+  const ref = useOutsideClose<HTMLDivElement>(open, closeMenu, [popoverRef], {
+    closeOnScroll: !anchorMenu,
+  });
   useEffect(() => {
     if (!menuGroup || !menuKey) {
       return undefined;
@@ -765,24 +768,16 @@ export function MultiSelect({
         <span>{label}</span>
         <ChevronDown size={16} />
       </button>
-      {open && anchorMenu ? (
-        <div
-          className="select-menu multi-menu multi-menu--anchored floating-popover"
-          ref={popoverRef}
-          role="listbox"
-        >
-          {renderOptionsList()}
-        </div>
-      ) : null}
-      {open && !anchorMenu ? (
+      {open ? (
         <FloatingPopover
           anchorRef={ref}
           popoverRef={popoverRef}
           open={open}
-          className="select-menu multi-menu"
-          expectedWidth={menuWidth}
-          expectedHeight={680}
-          matchAnchorWidth={matchAnchorWidth}
+          className={`select-menu multi-menu${anchorMenu ? ' multi-menu--anchored' : ''}`}
+          expectedWidth={anchorMenu ? 280 : menuWidth}
+          expectedHeight={anchorMenu ? 360 : 680}
+          matchAnchorWidth={anchorMenu || matchAnchorWidth}
+          constrainHeight
         >
           {renderOptionsList()}
         </FloatingPopover>

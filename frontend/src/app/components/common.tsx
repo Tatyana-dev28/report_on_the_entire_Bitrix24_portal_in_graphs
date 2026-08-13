@@ -236,23 +236,30 @@ export function FloatingPopover({
       const preferredViewportLeft = typeof pinLeft === 'number'
         ? appRect.left + pinLeft
         : resolvedAnchorRect.left + offsetLeft;
-      const minViewportTop = visibleTop + padding;
-      const maxViewportTop = visibleBottom - padding - expectedHeight;
+      const spaceBelow = visibleBottom - padding - (resolvedAnchorRect.bottom + gap);
+      const spaceAbove = resolvedAnchorRect.top - gap - (visibleTop + padding);
+      // Prefer under the trigger when there is usable space — do not require full expectedHeight.
+      const minPlaceHeight = Math.min(expectedHeight, 200);
+      const placeBelow = verticalPlacement === 'anchor-start'
+        ? false
+        : spaceBelow >= minPlaceHeight || spaceBelow >= spaceAbove;
       const preferredViewportTop = verticalPlacement === 'anchor-start'
         ? resolvedAnchorRect.top
-        : resolvedAnchorRect.bottom + gap + expectedHeight <= visibleBottom - padding
+        : placeBelow
           ? resolvedAnchorRect.bottom + gap
-          : resolvedAnchorRect.top - expectedHeight - gap;
+          : Math.max(visibleTop + padding, resolvedAnchorRect.top - Math.min(expectedHeight, Math.max(spaceAbove, 180)) - gap);
+      const availableHeight = placeBelow || verticalPlacement === 'anchor-start'
+        ? Math.max(180, visibleBottom - padding - preferredViewportTop)
+        : Math.max(180, resolvedAnchorRect.top - gap - (visibleTop + padding));
       const viewportLeft =
         maxViewportLeft < minViewportLeft
           ? minViewportLeft
           : clamp(preferredViewportLeft, minViewportLeft, maxViewportLeft);
-      const viewportTop =
-        verticalPlacement === 'anchor-start'
-          ? Math.max(minViewportTop, Math.min(preferredViewportTop, visibleBottom - padding - 180))
-          : maxViewportTop < minViewportTop
-          ? minViewportTop
-          : clamp(preferredViewportTop, minViewportTop, maxViewportTop);
+      const viewportTop = clamp(
+        preferredViewportTop,
+        visibleTop + padding,
+        Math.max(visibleTop + padding, visibleBottom - padding - 180),
+      );
 
       setStyle({
         position: useFixedLayer ? 'fixed' : undefined,
@@ -260,8 +267,8 @@ export function FloatingPopover({
         width,
         left: useFixedLayer ? viewportLeft : viewportLeft - appRect.left,
         top: useFixedLayer ? viewportTop : viewportTop - appRect.top,
-        maxHeight: verticalPlacement === 'anchor-start' && constrainHeight
-          ? Math.max(180, visibleBottom - padding - viewportTop)
+        maxHeight: constrainHeight
+          ? Math.min(expectedHeight, availableHeight)
           : undefined,
         visibility: 'visible',
       });

@@ -1755,16 +1755,38 @@ body > .floating-popover {
   color: #30343b;
 }
 
+.indicators-paid-title {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13px;
+}
+
 .indicators-paid-copy strong {
   display: block;
   font-size: 13px;
 }
 
-.indicators-paid-copy span {
+.indicators-paid-copy > div > span {
   display: block;
   color: #6a7482;
   font-size: 12px;
   line-height: 1.35;
+}
+
+.indicators-pro-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #2f6fed;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
 }
 
 .indicators-title-input,

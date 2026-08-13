@@ -457,7 +457,7 @@ export function MultiSelect({
   selectionMode = 'multi',
   triggerLabel,
   ariaLabel = 'Выбор источников отчета',
-  menuWidth = 240,
+  menuWidth = 280,
   matchAnchorWidth = false,
 }: {
   values: string[];
@@ -579,7 +579,7 @@ export function MultiSelect({
     return groups;
   }, [filteredOptions]);
   const hasGroupedOptions = groupedOptions.length > 0;
-  const showSelectAll = Boolean(onSelectAll) || commitOnApply;
+  const showSelectAll = (Boolean(onSelectAll) || commitOnApply) && selectionMode !== 'single';
   const showReset = Boolean(onReset) || commitOnApply;
   const showApply = Boolean(onApply) || commitOnApply;
 

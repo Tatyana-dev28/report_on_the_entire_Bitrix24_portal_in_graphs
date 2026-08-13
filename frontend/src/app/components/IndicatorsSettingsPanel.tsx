@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CalendarClock, Crown, Lock, Sparkles, X } from 'lucide-react';
+import { CalendarClock, X } from 'lucide-react';
 import { weekDayOptions } from '../constants';
 import type { MetricDirection } from '../config/metricDirections';
 import type { Period } from '../../services/report/reportCatalog';
@@ -14,6 +14,12 @@ import type {
   ThresholdValues,
 } from '../types';
 import { MultiSelect, ScheduleMenu, ThresholdMenu } from './reportControls';
+
+const ProFeatureBadge = () => (
+  <span className="indicators-pro-badge" title="Доступно в PRO">
+    PRO
+  </span>
+);
 
 export type IndicatorsSettingsDraft = {
   chart: ChartDraftSettings;
@@ -206,15 +212,17 @@ export default function IndicatorsSettingsPanel({
                 menuGroup={menuGroup}
                 menuKey="main-sources"
                 commitOnApply
-                menuWidth={240}
+                menuWidth={280}
               />
             </div>
 
             <div className={`indicators-paid-row ${canUseSum ? '' : 'is-locked'}`}>
               <div className="indicators-paid-copy">
-                {canUseSum ? <Sparkles size={16} /> : <Crown size={16} />}
                 <div>
-                  <strong>Использовать сумму показателей</strong>
+                  <strong className="indicators-paid-title">
+                    Использовать сумму показателей
+                    <ProFeatureBadge />
+                  </strong>
                   <span>
                     {canUseSum
                       ? 'Суммируются в один главный показатель'
@@ -229,14 +237,22 @@ export default function IndicatorsSettingsPanel({
                   disabled={!canUseSum}
                   onChange={(event) => {
                     const useSumIndicators = event.target.checked;
-                    updateDraft({
+                    const nextSources = useSumIndicators
+                      ? [...draft.chart.selectedSources]
+                      : draft.chart.selectedSources.slice(0, 1);
+                    onDraftChange({
+                      ...draft,
                       useSumIndicators,
+                      chart: {
+                        ...draft.chart,
+                        selectedSources: nextSources,
+                        chartDisplayMode: 'sum',
+                        schedule: {
+                          ...draft.chart.schedule,
+                          weekendDayIds: [...draft.chart.schedule.weekendDayIds],
+                        },
+                      },
                     });
-                    if (!useSumIndicators) {
-                      handleMainSourcesChange(draft.chart.selectedSources.slice(0, 1));
-                    } else {
-                      updateChart({ chartDisplayMode: 'sum' });
-                    }
                   }}
                 />
                 <span />
@@ -245,9 +261,11 @@ export default function IndicatorsSettingsPanel({
 
             <div className={`indicators-paid-row ${isProUser ? '' : 'is-locked'}`}>
               <div className="indicators-paid-copy">
-                {isProUser ? null : <Lock size={16} />}
                 <div>
-                  <strong>Название показателя</strong>
+                  <strong className="indicators-paid-title">
+                    Название показателя
+                    <ProFeatureBadge />
+                  </strong>
                   <span>
                     {isProUser
                       ? 'Только отображаемое имя, формула не меняется'
@@ -367,7 +385,7 @@ export default function IndicatorsSettingsPanel({
                 menuGroup={menuGroup}
                 menuKey="table-sources"
                 commitOnApply
-                menuWidth={240}
+                menuWidth={280}
               />
             </div>
 
@@ -398,9 +416,11 @@ export default function IndicatorsSettingsPanel({
           <section className="indicators-settings-section">
             <div className={`indicators-paid-row ${isProUser ? '' : 'is-locked'}`}>
               <div className="indicators-paid-copy">
-                {isProUser ? null : <Lock size={16} />}
                 <div>
-                  <strong>Сохранить набор</strong>
+                  <strong className="indicators-paid-title">
+                    Сохранить набор
+                    <ProFeatureBadge />
+                  </strong>
                   <span>{isProUser ? 'Для быстрого повторного запуска' : 'Доступно в платной версии'}</span>
                 </div>
               </div>

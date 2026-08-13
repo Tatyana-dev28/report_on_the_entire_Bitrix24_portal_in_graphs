@@ -225,18 +225,17 @@ export function FloatingPopover({
       const visibleTop = Math.max(appRect.top, 0);
       const visibleBottom = Math.min(appRect.bottom, window.innerHeight);
       const boundaryWidth = Math.max(180, visibleRight - visibleLeft - padding * 2);
-      // pinLeft / matchAnchorWidth=false: keep expectedWidth — do not stretch to a full-width trigger.
+      // pinLeft: keep expectedWidth. matchAnchorWidth: stretch to trigger, else keep expectedWidth.
       const desiredWidth = typeof pinLeft === 'number' || !matchAnchorWidth
         ? expectedWidth
         : Math.max(expectedWidth, resolvedAnchorRect.width);
       const width = Math.min(desiredWidth, boundaryWidth);
       const minViewportLeft = visibleLeft + padding;
       const maxViewportLeft = visibleRight - padding - width;
+      // Left-align under the trigger (pinLeft still wins).
       const preferredViewportLeft = typeof pinLeft === 'number'
         ? appRect.left + pinLeft
-        : !matchAnchorWidth
-          ? resolvedAnchorRect.left + offsetLeft
-          : resolvedAnchorRect.right - width + offsetLeft;
+        : resolvedAnchorRect.left + offsetLeft;
       const minViewportTop = visibleTop + padding;
       const maxViewportTop = visibleBottom - padding - expectedHeight;
       const preferredViewportTop = verticalPlacement === 'anchor-start'

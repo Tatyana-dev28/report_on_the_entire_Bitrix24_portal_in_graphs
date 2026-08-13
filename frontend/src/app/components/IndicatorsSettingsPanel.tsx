@@ -261,7 +261,7 @@ export default function IndicatorsSettingsPanel({
                 searchPlaceholder="Поиск по источникам"
                 menuGroup={menuGroup}
                 menuKey="main-sources"
-                menuWidth={280}
+                anchorMenu
                 onSelectAll={
                   mainSelectionMode === 'multi'
                     ? () =>
@@ -409,7 +409,7 @@ export default function IndicatorsSettingsPanel({
                 searchPlaceholder="Поиск по источникам и показателям"
                 menuGroup={menuGroup}
                 menuKey="table-sources"
-                menuWidth={280}
+                anchorMenu
                 onSelectAll={() =>
                   updateDraft({
                     tableSelectedSources: crmSourceOptions

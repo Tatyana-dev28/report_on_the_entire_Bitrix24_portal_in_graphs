@@ -459,6 +459,7 @@ export function MultiSelect({
   ariaLabel = 'Выбор источников отчета',
   menuWidth = 280,
   matchAnchorWidth = false,
+  anchorMenu = false,
 }: {
   values: string[];
   options: SelectOption<string>[];
@@ -479,10 +480,12 @@ export function MultiSelect({
   /** Closed-field summary, e.g. «Выбрано: 18» (W08). */
   triggerLabel?: string;
   ariaLabel?: string;
-  /** Dropdown menu width in px (ignored for inline variant). */
+  /** Dropdown menu width in px (ignored for inline variant / anchorMenu). */
   menuWidth?: number;
   /** Stretch menu to the trigger width. Default false keeps a compact list. */
   matchAnchorWidth?: boolean;
+  /** Render menu under the trigger in-place (settings panel) instead of body portal. */
+  anchorMenu?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -751,7 +754,7 @@ export function MultiSelect({
   }
 
   return (
-    <div className={`select-shell multi-select ${open ? 'is-open' : ''}`} ref={ref}>
+    <div className={`select-shell multi-select ${open ? 'is-open' : ''} ${anchorMenu ? 'has-anchor-menu' : ''}`} ref={ref}>
       <button
         className="select-trigger"
         type="button"
@@ -762,7 +765,16 @@ export function MultiSelect({
         <span>{label}</span>
         <ChevronDown size={16} />
       </button>
-      {open && (
+      {open && anchorMenu ? (
+        <div
+          className="select-menu multi-menu multi-menu--anchored floating-popover"
+          ref={popoverRef}
+          role="listbox"
+        >
+          {renderOptionsList()}
+        </div>
+      ) : null}
+      {open && !anchorMenu ? (
         <FloatingPopover
           anchorRef={ref}
           popoverRef={popoverRef}
@@ -774,7 +786,7 @@ export function MultiSelect({
         >
           {renderOptionsList()}
         </FloatingPopover>
-      )}
+      ) : null}
     </div>
   );
 }

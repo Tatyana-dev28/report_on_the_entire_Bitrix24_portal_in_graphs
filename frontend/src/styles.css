@@ -2183,6 +2183,29 @@ body > .floating-popover {
   min-width: 0;
 }
 
+/* Settings panel: list opens under «Не выбрано», same width as the field. */
+.select-shell.has-anchor-menu.is-open {
+  z-index: 5200;
+}
+
+.multi-menu--anchored {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  width: 100%;
+  max-width: none;
+  max-height: min(42vh, 360px);
+  box-sizing: border-box;
+  z-index: 30;
+}
+
+.indicators-settings-section:has(.select-shell.has-anchor-menu.is-open),
+.indicators-settings-block:has(.select-shell.has-anchor-menu.is-open) {
+  overflow: visible;
+  z-index: 1;
+}
+
 .multi-menu {
   width: 100%;
   max-height: min(78vh, 680px);

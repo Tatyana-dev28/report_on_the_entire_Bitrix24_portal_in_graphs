@@ -4630,9 +4630,9 @@ function App() {
   }, [runAutomaticReportBuild]);
 
   const commitIndicatorsSettingsDraft = useCallback((draft: IndicatorsSettingsDraft) => {
-    const sanitizedSources = isProUser
-      ? [...draft.chart.selectedSources]
-      : draft.chart.selectedSources.slice(0, 1);
+    const sanitizedSources = (!isProUser || !draft.useSumIndicators)
+      ? draft.chart.selectedSources.slice(0, 1)
+      : [...draft.chart.selectedSources];
 
     applyChartSettings({
       selectedSources: sanitizedSources,

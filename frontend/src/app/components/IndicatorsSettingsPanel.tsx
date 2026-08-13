@@ -140,16 +140,17 @@ export default function IndicatorsSettingsPanel({
   };
 
   const handleMainSourcesChange = (selectedSources: string[]) => {
-    const nextSources = isProUser
-      ? [...selectedSources]
-      : selectedSources.slice(-1);
+    const nextSources = (!isProUser || !draft.useSumIndicators)
+      ? selectedSources.slice(-1)
+      : [...selectedSources];
     updateChart({
       selectedSources: nextSources,
       chartDisplayMode: 'sum',
     });
   };
 
-  const mainSelectionMode = isProUser ? 'multi' : 'single';
+  const canUseSum = isProUser;
+  const mainSelectionMode = canUseSum && draft.useSumIndicators ? 'multi' : 'single';
 
   return (
     <div className="indicators-settings-layer" role="presentation">
@@ -197,12 +198,54 @@ export default function IndicatorsSettingsPanel({
               </div>
             </div>
 
+            <div className={`indicators-paid-row ${canUseSum ? '' : 'is-locked'}`}>
+              <div className="indicators-paid-copy">
+                <div>
+                  <strong className="indicators-paid-title">
+                    Использовать сумму показателей
+                    <ProFeatureBadge />
+                  </strong>
+                  <span>
+                    {canUseSum
+                      ? 'Включите, чтобы выбрать несколько источников в один главный показатель'
+                      : 'Доступно в платной версии'}
+                  </span>
+                </div>
+              </div>
+              <label className="indicators-switch">
+                <input
+                  type="checkbox"
+                  checked={canUseSum ? draft.useSumIndicators : false}
+                  disabled={!canUseSum}
+                  onChange={(event) => {
+                    const useSumIndicators = event.target.checked;
+                    const nextSources = useSumIndicators
+                      ? [...draft.chart.selectedSources]
+                      : draft.chart.selectedSources.slice(0, 1);
+                    onDraftChange({
+                      ...draft,
+                      useSumIndicators,
+                      chart: {
+                        ...draft.chart,
+                        selectedSources: nextSources,
+                        chartDisplayMode: 'sum',
+                        schedule: {
+                          ...draft.chart.schedule,
+                          weekendDayIds: [...draft.chart.schedule.weekendDayIds],
+                        },
+                      },
+                    });
+                  }}
+                />
+                <span />
+              </label>
+            </div>
+
             <div className="indicators-settings-block">
               <p className="indicators-settings-label">
                 {mainSelectionMode === 'multi'
                   ? 'Источники главного показателя'
                   : 'Источник главного показателя'}
-                {isProUser ? null : <span className="indicators-pro-badge" title="Несколько источников — в PRO">PRO</span>}
               </p>
               <MultiSelect
                 values={draft.chart.selectedSources}
@@ -234,9 +277,11 @@ export default function IndicatorsSettingsPanel({
                 closeOnApply
               />
               <p className="indicators-settings-hint">
-                {isProUser
+                {mainSelectionMode === 'multi'
                   ? 'Можно выбрать несколько — суммируются в один график. «Применить» закрывает список; в отчёт — через «Показать сводку».'
-                  : 'В бесплатной версии — только 1 источник. «Применить» закрывает список; в отчёт — через «Показать сводку».'}
+                  : canUseSum
+                    ? 'Сейчас можно выбрать только 1. Чтобы несколько — включите сумму выше.'
+                    : 'В бесплатной версии — только 1 источник. «Применить» закрывает список; в отчёт — через «Показать сводку».'}
               </p>
             </div>
 

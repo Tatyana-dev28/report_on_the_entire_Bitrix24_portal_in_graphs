@@ -2062,7 +2062,7 @@ export function RowActionsMenu({
   onDirectionChange?: (direction: MetricDirection) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<'actions' | 'thresholds' | 'employeeThresholds' | 'employees'>('actions');
+  const [mode, setMode] = useState<'actions' | 'thresholds' | 'employees'>('actions');
   const [employeeBrowseMode, setEmployeeBrowseMode] = useState<'employees' | 'departments'>('employees');
   const [activeDepartmentId, setActiveDepartmentId] = useState<string | null>(null);
   const [employeeSearch, setEmployeeSearch] = useState('');
@@ -2071,8 +2071,7 @@ export function RowActionsMenu({
   const popoverRef = useRef<HTMLDivElement>(null);
   const employeeSelectorListRef = useRef<HTMLDivElement>(null);
   const pendingEmployeeScrollTopRef = useRef<number | null>(null);
-  const stickyPopoverMode =
-    mode === 'employees' || mode === 'thresholds' || mode === 'employeeThresholds';
+  const stickyPopoverMode = mode === 'employees' || mode === 'thresholds';
   const ref = useOutsideClose<HTMLDivElement>(
     open && !stickyPopoverMode,
     () => {
@@ -2386,9 +2385,9 @@ export function RowActionsMenu({
           popoverRef={popoverRef}
           open={open}
           className={`settings-popover row-actions-popover ${mode === 'employees' ? 'is-employee-selector-popover' : ''}`}
-          expectedWidth={mode === 'thresholds' || mode === 'employeeThresholds' ? 280 : mode === 'employees' ? 430 : 280}
-          expectedHeight={mode === 'thresholds' || mode === 'employeeThresholds' ? 580 : mode === 'employees' ? 620 : 200}
-          constrainHeight={mode !== 'employees'}
+          expectedWidth={mode === 'thresholds' ? 280 : mode === 'employees' ? 720 : 280}
+          expectedHeight={mode === 'thresholds' ? 580 : mode === 'employees' ? 620 : 228}
+          constrainHeight={mode === 'thresholds'}
           updateOnScroll={mode === 'actions'}
           verticalPlacement={mode === 'employees' ? 'anchor-start' : 'auto'}
           pinLeft={mode === 'employees' ? 290 : undefined}
@@ -2419,18 +2418,11 @@ export function RowActionsMenu({
                   <button
                     className="row-action-menu-configure"
                     type="button"
-                    aria-label="Настроить сотрудников"
+                    aria-label="Настроить сотрудников и коридор"
+                    title="Настроить сотрудников и коридор"
                     onClick={(event) => openEmployees(event.currentTarget)}
                   >
                     <Settings2 size={14} />
-                  </button>
-                  <button
-                    className="row-action-menu-configure"
-                    type="button"
-                    aria-label="Коридор показателя для сотрудников"
-                    onClick={() => setMode('employeeThresholds')}
-                  >
-                    <SlidersHorizontal size={14} />
                   </button>
                 </div>
               )}
@@ -2659,8 +2651,22 @@ export function RowActionsMenu({
                   <Network size={16} />
                 </button>
               </div>
+              <aside className="row-employee-corridor-panel" aria-label="Коридор для сотрудников">
+                <p className="row-employee-corridor-title">Коридор для сотрудников</p>
+                <ThresholdEditor
+                  embedded
+                  threshold={employeeThreshold}
+                  recommended={employeeRecommendedThreshold}
+                  calculationPeriodLabel={calculationPeriodLabel}
+                  valueType={valueType}
+                  direction={direction}
+                  onDirectionChange={onDirectionChange}
+                  onApply={onEmployeeThresholdChange}
+                  onReset={() => onEmployeeThresholdChange({ upper: '', lower: '', mode: null })}
+                />
+              </aside>
             </div>
-          ) : mode === 'thresholds' ? (
+          ) : (
             <div className="row-threshold-fields">
               <ThresholdEditor
                 threshold={threshold}
@@ -2671,20 +2677,6 @@ export function RowActionsMenu({
                 onDirectionChange={onDirectionChange}
                 onApply={onThresholdChange}
                 onReset={() => onThresholdChange({ upper: '', lower: '', mode: null })}
-                onClose={() => setMode('actions')}
-              />
-            </div>
-          ) : (
-            <div className="row-threshold-fields">
-              <ThresholdEditor
-                threshold={employeeThreshold}
-                recommended={employeeRecommendedThreshold}
-                calculationPeriodLabel={calculationPeriodLabel}
-                valueType={valueType}
-                direction={direction}
-                onDirectionChange={onDirectionChange}
-                onApply={onEmployeeThresholdChange}
-                onReset={() => onEmployeeThresholdChange({ upper: '', lower: '', mode: null })}
                 onClose={() => setMode('actions')}
               />
             </div>

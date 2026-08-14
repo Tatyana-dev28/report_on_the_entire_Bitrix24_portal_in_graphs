@@ -2542,7 +2542,13 @@ body > .floating-popover.multi-menu--anchored .multi-options-list {
   height: auto;
   min-width: 0;
   padding: 0 4px;
+  color: #2b3038;
   font-size: 12px;
+  font-weight: 700;
+}
+
+.main-chart-value-cell .value-cell-badge {
+  font-weight: 700;
 }
 
 .main-chart-plot {
@@ -3309,11 +3315,34 @@ body > .floating-popover.multi-menu--anchored .multi-options-list {
 
 .row-employee-selector {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(280px, 1fr) auto minmax(260px, 280px);
   gap: 0;
   max-height: 600px;
   min-width: 0;
   align-items: stretch;
+}
+
+.row-employee-corridor-panel {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  max-height: 100%;
+  overflow: auto;
+  margin-left: 8px;
+  padding: 4px 4px 4px 12px;
+  border-left: 1px solid #e7edf5;
+}
+
+.row-employee-corridor-title {
+  margin: 0;
+  color: #2a3f63;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.row-employee-corridor-panel .threshold-editor.is-embedded {
+  padding: 10px;
 }
 
 .employee-selector-main {

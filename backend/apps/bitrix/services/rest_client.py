@@ -23,6 +23,11 @@ TOKEN_EXPIRED_ERRORS = {
     "authorization_error",
 }
 
+# Bitrix list methods return ~50 rows per page. Batch can pack up to 50 commands;
+# keep a margin like activity/telephony loaders.
+BITRIX_LIST_PAGE_SIZE = 50
+BITRIX_LIST_BATCH_COMMANDS = 25
+
 
 class BitrixRestError(Exception):
     """Базовая ошибка REST-клиента Bitrix24."""
@@ -143,12 +148,94 @@ class BitrixRestClient:
         *,
         max_pages: int | None = None,
     ) -> list[Any]:
-        """Забирает все страницы list-метода Bitrix24 через start/next."""
+        """Забирает все страницы list-метода Bitrix24.
 
-        all_items: list[Any] = []
-        next_start: int | str | None = 0
-        page_count = 0
+        Когда Bitrix отдаёт `total`, остальные страницы читаются через `batch`
+        (как у activity/telephony): меньше круглых поездок, тот же набор строк.
+        Если `total` нет — прежняя последовательная пагинация по `next`.
+        """
+
         max_pages = max_pages or self.max_list_pages
+        base_params = dict(params or {})
+
+        first_response = self.call_method(
+            method,
+            {
+                **base_params,
+                "start": 0,
+            },
+        )
+        all_items = list(_extract_list_page_items(first_response.result))
+        total = self._safe_int(first_response.total, default=-1)
+        total_value = first_response.total
+        has_total = total_value is not None and total >= 0
+
+        if not has_total and first_response.next is not None:
+            return self._call_list_sequential(
+                method,
+                base_params,
+                all_items=all_items,
+                next_start=first_response.next,
+                page_count=1,
+                max_pages=max_pages,
+            )
+
+        if not has_total or total <= BITRIX_LIST_PAGE_SIZE:
+            return all_items
+
+        max_rows = max_pages * BITRIX_LIST_PAGE_SIZE
+        if total > max_rows:
+            raise BitrixRestError(
+                f"Остановлена пагинация {method}: превышен лимит {max_pages} страниц."
+            )
+
+        starts = list(range(BITRIX_LIST_PAGE_SIZE, total, BITRIX_LIST_PAGE_SIZE))
+        if 1 + len(starts) > max_pages:
+            raise BitrixRestError(
+                f"Остановлена пагинация {method}: превышен лимит {max_pages} страниц."
+            )
+
+        try:
+            for index in range(0, len(starts), BITRIX_LIST_BATCH_COMMANDS):
+                chunk = starts[index : index + BITRIX_LIST_BATCH_COMMANDS]
+                commands = {
+                    f"page_{start}": build_batch_command(
+                        method,
+                        {
+                            **base_params,
+                            "start": start,
+                        },
+                    )
+                    for start in chunk
+                }
+                batch_response = self.call_batch(commands, halt=False)
+                all_items.extend(
+                    _extract_batch_list_items(batch_response.result, commands.keys())
+                )
+            return all_items
+        except BitrixRestError:
+            # Batch transport/shape issues must not break report builds: finish
+            # the remaining pages the old sequential way from the first page.
+            return self._call_list_sequential(
+                method,
+                base_params,
+                all_items=[],
+                next_start=0,
+                page_count=0,
+                max_pages=max_pages,
+            )
+
+    def _call_list_sequential(
+        self,
+        method: str,
+        params: dict[str, Any],
+        *,
+        all_items: list[Any],
+        next_start: int | str | None,
+        page_count: int,
+        max_pages: int,
+    ) -> list[Any]:
+        """Прежняя пагинация page-by-page через start/next."""
 
         while next_start is not None:
             page_count += 1
@@ -158,28 +245,11 @@ class BitrixRestClient:
                     f"Остановлена пагинация {method}: превышен лимит {max_pages} страниц."
                 )
 
-            page_params = dict(params or {})
+            page_params = dict(params)
             page_params["start"] = next_start
 
             response = self.call_method(method, page_params)
-            result = response.result
-
-            if isinstance(result, list):
-                all_items.extend(result)
-            elif isinstance(result, dict) and "items" in result and isinstance(result["items"], list):
-                all_items.extend(result["items"])
-            elif isinstance(result, dict) and "tasks" in result:
-                tasks = result["tasks"]
-                if isinstance(tasks, list):
-                    all_items.extend(tasks)
-                elif isinstance(tasks, dict):
-                    # Bitrix often returns tasks as an id→row map, not an array.
-                    all_items.extend(
-                        value for value in tasks.values() if isinstance(value, dict)
-                    )
-            elif result is not None:
-                all_items.append(result)
-
+            all_items.extend(_extract_list_page_items(response.result))
             next_start = response.next
 
         return all_items
@@ -429,6 +499,45 @@ def build_batch_command(method: str, params: dict[str, Any] | None = None) -> st
 
     query = urlencode(_flatten_query_params(params), doseq=True)
     return f"{method}?{query}"
+
+
+def _extract_list_page_items(result: Any) -> list[Any]:
+    """Нормализует одну страницу list/tasks ответа Bitrix к списку элементов."""
+
+    if isinstance(result, list):
+        return list(result)
+
+    if isinstance(result, dict) and "items" in result and isinstance(result["items"], list):
+        return list(result["items"])
+
+    if isinstance(result, dict) and "tasks" in result:
+        tasks = result["tasks"]
+        if isinstance(tasks, list):
+            return list(tasks)
+        if isinstance(tasks, dict):
+            # Bitrix often returns tasks as an id→row map, not an array.
+            return [value for value in tasks.values() if isinstance(value, dict)]
+
+    if result is not None:
+        return [result]
+
+    return []
+
+
+def _extract_batch_list_items(result: Any, command_keys) -> list[Any]:
+    """Достаёт элементы list-страниц из ответа batch."""
+
+    if not isinstance(result, dict):
+        return []
+
+    result_container = result.get("result")
+    if not isinstance(result_container, dict):
+        return []
+
+    rows: list[Any] = []
+    for command_key in command_keys:
+        rows.extend(_extract_list_page_items(result_container.get(command_key)))
+    return rows
 
 
 def _flatten_query_params(params: dict[str, Any]) -> list[tuple[str, Any]]:

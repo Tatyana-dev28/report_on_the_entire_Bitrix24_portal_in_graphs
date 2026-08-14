@@ -1364,6 +1364,11 @@ const buildAutomaticReportPreset = (
 function App() {
   // Hydration guards: prevent auto-save until settings are fully loaded/applied
   const settingsHydratedRef = useRef(false);
+  // Pro only: true after a successful settings load — blocks empty-default autosave wipes.
+  const proSettingsLoadSucceededRef = useRef(false);
+  const proSettingsLoadAttemptRef = useRef(0);
+  const applyBackendSettingsRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const billingHasProRef = useRef(false);
   const applyingBackendSettingsRef = useRef(false);
   const reportSettingsInitializedRef = useRef(false);
   const lastAppliedReportAccessRef = useRef<boolean | null>(null);
@@ -1570,6 +1575,7 @@ function App() {
   );
   const [expandedSourceSections, setExpandedSourceSections] = useState<Set<string>>(() => new Set());
   const isProUser = billingHasPro;
+  billingHasProRef.current = billingHasPro;
 
   const settingsEmployees = useMemo<ReportEmployee[]>(
     () =>
@@ -1820,11 +1826,17 @@ function App() {
 
   const resetToDefaultSettings = useCallback(() => {
     cancelPendingAutoSave();
+    if (applyBackendSettingsRetryTimerRef.current) {
+      clearTimeout(applyBackendSettingsRetryTimerRef.current);
+      applyBackendSettingsRetryTimerRef.current = null;
+    }
     dateRangeSelectedManuallyRef.current = false;
     userTouchedReportSettingsRef.current = false;
     temporaryAutoReportModeRef.current = false;
     pendingReportSettingsApplyRef.current = false;
     pendingFreeSettingsResetRef.current = false;
+    proSettingsLoadSucceededRef.current = false;
+    proSettingsLoadAttemptRef.current = 0;
     setDraftFilters(createDefaultFilters());
     setAppliedFilters(createDefaultFilters());
     setTableSelectedSources([]);
@@ -1917,12 +1929,36 @@ function App() {
   // Load settings from backend when PRO is detected
   const applyBackendSettings = useCallback(() => {
     applyingBackendSettingsRef.current = true;
+    if (applyBackendSettingsRetryTimerRef.current) {
+      clearTimeout(applyBackendSettingsRetryTimerRef.current);
+      applyBackendSettingsRetryTimerRef.current = null;
+    }
+
+    const scheduleRetryAfterFailedProSettingsLoad = () => {
+      // Never unlock autosave on empty defaults — that can wipe Pro settings in DB.
+      settingsHydratedRef.current = false;
+      proSettingsLoadSucceededRef.current = false;
+      if (!billingHasProRef.current) {
+        return;
+      }
+      if (proSettingsLoadAttemptRef.current >= 2) {
+        console.warn('[Settings] Giving up Pro settings load after retries');
+        return;
+      }
+      proSettingsLoadAttemptRef.current += 1;
+      applyBackendSettingsRetryTimerRef.current = setTimeout(() => {
+        applyBackendSettingsRetryTimerRef.current = null;
+        if (!billingHasProRef.current) {
+          return;
+        }
+        applyBackendSettings();
+      }, 1500);
+    };
 
     loadReportSettings()
       .then((response) => {
         if (!response.ok) {
-          // Backend responded but no settings — mark as hydrated so auto-save can start
-          settingsHydratedRef.current = true;
+          scheduleRetryAfterFailedProSettingsLoad();
           return;
         }
 
@@ -1937,6 +1973,8 @@ function App() {
           suppressNextReportSettingsTouch();
           dateRangeSelectedManuallyRef.current = false;
         }
+
+        let shouldRebuildRestoredReport = false;
 
         if (settings && Object.keys(settings).length > 0) {
           // One-shot auto-build (incl. after preview finished) must not be clobbered by a
@@ -1970,6 +2008,9 @@ function App() {
           ) {
             setDraftFilters((current) => ({ ...current, selectedSources: settings.selectedSources as string[] }));
             setAppliedFilters((current) => ({ ...current, selectedSources: settings.selectedSources as string[] }));
+            if (settings.selectedSources.length > 0) {
+              shouldRebuildRestoredReport = true;
+            }
           }
 
           let restoredSectionIds = new Set<string>();
@@ -1978,6 +2019,9 @@ function App() {
             restoredSectionIds = new Set(settings.enabledSectionIds as string[]);
             setDraftFilters((current) => ({ ...current, enabledSectionIds: restoredSectionIds }));
             setAppliedFilters((current) => ({ ...current, enabledSectionIds: new Set(restoredSectionIds) }));
+            if (restoredSectionIds.size > 0) {
+              shouldRebuildRestoredReport = true;
+            }
           } else if (
             !protectAutoBuildResults
             && settings.enabledMetricIdsBySection
@@ -1992,6 +2036,9 @@ function App() {
             );
             setDraftFilters((current) => ({ ...current, enabledSectionIds: restoredSectionIds }));
             setAppliedFilters((current) => ({ ...current, enabledSectionIds: new Set(restoredSectionIds) }));
+            if (restoredSectionIds.size > 0) {
+              shouldRebuildRestoredReport = true;
+            }
           }
 
           const allowTableRestore = !protectAutoBuildResults;
@@ -2008,6 +2055,9 @@ function App() {
             setTableSelectedSources(pipelineIds);
             setTableEntitySourceIds(entityIds);
             setDraftTableSelectedSources([...entityIds, ...pipelineIds]);
+            if (pipelineIds.length > 0 || entityIds.length > 0) {
+              shouldRebuildRestoredReport = true;
+            }
           } else if (allowTableRestore && settings.selectedSources && Array.isArray(settings.selectedSources)) {
             // Backward compatibility: older saves used chart sources for the table.
             const tableSources = settings.selectedSources as string[];
@@ -2022,6 +2072,9 @@ function App() {
             setTableSelectedSources(pipelineSourceIds);
             setTableEntitySourceIds(entitySourceIds);
             setDraftTableSelectedSources([...entitySourceIds, ...pipelineSourceIds]);
+            if (pipelineSourceIds.length > 0 || entitySourceIds.length > 0 || sectionIds.size > 0) {
+              shouldRebuildRestoredReport = true;
+            }
           } else if (allowTableRestore) {
             const entityIds = entitySourceIdsForSections(restoredSectionIds);
             setTableSelectedSources([]);
@@ -2172,10 +2225,6 @@ function App() {
           ) {
             setExpandedSections(new Set(settings.expandedSections as string[]));
           }
-        } else {
-          // No saved settings on backend — apply defaults and mark hydrated
-          // so auto-save can start capturing user changes
-          settingsHydratedRef.current = true;
         }
 
         // Apply saved views
@@ -2212,14 +2261,21 @@ function App() {
           });
         }
 
-        // Mark as hydrated after successful load (even if settings were empty)
+        // Successful load (including empty first-time Pro) — safe to autosave.
         settingsHydratedRef.current = true;
+        proSettingsLoadSucceededRef.current = true;
+        proSettingsLoadAttemptRef.current = 0;
+
+        // Restore filters alone looks like a wipe if the report stays unbuilt.
+        if (shouldRebuildRestoredReport && !userEditedWhileLoading) {
+          setHasBuiltReport(true);
+          setBuildMoment(Date.now());
+          setReportBuildRequest((current) => current + 1);
+        }
       })
       .catch((error) => {
         console.warn('[Settings] Failed to load settings from backend', error);
-        // Allow auto-save after a failed load so Pro users can still persist
-        // new changes (e.g. after a transient network error).
-        settingsHydratedRef.current = true;
+        scheduleRetryAfterFailedProSettingsLoad();
       })
       .finally(() => {
         applyingBackendSettingsRef.current = false;
@@ -2268,6 +2324,8 @@ function App() {
 
     if (billingHasPro) {
       pendingFreeSettingsResetRef.current = false;
+      proSettingsLoadSucceededRef.current = false;
+      proSettingsLoadAttemptRef.current = 0;
       applyBackendSettings();
     } else {
       // Never abort an in-flight preview with resetToDefaultSettings — that left
@@ -5778,6 +5836,12 @@ function App() {
 
     // Free version: never save anything
     if (!billingHasPro) {
+      return;
+    }
+
+    // Do not persist until Pro settings were loaded successfully — otherwise empty
+    // defaults after a failed load can overwrite the real backend snapshot.
+    if (!proSettingsLoadSucceededRef.current) {
       return;
     }
 

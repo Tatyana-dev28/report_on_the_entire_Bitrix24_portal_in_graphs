@@ -3352,8 +3352,8 @@ body > .floating-popover.multi-menu--anchored .multi-options-list {
   max-height: 100%;
   overflow: auto;
   margin-left: 6px;
-  /* Extra top/right so the close control is not glued to the corner. */
-  padding: 6px 8px 4px 10px;
+  /* Top 0 keeps close button level with left «Назад»; right padding keeps it off the edge. */
+  padding: 0 8px 4px 10px;
   border-left: 1px solid #e7edf5;
 }
 
@@ -3376,9 +3376,7 @@ body > .floating-popover.multi-menu--anchored .multi-options-list {
 
 .row-employee-corridor-head .row-employee-corridor-title {
   min-width: 0;
-  /* Match close-button height so the label sits on the same visual line. */
   line-height: 26px;
-  padding-top: 1px;
 }
 
 .row-employee-corridor-head .row-menu-close {
@@ -3760,6 +3758,19 @@ body > .floating-popover.multi-menu--anchored .multi-options-list {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.employee-selector-main > .row-popover-head {
+  min-height: 26px;
+}
+
+.employee-selector-main > .row-popover-head > button {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 9px;
+  line-height: 1;
 }
 
 .row-popover-head p {

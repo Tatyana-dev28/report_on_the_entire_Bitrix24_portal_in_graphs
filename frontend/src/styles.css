@@ -3168,6 +3168,16 @@ body > .floating-popover.multi-menu--anchored .multi-options-list {
   z-index: 3400;
   right: auto;
   padding: 8px;
+  box-sizing: border-box;
+}
+
+.row-actions-popover:not(.is-employee-selector-popover) {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.row-actions-popover .threshold-editor {
+  padding-bottom: 2px;
 }
 
 .row-actions-popover.is-employee-selector-popover {
@@ -3806,6 +3816,26 @@ body > .floating-popover.multi-menu--anchored .multi-options-list {
   color: #4d5866;
 }
 
+/* Corridor colors must win over the employee-row grey text. */
+.report-table-row.is-employee-row .value-cell.is-above-threshold,
+.report-table-row.is-employee-row .value-cell.is-inside-range-threshold {
+  color: #22845a;
+}
+
+.report-table-row.is-employee-row .value-cell.is-below-threshold,
+.report-table-row.is-employee-row .value-cell.is-outside-range-threshold {
+  color: #c93333;
+}
+
+.report-table-row.is-employee-row .value-cell.is-outside-range-warning {
+  color: #b45309;
+}
+
+.report-table-row.is-employee-row .value-cell.is-above-corridor-neutral,
+.report-table-row.is-employee-row .value-cell.is-below-corridor-neutral {
+  color: #4b5563;
+}
+
 .report-table-row.is-section-row:hover .value-cell,
 .report-table-row.is-section-row:hover .value-axis-gutter,
 .report-table-row.is-employee-row:hover .value-cell,
@@ -3836,6 +3866,25 @@ body > .floating-popover.multi-menu--anchored .multi-options-list {
 .employee-value-row .value-axis-gutter {
   background: #fbfcfe;
   color: #4d5866;
+}
+
+.employee-value-row .value-cell.is-above-threshold,
+.employee-value-row .value-cell.is-inside-range-threshold {
+  color: #22845a;
+}
+
+.employee-value-row .value-cell.is-below-threshold,
+.employee-value-row .value-cell.is-outside-range-threshold {
+  color: #c93333;
+}
+
+.employee-value-row .value-cell.is-outside-range-warning {
+  color: #b45309;
+}
+
+.employee-value-row .value-cell.is-above-corridor-neutral,
+.employee-value-row .value-cell.is-below-corridor-neutral {
+  color: #4b5563;
 }
 
 .chart-left-row,

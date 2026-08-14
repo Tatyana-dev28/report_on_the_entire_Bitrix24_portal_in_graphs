@@ -2386,8 +2386,8 @@ export function RowActionsMenu({
           popoverRef={popoverRef}
           open={open}
           className={`settings-popover row-actions-popover ${mode === 'employees' ? 'is-employee-selector-popover' : ''}`}
-          expectedWidth={mode === 'thresholds' || mode === 'employeeThresholds' ? 268 : mode === 'employees' ? 430 : 280}
-          expectedHeight={mode === 'thresholds' || mode === 'employeeThresholds' ? 480 : mode === 'employees' ? 620 : 200}
+          expectedWidth={mode === 'thresholds' || mode === 'employeeThresholds' ? 280 : mode === 'employees' ? 430 : 280}
+          expectedHeight={mode === 'thresholds' || mode === 'employeeThresholds' ? 580 : mode === 'employees' ? 620 : 200}
           constrainHeight={mode !== 'employees'}
           updateOnScroll={mode === 'actions'}
           verticalPlacement={mode === 'employees' ? 'anchor-start' : 'auto'}

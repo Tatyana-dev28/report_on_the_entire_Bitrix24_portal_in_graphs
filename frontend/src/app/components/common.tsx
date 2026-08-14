@@ -270,6 +270,7 @@ export function FloatingPopover({
         maxHeight: constrainHeight
           ? Math.min(expectedHeight, availableHeight)
           : undefined,
+        overflowY: constrainHeight ? 'auto' : undefined,
         visibility: 'visible',
       });
     };

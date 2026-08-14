@@ -1376,6 +1376,8 @@ function App() {
   const temporaryAutoReportModeRef = useRef(false);
   // Billing finished while temporary auto mode blocked settings apply — retry after auto ends.
   const pendingReportSettingsApplyRef = useRef(false);
+  // Free wipe was deferred because a preview was still running.
+  const pendingFreeSettingsResetRef = useRef(false);
   // After rebuild, re-expand row charts if user kept "with_charts" mode.
   // Wait for a full loading cycle (true → false) so we expand against fresh metrics.
   const pendingExpandRowChartsRef = useRef(false);
@@ -1822,6 +1824,7 @@ function App() {
     userTouchedReportSettingsRef.current = false;
     temporaryAutoReportModeRef.current = false;
     pendingReportSettingsApplyRef.current = false;
+    pendingFreeSettingsResetRef.current = false;
     setDraftFilters(createDefaultFilters());
     setAppliedFilters(createDefaultFilters());
     setTableSelectedSources([]);
@@ -1892,6 +1895,24 @@ function App() {
     // Mark as hydrated for Free version so auto-save won't fire
     settingsHydratedRef.current = true;
   }, [cancelPendingAutoSave, metricSections]);
+
+  const flushPendingFreeSettingsReset = useCallback(() => {
+    if (!pendingFreeSettingsResetRef.current) {
+      return;
+    }
+    if (
+      reportLoadingRef.current
+      || activeAutoBuildGenerationRef.current !== null
+      || temporaryAutoReportModeRef.current
+    ) {
+      return;
+    }
+    pendingFreeSettingsResetRef.current = false;
+    suppressNextReportSettingsTouch();
+    resetToDefaultSettings();
+  }, [resetToDefaultSettings, suppressNextReportSettingsTouch]);
+  const flushPendingFreeSettingsResetRef = useRef(flushPendingFreeSettingsReset);
+  flushPendingFreeSettingsResetRef.current = flushPendingFreeSettingsReset;
 
   // Load settings from backend when PRO is detected
   const applyBackendSettings = useCallback(() => {
@@ -2220,12 +2241,12 @@ function App() {
     const previousAccess = lastAppliedReportAccessRef.current;
     const didReportAccessChange = previousAccess !== billingHasPro;
     const downgradedToFree = !billingHasPro && previousAccess === true;
-    const freeNeedsInitialReset = !billingHasPro && isInitialReportSettingsLoad;
 
     if (userTouchedReportSettingsRef.current) {
-      // Keep mid-session edits on billing refresh, but never skip Free wipe on
-      // first init or when access drops from Pro → Free.
-      if (!downgradedToFree && !freeNeedsInitialReset) {
+      // Mid-session billing refresh: keep edits.
+      // Free first-init after the user already started configuring/building: keep the
+      // live session (Free still never persists). Only Pro → Free must still wipe.
+      if (!downgradedToFree) {
         reportSettingsInitializedRef.current = true;
         lastAppliedReportAccessRef.current = billingHasPro;
         settingsHydratedRef.current = true;
@@ -2246,21 +2267,24 @@ function App() {
     lastAppliedReportAccessRef.current = billingHasPro;
 
     if (billingHasPro) {
+      pendingFreeSettingsResetRef.current = false;
       applyBackendSettings();
     } else {
-      // Do not wipe an in-flight Free auto-build session; Free still never persists it.
-      const protectAutoSession =
-        !downgradedToFree
-        && (
-          skipAutoSaveRef.current
-          || activeAutoBuildGenerationRef.current !== null
-          || temporaryAutoReportModeRef.current
-        );
+      // Never abort an in-flight preview with resetToDefaultSettings — that left
+      // reportLoading stuck true (effect cleanup cleared isActive before finally).
+      const buildInFlight =
+        reportLoadingRef.current
+        || activeAutoBuildGenerationRef.current !== null
+        || skipAutoSaveRef.current
+        || temporaryAutoReportModeRef.current;
 
       suppressNextReportSettingsTouch();
-      if (protectAutoSession) {
+      if (buildInFlight) {
         settingsHydratedRef.current = true;
+        // Only Pro → Free must wipe after the preview settles.
+        pendingFreeSettingsResetRef.current = downgradedToFree;
       } else {
+        pendingFreeSettingsResetRef.current = false;
         resetToDefaultSettings();
       }
     }
@@ -2667,6 +2691,7 @@ function App() {
             window.setTimeout(() => {
               if (autoBuildGenerationRef.current === finishedGeneration) {
                 skipAutoSaveRef.current = false;
+                flushPendingFreeSettingsResetRef.current();
               }
             }, 0);
           }
@@ -2738,12 +2763,20 @@ function App() {
       })
       .finally(() => {
         if (isActive) {
+          // Keep ref in sync before deferred Free wipe — the reportLoading effect
+          // has not run yet in this turn.
+          reportLoadingRef.current = false;
           setReportLoading(false);
+          flushPendingFreeSettingsResetRef.current();
         }
       });
 
     return () => {
       isActive = false;
+      // If this preview was aborted (deps changed / Free reset), never leave the
+      // spinner stuck — finally skips setReportLoading(false) when !isActive.
+      reportLoadingRef.current = false;
+      setReportLoading(false);
     };
   }, [
     // CRITICAL: Only depend on reportBuildRequest (incremented by explicit user actions)
@@ -6537,6 +6570,54 @@ function App() {
                   <ReportBuildLoader stageLabel={reportBuildStage} />
                 </div>
               )}
+              {!mainIndicatorCaption.empty ? (
+                <div className="chart-top-controls">
+                  {!isSeparateChart && hasTrendSeries ? (
+                    <div className="chart-series-legend" aria-label="Линии графика">
+                      <label className="chart-legend-item chart-legend-trend-toggle">
+                        <input
+                          type="checkbox"
+                          checked={showTrendLine}
+                          onChange={(event) => setShowTrendLine(event.target.checked)}
+                        />
+                        <i className="chart-legend-swatch is-trend" aria-hidden="true" />
+                        <span>Тренд</span>
+                      </label>
+                    </div>
+                  ) : null}
+                  <div className="chart-zoom-controls" aria-label="Масштаб графика">
+                    <TooltipButton
+                      label="Увеличить масштаб"
+                      onClick={() =>
+                        setPeriodColumnWidth((current) =>
+                          Math.min(MAX_PERIOD_COLUMN_WIDTH, current + 8),
+                        )
+                      }
+                      className="zoom-icon-button"
+                    >
+                      <Plus size={14} />
+                    </TooltipButton>
+                    <TooltipButton
+                      label="Уменьшить масштаб"
+                      onClick={() =>
+                        setPeriodColumnWidth((current) =>
+                          Math.max(MIN_PERIOD_COLUMN_WIDTH, current - 8),
+                        )
+                      }
+                      className="zoom-icon-button"
+                    >
+                      <Minus size={14} />
+                    </TooltipButton>
+                    <TooltipButton
+                      label="Сбросить масштаб"
+                      onClick={() => setPeriodColumnWidth(PERIOD_COLUMN_WIDTH)}
+                      className="zoom-icon-button"
+                    >
+                      <RotateCcw size={14} />
+                    </TooltipButton>
+                  </div>
+                </div>
+              ) : null}
               <div
                 className={`sync-content chart-sync-content${mainIndicatorCaption.empty ? ' is-empty' : ''}`}
                 style={syncedContentStyle}
@@ -6555,54 +6636,7 @@ function App() {
                       <p>{mainIndicatorCaption.emptyMessage}</p>
                       {mainIndicatorCaption.emptyHint && <span>{mainIndicatorCaption.emptyHint}</span>}
                     </div>
-                  ) : (
-                    <div className="chart-top-controls">
-                      {!isSeparateChart && hasTrendSeries ? (
-                        <div className="chart-series-legend" aria-label="Линии графика">
-                          <label className="chart-legend-item chart-legend-trend-toggle">
-                            <input
-                              type="checkbox"
-                              checked={showTrendLine}
-                              onChange={(event) => setShowTrendLine(event.target.checked)}
-                            />
-                            <i className="chart-legend-swatch is-trend" aria-hidden="true" />
-                            <span>Тренд</span>
-                          </label>
-                        </div>
-                      ) : null}
-                      <div className="chart-zoom-controls" aria-label="Масштаб графика">
-                        <TooltipButton
-                          label="Увеличить масштаб"
-                          onClick={() =>
-                            setPeriodColumnWidth((current) =>
-                              Math.min(MAX_PERIOD_COLUMN_WIDTH, current + 8),
-                            )
-                          }
-                          className="zoom-icon-button"
-                        >
-                          <Plus size={14} />
-                        </TooltipButton>
-                        <TooltipButton
-                          label="Уменьшить масштаб"
-                          onClick={() =>
-                            setPeriodColumnWidth((current) =>
-                              Math.max(MIN_PERIOD_COLUMN_WIDTH, current - 8),
-                            )
-                          }
-                          className="zoom-icon-button"
-                        >
-                          <Minus size={14} />
-                        </TooltipButton>
-                        <TooltipButton
-                          label="Сбросить масштаб"
-                          onClick={() => setPeriodColumnWidth(PERIOD_COLUMN_WIDTH)}
-                          className="zoom-icon-button"
-                        >
-                          <RotateCcw size={14} />
-                        </TooltipButton>
-                      </div>
-                    </div>
-                  )}
+                  ) : null}
                 </div>
                 {!mainIndicatorCaption.empty ? (
                 <div className="chart-wrap" ref={mainChartWrapRef}>

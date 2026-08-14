@@ -1425,6 +1425,7 @@ body > .floating-popover {
 
 .report-card.pdf-capture-mode .scroll-button,
 .report-card.pdf-capture-mode .chart-zoom-controls,
+.report-card.pdf-capture-mode .chart-top-controls,
 .report-card.pdf-capture-mode .floating-layer {
   display: none;
 }
@@ -2436,6 +2437,11 @@ body > .floating-popover.multi-menu--anchored .multi-options-list {
   box-sizing: border-box;
 }
 
+.chart-viewport:not(.is-empty) .chart-top-block {
+  /* Keep caption from sitting under the pinned trend/zoom controls. */
+  padding-right: 168px;
+}
+
 .chart-top-block.is-empty {
   flex: 1 1 auto;
   flex-direction: column;
@@ -2458,12 +2464,20 @@ body > .floating-popover.multi-menu--anchored .multi-options-list {
 }
 
 .chart-top-controls {
+  position: absolute;
+  top: 4px;
+  right: 10px;
+  z-index: 25;
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  margin-left: auto;
+  margin-left: 0;
   flex: 0 0 auto;
   min-width: 0;
+  padding: 2px 4px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  pointer-events: auto;
 }
 
 .chart-top-block .chart-series-legend {

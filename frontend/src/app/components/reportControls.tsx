@@ -2385,7 +2385,7 @@ export function RowActionsMenu({
           popoverRef={popoverRef}
           open={open}
           className={`settings-popover row-actions-popover ${mode === 'employees' ? 'is-employee-selector-popover' : ''}`}
-          expectedWidth={mode === 'thresholds' ? 280 : mode === 'employees' ? 720 : 280}
+          expectedWidth={mode === 'thresholds' ? 280 : mode === 'employees' ? 740 : 280}
           expectedHeight={mode === 'thresholds' ? 580 : mode === 'employees' ? 620 : 228}
           constrainHeight={mode === 'thresholds'}
           updateOnScroll={mode === 'actions'}
@@ -2483,14 +2483,6 @@ export function RowActionsMenu({
                     }}
                   >
                     Назад
-                  </button>
-                  <button
-                    className="row-menu-close"
-                    type="button"
-                    aria-label="Закрыть меню"
-                    onClick={() => closeEmployeeSelector()}
-                  >
-                    <X size={14} />
                   </button>
                 </div>
                 {activeDepartment ? (
@@ -2652,7 +2644,17 @@ export function RowActionsMenu({
                 </button>
               </div>
               <aside className="row-employee-corridor-panel" aria-label="Коридор для сотрудников">
-                <p className="row-employee-corridor-title">Коридор для сотрудников</p>
+                <div className="row-employee-corridor-head">
+                  <p className="row-employee-corridor-title">Коридор для сотрудников</p>
+                  <button
+                    className="row-menu-close"
+                    type="button"
+                    aria-label="Закрыть меню"
+                    onClick={() => closeEmployeeSelector()}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
                 <ThresholdEditor
                   embedded
                   threshold={employeeThreshold}

@@ -1974,8 +1974,6 @@ function App() {
           dateRangeSelectedManuallyRef.current = false;
         }
 
-        let shouldRebuildRestoredReport = false;
-
         if (settings && Object.keys(settings).length > 0) {
           // One-shot auto-build (incl. after preview finished) must not be clobbered by a
           // late Pro settings response — otherwise calculated corridors disappear.
@@ -2008,9 +2006,6 @@ function App() {
           ) {
             setDraftFilters((current) => ({ ...current, selectedSources: settings.selectedSources as string[] }));
             setAppliedFilters((current) => ({ ...current, selectedSources: settings.selectedSources as string[] }));
-            if (settings.selectedSources.length > 0) {
-              shouldRebuildRestoredReport = true;
-            }
           }
 
           let restoredSectionIds = new Set<string>();
@@ -2019,9 +2014,6 @@ function App() {
             restoredSectionIds = new Set(settings.enabledSectionIds as string[]);
             setDraftFilters((current) => ({ ...current, enabledSectionIds: restoredSectionIds }));
             setAppliedFilters((current) => ({ ...current, enabledSectionIds: new Set(restoredSectionIds) }));
-            if (restoredSectionIds.size > 0) {
-              shouldRebuildRestoredReport = true;
-            }
           } else if (
             !protectAutoBuildResults
             && settings.enabledMetricIdsBySection
@@ -2036,9 +2028,6 @@ function App() {
             );
             setDraftFilters((current) => ({ ...current, enabledSectionIds: restoredSectionIds }));
             setAppliedFilters((current) => ({ ...current, enabledSectionIds: new Set(restoredSectionIds) }));
-            if (restoredSectionIds.size > 0) {
-              shouldRebuildRestoredReport = true;
-            }
           }
 
           const allowTableRestore = !protectAutoBuildResults;
@@ -2055,9 +2044,6 @@ function App() {
             setTableSelectedSources(pipelineIds);
             setTableEntitySourceIds(entityIds);
             setDraftTableSelectedSources([...entityIds, ...pipelineIds]);
-            if (pipelineIds.length > 0 || entityIds.length > 0) {
-              shouldRebuildRestoredReport = true;
-            }
           } else if (allowTableRestore && settings.selectedSources && Array.isArray(settings.selectedSources)) {
             // Backward compatibility: older saves used chart sources for the table.
             const tableSources = settings.selectedSources as string[];
@@ -2072,9 +2058,6 @@ function App() {
             setTableSelectedSources(pipelineSourceIds);
             setTableEntitySourceIds(entitySourceIds);
             setDraftTableSelectedSources([...entitySourceIds, ...pipelineSourceIds]);
-            if (pipelineSourceIds.length > 0 || entitySourceIds.length > 0 || sectionIds.size > 0) {
-              shouldRebuildRestoredReport = true;
-            }
           } else if (allowTableRestore) {
             const entityIds = entitySourceIdsForSections(restoredSectionIds);
             setTableSelectedSources([]);
@@ -2265,13 +2248,6 @@ function App() {
         settingsHydratedRef.current = true;
         proSettingsLoadSucceededRef.current = true;
         proSettingsLoadAttemptRef.current = 0;
-
-        // Restore filters alone looks like a wipe if the report stays unbuilt.
-        if (shouldRebuildRestoredReport && !userEditedWhileLoading) {
-          setHasBuiltReport(true);
-          setBuildMoment(Date.now());
-          setReportBuildRequest((current) => current + 1);
-        }
       })
       .catch((error) => {
         console.warn('[Settings] Failed to load settings from backend', error);

@@ -199,6 +199,7 @@ import {
   isManualThreshold,
   parseThreshold,
   resolveDisplayedThresholdAverage,
+  resolveInheritedThreshold,
   thresholdLineColors,
   toCorridorValue,
 } from './app/utils/thresholds';
@@ -1875,8 +1876,14 @@ function App() {
         const settings = response.settings as Record<string, unknown>;
         const savedViewsData = response.savedViews as Array<Record<string, unknown>>;
         const appSettingsData = response.appSettings as Record<string, unknown>;
-        suppressNextReportSettingsTouch();
-        dateRangeSelectedManuallyRef.current = false;
+        // If the user already edited while this request was in flight, do not
+        // suppress the next autosave or reset manual-date state — otherwise a
+        // late response can drop an just-applied corridor and block persisting it.
+        const userEditedWhileLoading = userTouchedReportSettingsRef.current;
+        if (!userEditedWhileLoading) {
+          suppressNextReportSettingsTouch();
+          dateRangeSelectedManuallyRef.current = false;
+        }
 
         if (settings && Object.keys(settings).length > 0) {
           // One-shot auto-build (incl. after preview finished) must not be clobbered by a
@@ -2001,8 +2008,9 @@ function App() {
             }));
           }
 
-          // Apply saved thresholds (never overwrite one-shot auto-build thresholds).
-          if (!protectAutoBuildResults) {
+          // Apply saved thresholds (never overwrite one-shot auto-build thresholds
+          // or corridors the user already applied while this request was in flight).
+          if (!protectAutoBuildResults && !userEditedWhileLoading) {
             if (settings.mainThreshold && typeof settings.mainThreshold === 'object') {
               const mt = settings.mainThreshold as Record<string, unknown>;
               setMainThreshold({
@@ -5244,10 +5252,21 @@ function App() {
 
   const updateEmployeeThreshold = useCallback((metricId: string, value: ThresholdValues) => {
     markUserSettingsChange();
-    setEmployeeThresholdsByMetricId((current) => ({
-      ...current,
-      [metricId]: value,
-    }));
+    setEmployeeThresholdsByMetricId((current) => {
+      const blank = !(String(value.upper ?? '').trim() || String(value.lower ?? '').trim());
+      if (blank) {
+        if (!(metricId in current)) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[metricId];
+        return next;
+      }
+      return {
+        ...current,
+        [metricId]: value,
+      };
+    });
   }, [markUserSettingsChange]);
 
   const updateMetricDirection = useCallback((metricId: string, direction: MetricDirection) => {
@@ -6928,7 +6947,10 @@ function App() {
                 const employeeChartOpen = expandedEmployeeChartIds.has(
                   buildEmployeeChartId(row.metric.id, row.employee.id),
                 );
-                const employeeThreshold = employeeThresholdsByMetricId[row.metric.id];
+                const employeeThreshold = resolveInheritedThreshold(
+                  employeeThresholdsByMetricId[row.metric.id],
+                  rowThresholds[row.metric.id],
+                );
                 const employeeFullName = getEmployeeFullName(row.employee);
                 const isSystemDetail = row.isSystemDetail || isSystemEmployeeRow(row.employee.id);
 
@@ -7074,7 +7096,10 @@ function App() {
                           <RowMetricChart
                             metric={row.metric}
                             reportData={reportData}
-                            threshold={employeeThresholdsByMetricId[row.metric.id]}
+                            threshold={resolveInheritedThreshold(
+                              employeeThresholdsByMetricId[row.metric.id],
+                              rowThresholds[row.metric.id],
+                            )}
                             direction={resolveMetricDirection(row.metric.id, metricDirectionsById)}
                             valuesByPeriod={buildEmployeeChartValuesByPeriod(
                               row.employee,
@@ -7142,7 +7167,10 @@ function App() {
                 const sourceMetricEmployeesForThreshold = sourceMetricEmployees.map((employee) =>
                   remapEmployeeValuesToMetricId(employee, detailMetricIds, actionId),
                 );
-                const employeeThreshold = employeeThresholdsByMetricId[actionId] ?? { upper: '', lower: '', mode: null };
+                const employeeThreshold = resolveInheritedThreshold(
+                  employeeThresholdsByMetricId[actionId],
+                  rowThreshold,
+                );
                 const employeeRecommendedThreshold = calculateRecommendedThresholds(
                   buildEmployeeThresholdValues(
                     actionId,
@@ -7294,7 +7322,10 @@ function App() {
                 ),
                 metricRow.metric.type,
               );
-              const employeeThreshold = employeeThresholdsByMetricId[metricRow.metric.id] ?? { upper: '', lower: '', mode: null };
+              const employeeThreshold = resolveInheritedThreshold(
+                employeeThresholdsByMetricId[metricRow.metric.id],
+                rowThreshold,
+              );
               const employeeRecommendedThreshold = calculateRecommendedThresholds(
                 buildEmployeeThresholdValues(
                   metricRow.metric.id,

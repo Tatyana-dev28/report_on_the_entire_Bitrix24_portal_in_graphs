@@ -7,7 +7,7 @@ import {
 } from '../config/metricDirections';
 import { bitrixEntityTitleRoots, buildBitrixMetricDetailUrl, buildBitrixUserUrl } from '../utils/bitrixNavigation';
 import { getEmployeeFullName } from '../utils/employees';
-import { getThresholdClass, resolveDisplayedThresholdAverage } from '../utils/thresholds';
+import { getThresholdClass, resolveDisplayedThresholdAverage, resolveInheritedThreshold } from '../utils/thresholds';
 import type { BitrixEntityType } from '../types';
 import {
   buildSourceMetricActionIds,
@@ -352,8 +352,10 @@ const buildEmployeesSheet = (workbook: ExcelJS.Workbook, input: ExportReportExce
 
     const employeeName = getEmployeeFullName(row.employee);
     const direction = resolveMetricDirection(row.metric.id, input.metricDirectionsById);
-    const threshold =
-      input.employeeThresholdsByMetricId?.[row.metric.id] ?? input.rowThresholds[row.metric.id];
+    const threshold = resolveInheritedThreshold(
+      input.employeeThresholdsByMetricId?.[row.metric.id],
+      input.rowThresholds[row.metric.id],
+    );
     const userUrl = row.employee.userId ? buildBitrixUserUrl(row.employee.userId) : null;
 
     input.reportData.forEach((point) => {

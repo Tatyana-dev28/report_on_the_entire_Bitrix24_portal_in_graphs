@@ -5,7 +5,7 @@ import {
   resolveMetricDirectionForIds,
   type MetricDirection,
 } from '../config/metricDirections';
-import { resolveDisplayedThresholdAverage, getThresholdClass } from '../utils/thresholds';
+import { resolveDisplayedThresholdAverage, getThresholdClass, resolveInheritedThreshold } from '../utils/thresholds';
 import { getEmployeeFullName } from '../utils/employees';
 import { formatAxisTick, getChartDomain } from '../utils/reportCalculations';
 import type { TableRow, ThresholdValues } from '../types';
@@ -93,7 +93,10 @@ const collectTableRowCharts = (input: ExportReportPdfInput): RowChartSpec[] => {
     }
 
     if (row.kind === 'employee') {
-      const threshold = employeeThresholdsByMetricId[row.metric.id] ?? rowThresholds[row.metric.id];
+      const threshold = resolveInheritedThreshold(
+        employeeThresholdsByMetricId[row.metric.id],
+        rowThresholds[row.metric.id],
+      );
       const direction = resolveMetricDirection(row.metric.id, metricDirectionsById);
       const values = reportData.map((point) => {
         const value = hasBuiltReport
@@ -441,7 +444,10 @@ export const buildReportPdfPages = (input: ExportReportPdfInput): BuiltReportPdf
       }
 
       if (row.kind === 'employee') {
-        const threshold = employeeThresholdsByMetricId[row.metric.id] ?? rowThresholds[row.metric.id];
+        const threshold = resolveInheritedThreshold(
+          employeeThresholdsByMetricId[row.metric.id],
+          rowThresholds[row.metric.id],
+        );
         const direction = resolveMetricDirection(row.metric.id, metricDirectionsById);
         const values = reportData.map((point) => {
           const value = hasBuiltReport ? getEmployeePeriodMetricValue(row.employee, point, row.metric.id) : 0;

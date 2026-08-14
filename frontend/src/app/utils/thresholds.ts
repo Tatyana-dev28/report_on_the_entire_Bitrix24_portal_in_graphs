@@ -133,6 +133,29 @@ export const hasCorridorValidationErrors = (errors: CorridorValidationErrors) =>
 export const isManualThreshold = (threshold?: ThresholdValues | null) =>
   threshold?.mode === 'manual';
 
+/** True when no upper/lower bounds are set (inherits from parent corridor). */
+export const isThresholdBlank = (threshold?: ThresholdValues | null) =>
+  !threshold || !(String(threshold.upper ?? '').trim() || String(threshold.lower ?? '').trim());
+
+/**
+ * Prefer an explicit override; otherwise fall back (e.g. employee ← row).
+ * Does not mutate stored maps — resolve at read/display time only.
+ */
+export const resolveInheritedThreshold = (
+  primary?: ThresholdValues | null,
+  fallback?: ThresholdValues | null,
+): ThresholdValues => {
+  if (!isThresholdBlank(primary)) {
+    return primary as ThresholdValues;
+  }
+
+  if (!isThresholdBlank(fallback)) {
+    return fallback as ThresholdValues;
+  }
+
+  return primary ?? fallback ?? { upper: '', lower: '', mode: null };
+};
+
 const formatRecommendedThresholdValue = (value: number, type: MetricRow['type'] | ChartMetricMode = 'number') => {
   if (type === 'percent') {
     return String(Math.round(value * 10) / 10);

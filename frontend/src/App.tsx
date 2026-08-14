@@ -1374,6 +1374,8 @@ function App() {
   // Cleared when that auto-build generation finishes (not via a fixed timer).
   const skipAutoSaveRef = useRef(false);
   const temporaryAutoReportModeRef = useRef(false);
+  // Billing finished while temporary auto mode blocked settings apply — retry after auto ends.
+  const pendingReportSettingsApplyRef = useRef(false);
   // After rebuild, re-expand row charts if user kept "with_charts" mode.
   // Wait for a full loading cycle (true → false) so we expand against fresh metrics.
   const pendingExpandRowChartsRef = useRef(false);
@@ -1481,6 +1483,8 @@ function App() {
   const [hasBuiltReport, setHasBuiltReport] = useState(false);
   const [buildMoment, setBuildMoment] = useState(0);
   const [autoSaveRequest, setAutoSaveRequest] = useState(0);
+  // Bumps when a deferred Free/Pro settings apply must re-run after temporary auto mode.
+  const [reportSettingsApplyTick, setReportSettingsApplyTick] = useState(0);
   // reportBuildRequest is a counter that increments ONLY when the user explicitly
   // clicks "Построить отчет" or "Построить автоматически". The loadReportPreview
   // useEffect depends ONLY on this counter (plus hasBuiltReport as a guard),
@@ -1624,6 +1628,17 @@ function App() {
 
     clearTimeout(autoSaveTimerRef.current);
     autoSaveTimerRef.current = null;
+  }, []);
+  const endTemporaryAutoReportMode = useCallback(() => {
+    const wasTemporary = temporaryAutoReportModeRef.current;
+    temporaryAutoReportModeRef.current = false;
+    if (
+      wasTemporary
+      && (pendingReportSettingsApplyRef.current || !reportSettingsInitializedRef.current)
+    ) {
+      pendingReportSettingsApplyRef.current = false;
+      setReportSettingsApplyTick((current) => current + 1);
+    }
   }, []);
   const resetTemporaryReportUiState = useCallback(() => {
     setExpandedEmployeeMetricIds(new Set());
@@ -1802,7 +1817,11 @@ function App() {
   //
 
   const resetToDefaultSettings = useCallback(() => {
+    cancelPendingAutoSave();
     dateRangeSelectedManuallyRef.current = false;
+    userTouchedReportSettingsRef.current = false;
+    temporaryAutoReportModeRef.current = false;
+    pendingReportSettingsApplyRef.current = false;
     setDraftFilters(createDefaultFilters());
     setAppliedFilters(createDefaultFilters());
     setTableSelectedSources([]);
@@ -1839,6 +1858,19 @@ function App() {
     setRowThresholds({});
     setEmployeeThresholdsByMetricId({});
     setMetricDirectionsById({});
+    setAppliedEmployeeIdsByMetricId({});
+    setDraftEmployeeIdsByMetricId({});
+    setEmployeeOrderByMetricId({});
+    setExpandedEmployeeMetricIds(new Set());
+    setExpandedChartMetricIds(new Set());
+    setExpandedEmployeeChartIds(new Set());
+    setTableRowChartsMode('compact');
+    setHideZeroRows(false);
+    setHighlightDeviations(false);
+    setMainIndicatorCustomTitle('');
+    setSelectedView(defaultSavedView.value);
+    setPeriodColumnWidth(PERIOD_COLUMN_WIDTH);
+    setShowTrendLine(true);
     setSavedViews([defaultSavedView]);
     setAppSettings(defaultAppSettings);
     setHasBuiltReport(false);
@@ -1859,7 +1891,7 @@ function App() {
 
     // Mark as hydrated for Free version so auto-save won't fire
     settingsHydratedRef.current = true;
-  }, [metricSections]);
+  }, [cancelPendingAutoSave, metricSections]);
 
   // Load settings from backend when PRO is detected
   const applyBackendSettings = useCallback(() => {
@@ -2180,22 +2212,30 @@ function App() {
     }
 
     if (temporaryAutoReportModeRef.current) {
+      pendingReportSettingsApplyRef.current = true;
       return;
     }
 
     const isInitialReportSettingsLoad = !reportSettingsInitializedRef.current;
-    const didReportAccessChange = lastAppliedReportAccessRef.current !== billingHasPro;
+    const previousAccess = lastAppliedReportAccessRef.current;
+    const didReportAccessChange = previousAccess !== billingHasPro;
+    const downgradedToFree = !billingHasPro && previousAccess === true;
+    const freeNeedsInitialReset = !billingHasPro && isInitialReportSettingsLoad;
 
     if (userTouchedReportSettingsRef.current) {
-      reportSettingsInitializedRef.current = true;
-      lastAppliedReportAccessRef.current = billingHasPro;
-      settingsHydratedRef.current = true;
+      // Keep mid-session edits on billing refresh, but never skip Free wipe on
+      // first init or when access drops from Pro → Free.
+      if (!downgradedToFree && !freeNeedsInitialReset) {
+        reportSettingsInitializedRef.current = true;
+        lastAppliedReportAccessRef.current = billingHasPro;
+        settingsHydratedRef.current = true;
 
-      if (billingHasPro) {
-        setAutoSaveRequest((current) => current + 1);
+        if (billingHasPro) {
+          setAutoSaveRequest((current) => current + 1);
+        }
+
+        return;
       }
-
-      return;
     }
 
     if (!isInitialReportSettingsLoad && !didReportAccessChange) {
@@ -2208,13 +2248,27 @@ function App() {
     if (billingHasPro) {
       applyBackendSettings();
     } else {
+      // Do not wipe an in-flight Free auto-build session; Free still never persists it.
+      const protectAutoSession =
+        !downgradedToFree
+        && (
+          skipAutoSaveRef.current
+          || activeAutoBuildGenerationRef.current !== null
+          || temporaryAutoReportModeRef.current
+        );
+
       suppressNextReportSettingsTouch();
-      resetToDefaultSettings();
+      if (protectAutoSession) {
+        settingsHydratedRef.current = true;
+      } else {
+        resetToDefaultSettings();
+      }
     }
   }, [
     billingHasPro,
     billingInitialized,
     billingLoading,
+    reportSettingsApplyTick,
     applyBackendSettings,
     resetToDefaultSettings,
     suppressNextReportSettingsTouch,
@@ -2609,6 +2663,7 @@ function App() {
             autoBuildChartSourcesRef.current = null;
             autoBuildTableSourcesRef.current = null;
             autoBuildDateFiltersRef.current = null;
+            endTemporaryAutoReportMode();
             window.setTimeout(() => {
               if (autoBuildGenerationRef.current === finishedGeneration) {
                 skipAutoSaveRef.current = false;
@@ -2647,6 +2702,7 @@ function App() {
               pendingAutoBuildSummaryRef.current = null;
               activeAutoBuildGenerationRef.current = null;
               skipAutoSaveRef.current = false;
+              endTemporaryAutoReportMode();
             }
             return;
           }
@@ -2676,6 +2732,7 @@ function App() {
             }
             activeAutoBuildGenerationRef.current = null;
             skipAutoSaveRef.current = false;
+            endTemporaryAutoReportMode();
           }
         }
       })
@@ -4420,7 +4477,7 @@ function App() {
       ? manualDateFiltersBeforeAutoRef.current
       : null;
 
-    temporaryAutoReportModeRef.current = false;
+    endTemporaryAutoReportMode();
     applyAutomaticThresholdsRef.current = automaticThresholds;
     autoBuildChartSourcesRef.current = null;
     autoBuildTableSourcesRef.current = null;
@@ -4526,6 +4583,7 @@ function App() {
     draftFilters.selectedSources,
     draftTableSelectedSources,
     enabledMetricIdsBySection,
+    endTemporaryAutoReportMode,
     metricSections,
     resetTemporaryReportUiState,
     sanitizeChartSources,

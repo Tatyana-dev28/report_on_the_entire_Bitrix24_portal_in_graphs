@@ -2457,6 +2457,15 @@ body > .floating-popover.multi-menu--anchored .multi-options-list {
   flex: 1 1 auto;
 }
 
+.chart-top-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
 .chart-top-block .chart-series-legend {
   flex: 0 1 auto;
   min-width: 0;
@@ -2576,27 +2585,26 @@ body > .floating-popover.multi-menu--anchored .multi-options-list {
 }
 
 .chart-zoom-controls {
-  position: absolute;
-  z-index: 20;
-  right: auto;
-  bottom: 2px;
-  left: 12px;
-  display: flex;
-  gap: 6px;
+  position: static;
+  z-index: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   pointer-events: auto;
+  flex-shrink: 0;
 }
 
 .chart-zoom-controls .icon-button {
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.72);
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
   color: #4b5563;
 }
 
 .chart-zoom-controls .icon-button:hover,
 .chart-zoom-controls .icon-button:focus-visible {
-  background: rgba(244, 247, 251, 0.88);
+  background: rgba(244, 247, 251, 0.95);
 }
 
 .chart-tooltip {

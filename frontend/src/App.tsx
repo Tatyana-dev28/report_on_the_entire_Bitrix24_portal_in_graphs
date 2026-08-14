@@ -6497,19 +6497,54 @@ function App() {
                       <p>{mainIndicatorCaption.emptyMessage}</p>
                       {mainIndicatorCaption.emptyHint && <span>{mainIndicatorCaption.emptyHint}</span>}
                     </div>
-                  ) : !isSeparateChart && hasTrendSeries ? (
-                    <div className="chart-series-legend" aria-label="Линии графика">
-                      <label className="chart-legend-item chart-legend-trend-toggle">
-                        <input
-                          type="checkbox"
-                          checked={showTrendLine}
-                          onChange={(event) => setShowTrendLine(event.target.checked)}
-                        />
-                        <i className="chart-legend-swatch is-trend" aria-hidden="true" />
-                        <span>Тренд</span>
-                      </label>
+                  ) : (
+                    <div className="chart-top-controls">
+                      {!isSeparateChart && hasTrendSeries ? (
+                        <div className="chart-series-legend" aria-label="Линии графика">
+                          <label className="chart-legend-item chart-legend-trend-toggle">
+                            <input
+                              type="checkbox"
+                              checked={showTrendLine}
+                              onChange={(event) => setShowTrendLine(event.target.checked)}
+                            />
+                            <i className="chart-legend-swatch is-trend" aria-hidden="true" />
+                            <span>Тренд</span>
+                          </label>
+                        </div>
+                      ) : null}
+                      <div className="chart-zoom-controls" aria-label="Масштаб графика">
+                        <TooltipButton
+                          label="Увеличить масштаб"
+                          onClick={() =>
+                            setPeriodColumnWidth((current) =>
+                              Math.min(MAX_PERIOD_COLUMN_WIDTH, current + 8),
+                            )
+                          }
+                          className="zoom-icon-button"
+                        >
+                          <Plus size={14} />
+                        </TooltipButton>
+                        <TooltipButton
+                          label="Уменьшить масштаб"
+                          onClick={() =>
+                            setPeriodColumnWidth((current) =>
+                              Math.max(MIN_PERIOD_COLUMN_WIDTH, current - 8),
+                            )
+                          }
+                          className="zoom-icon-button"
+                        >
+                          <Minus size={14} />
+                        </TooltipButton>
+                        <TooltipButton
+                          label="Сбросить масштаб"
+                          onClick={() => setPeriodColumnWidth(PERIOD_COLUMN_WIDTH)}
+                          className="zoom-icon-button"
+                        >
+                          <RotateCcw size={14} />
+                        </TooltipButton>
+                      </div>
                     </div>
-                  ) : null}
+                  )}
                 </div>
                 {!mainIndicatorCaption.empty ? (
                 <div className="chart-wrap" ref={mainChartWrapRef}>
@@ -6656,37 +6691,6 @@ function App() {
                       ))}
                     </LineChart>
                   </ResponsiveContainer>
-                  <div className="chart-zoom-controls" aria-label="Масштаб графика">
-                    <TooltipButton
-                      label="Увеличить масштаб"
-                      onClick={() =>
-                        setPeriodColumnWidth((current) =>
-                          Math.min(MAX_PERIOD_COLUMN_WIDTH, current + 8),
-                        )
-                      }
-                      className="zoom-icon-button"
-                    >
-                      <Plus size={16} />
-                    </TooltipButton>
-                    <TooltipButton
-                      label="Уменьшить масштаб"
-                      onClick={() =>
-                        setPeriodColumnWidth((current) =>
-                          Math.max(MIN_PERIOD_COLUMN_WIDTH, current - 8),
-                        )
-                      }
-                      className="zoom-icon-button"
-                    >
-                      <Minus size={16} />
-                    </TooltipButton>
-                    <TooltipButton
-                      label="Сбросить масштаб"
-                      onClick={() => setPeriodColumnWidth(PERIOD_COLUMN_WIDTH)}
-                      className="zoom-icon-button"
-                    >
-                      <RotateCcw size={16} />
-                    </TooltipButton>
-                  </div>
                   {activeMainChartPoint && activeMainChartDataPoint && (
                     <ChartPointTooltip
                       point={activeMainChartPoint}

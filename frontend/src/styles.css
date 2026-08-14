@@ -3352,7 +3352,8 @@ body > .floating-popover.multi-menu--anchored .multi-options-list {
   max-height: 100%;
   overflow: auto;
   margin-left: 6px;
-  padding: 2px 2px 2px 10px;
+  /* Extra top/right so the close control is not glued to the corner. */
+  padding: 6px 8px 4px 10px;
   border-left: 1px solid #e7edf5;
 }
 
@@ -3368,16 +3369,21 @@ body > .floating-popover.multi-menu--anchored .multi-options-list {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
+  min-height: 26px;
 }
 
 .row-employee-corridor-head .row-employee-corridor-title {
   min-width: 0;
+  /* Match close-button height so the label sits on the same visual line. */
+  line-height: 26px;
+  padding-top: 1px;
 }
 
 .row-employee-corridor-head .row-menu-close {
   flex: 0 0 auto;
+  align-self: center;
 }
 
 /* Same corridor design as settings panel, compacted for the side column. */

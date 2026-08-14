@@ -2643,9 +2643,9 @@ export function RowActionsMenu({
                   <Network size={16} />
                 </button>
               </div>
-              <aside className="row-employee-corridor-panel" aria-label="Коридор для сотрудников">
+              <aside className="row-employee-corridor-panel" aria-label="Настройка коридоров показателей">
                 <div className="row-employee-corridor-head">
-                  <p className="row-employee-corridor-title">Коридор для сотрудников</p>
+                  <p className="row-employee-corridor-title">Настройка коридоров показателей</p>
                   <button
                     className="row-menu-close"
                     type="button"

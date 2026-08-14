@@ -3337,7 +3337,7 @@ body > .floating-popover.multi-menu--anchored .multi-options-list {
 
 .row-employee-selector {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) auto minmax(340px, 360px);
+  grid-template-columns: minmax(280px, 1fr) auto minmax(400px, 420px);
   gap: 0;
   max-height: 600px;
   min-width: 0;
@@ -3395,7 +3395,7 @@ body > .floating-popover.multi-menu--anchored .multi-options-list {
 
 .row-employee-corridor-panel .threshold-editor.is-embedded .threshold-single-column {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+  gap: 8px;
 }
 
 .row-employee-corridor-panel .threshold-period-hint,

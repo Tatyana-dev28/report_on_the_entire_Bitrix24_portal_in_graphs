@@ -2385,7 +2385,7 @@ export function RowActionsMenu({
           popoverRef={popoverRef}
           open={open}
           className={`settings-popover row-actions-popover ${mode === 'employees' ? 'is-employee-selector-popover' : ''}`}
-          expectedWidth={mode === 'thresholds' ? 280 : mode === 'employees' ? 800 : 280}
+          expectedWidth={mode === 'thresholds' ? 280 : mode === 'employees' ? 920 : 280}
           expectedHeight={mode === 'thresholds' ? 580 : mode === 'employees' ? 620 : 228}
           constrainHeight={mode === 'thresholds'}
           updateOnScroll={mode === 'actions'}

@@ -3315,7 +3315,7 @@ body > .floating-popover.multi-menu--anchored .multi-options-list {
 
 .row-employee-selector {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) auto minmax(280px, 300px);
+  grid-template-columns: minmax(280px, 1fr) auto minmax(340px, 360px);
   gap: 0;
   max-height: 600px;
   min-width: 0;

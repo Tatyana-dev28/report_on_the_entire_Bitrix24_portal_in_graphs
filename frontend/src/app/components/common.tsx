@@ -151,6 +151,7 @@ export function FloatingPopover({
   expectedHeight,
   children,
   role,
+  horizontalPlacement = 'left',
   verticalPlacement = 'auto',
   updateOnScroll = true,
   constrainHeight = true,
@@ -167,6 +168,7 @@ export function FloatingPopover({
   expectedHeight: number;
   children: ReactNode;
   role?: string;
+  horizontalPlacement?: 'left' | 'right';
   verticalPlacement?: 'auto' | 'anchor-start' | 'below';
   updateOnScroll?: boolean;
   constrainHeight?: boolean;
@@ -237,10 +239,12 @@ export function FloatingPopover({
       const width = Math.min(desiredWidth, boundaryWidth);
       const minViewportLeft = visibleLeft + padding;
       const maxViewportLeft = visibleRight - padding - width;
-      // Left-align under the trigger (pinLeft still wins).
+      // Left-align under the trigger by default (pinLeft still wins).
       const preferredViewportLeft = typeof pinLeft === 'number'
         ? appRect.left + pinLeft
-        : resolvedAnchorRect.left + offsetLeft;
+        : horizontalPlacement === 'right'
+          ? resolvedAnchorRect.right - width + offsetLeft
+          : resolvedAnchorRect.left + offsetLeft;
       const spaceBelow = visibleBottom - padding - (resolvedAnchorRect.bottom + gap);
       const spaceAbove = resolvedAnchorRect.top - gap - (visibleTop + padding);
       // Prefer under the trigger when there is usable space — do not require full expectedHeight.
@@ -302,7 +306,7 @@ export function FloatingPopover({
         window.removeEventListener('scroll', scheduleUpdate, true);
       }
     };
-  }, [anchorRect, anchorRef, constrainHeight, expectedHeight, expectedWidth, matchAnchorWidth, offsetLeft, open, pinLeft, updateOnScroll, verticalPlacement]);
+  }, [anchorRect, anchorRef, constrainHeight, expectedHeight, expectedWidth, horizontalPlacement, matchAnchorWidth, offsetLeft, open, pinLeft, updateOnScroll, verticalPlacement]);
 
   if (!open || !layer) {
     return null;

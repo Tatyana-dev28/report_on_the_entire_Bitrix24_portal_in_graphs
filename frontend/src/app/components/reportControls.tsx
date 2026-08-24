@@ -1715,6 +1715,8 @@ export function ScheduleMenu({
   triggerLabel = 'Рабочий календарь',
   triggerCompact = false,
   showWorkdayTimeFields = false,
+  popoverHorizontalPlacement = 'left',
+  onOpen,
 }: {
   schedule: ScheduleFilters;
   period: Period;
@@ -1726,6 +1728,8 @@ export function ScheduleMenu({
   triggerCompact?: boolean;
   /** Show workday start/end controls outside the hourly grouping menu. */
   showWorkdayTimeFields?: boolean;
+  popoverHorizontalPlacement?: 'left' | 'right';
+  onOpen?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [scheduleApplied, setScheduleApplied] = useState(false);
@@ -1762,6 +1766,7 @@ export function ScheduleMenu({
       }));
     }
     setOpen(true);
+    onOpen?.();
   };
 
   const updateDraftSchedule = (nextSchedule: ScheduleFilters) => {
@@ -1809,6 +1814,7 @@ export function ScheduleMenu({
           className="settings-popover schedule-popover"
           expectedWidth={360}
           expectedHeight={expectedHeight}
+          horizontalPlacement={popoverHorizontalPlacement}
         >
           <div className="schedule-popover-head">
             <p>Рабочий календарь</p>

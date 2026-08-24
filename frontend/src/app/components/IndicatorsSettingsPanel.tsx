@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { CalendarClock, X } from 'lucide-react';
 import { weekDayOptions } from '../constants';
 import type { MetricDirection } from '../config/metricDirections';
@@ -63,6 +63,31 @@ const summarizeSelection = (count: number) => {
   return `Выбрано: ${count}`;
 };
 
+const easeOutCubic = (value: number) => 1 - ((1 - value) ** 3);
+
+const animateScrollTop = (element: HTMLElement, targetTop: number, duration = 420) => {
+  const startTop = element.scrollTop;
+  const distance = targetTop - startTop;
+
+  if (Math.abs(distance) < 1) {
+    element.scrollTop = targetTop;
+    return;
+  }
+
+  const startTime = window.performance.now();
+
+  const step = (currentTime: number) => {
+    const progress = Math.min(1, (currentTime - startTime) / duration);
+    element.scrollTop = startTop + distance * easeOutCubic(progress);
+
+    if (progress < 1) {
+      window.requestAnimationFrame(step);
+    }
+  };
+
+  window.requestAnimationFrame(step);
+};
+
 export default function IndicatorsSettingsPanel({
   open,
   isProUser,
@@ -103,6 +128,8 @@ export default function IndicatorsSettingsPanel({
   onCollapseAllRowCharts?: () => void;
 }) {
   const [scheduleError, setScheduleError] = useState('');
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const scheduleBlockRef = useRef<HTMLDivElement>(null);
   const menuGroup = 'indicators-settings-panel';
   const scheduleSummary = useMemo(
     () => formatScheduleSummary(draft.chart.schedule),
@@ -135,6 +162,24 @@ export default function IndicatorsSettingsPanel({
           ? [...patch.selectedSources]
           : [...draft.chart.selectedSources],
       },
+    });
+  };
+
+  const scrollToSchedulePopover = () => {
+    window.requestAnimationFrame(() => {
+      const body = bodyRef.current;
+      const scheduleBlock = scheduleBlockRef.current;
+
+      if (!body || !scheduleBlock) {
+        return;
+      }
+
+      const bodyRect = body.getBoundingClientRect();
+      const blockRect = scheduleBlock.getBoundingClientRect();
+      const topPadding = 12;
+      const nextScrollTop = body.scrollTop + blockRect.top - bodyRect.top - topPadding;
+
+      animateScrollTop(body, Math.max(0, nextScrollTop));
     });
   };
 
@@ -175,7 +220,7 @@ export default function IndicatorsSettingsPanel({
           </button>
         </div>
 
-        <div className="indicators-settings-body">
+        <div className="indicators-settings-body" ref={bodyRef}>
           <section className="indicators-settings-section">
             <h3>1. Главный показатель</h3>
 
@@ -331,7 +376,7 @@ export default function IndicatorsSettingsPanel({
               />
             </div>
 
-            <div className="indicators-settings-block">
+            <div className="indicators-settings-block" ref={scheduleBlockRef}>
               <p className="indicators-settings-label">Рабочий календарь</p>
               <div className="indicators-calendar-row">
                 <div className="indicators-calendar-summary">
@@ -353,6 +398,8 @@ export default function IndicatorsSettingsPanel({
                   triggerLabel="Изменить"
                   triggerCompact
                   showWorkdayTimeFields
+                  popoverHorizontalPlacement="right"
+                  onOpen={scrollToSchedulePopover}
                 />
               </div>
               {scheduleError ? (

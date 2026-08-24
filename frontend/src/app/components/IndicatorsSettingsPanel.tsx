@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type RefObject } from 'react';
 import { CalendarClock, X } from 'lucide-react';
 import { weekDayOptions } from '../constants';
 import type { MetricDirection } from '../config/metricDirections';
@@ -129,6 +129,7 @@ export default function IndicatorsSettingsPanel({
 }) {
   const [scheduleError, setScheduleError] = useState('');
   const bodyRef = useRef<HTMLDivElement>(null);
+  const thresholdBlockRef = useRef<HTMLDivElement>(null);
   const scheduleBlockRef = useRef<HTMLDivElement>(null);
   const menuGroup = 'indicators-settings-panel';
   const scheduleSummary = useMemo(
@@ -165,22 +166,30 @@ export default function IndicatorsSettingsPanel({
     });
   };
 
-  const scrollToSchedulePopover = () => {
+  const scrollToSettingsBlock = (targetRef: RefObject<HTMLDivElement | null>) => {
     window.requestAnimationFrame(() => {
       const body = bodyRef.current;
-      const scheduleBlock = scheduleBlockRef.current;
+      const target = targetRef.current;
 
-      if (!body || !scheduleBlock) {
+      if (!body || !target) {
         return;
       }
 
       const bodyRect = body.getBoundingClientRect();
-      const blockRect = scheduleBlock.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
       const topPadding = 12;
-      const nextScrollTop = body.scrollTop + blockRect.top - bodyRect.top - topPadding;
+      const nextScrollTop = body.scrollTop + targetRect.top - bodyRect.top - topPadding;
 
       animateScrollTop(body, Math.max(0, nextScrollTop));
     });
+  };
+
+  const scrollToSchedulePopover = () => {
+    scrollToSettingsBlock(scheduleBlockRef);
+  };
+
+  const scrollToThresholdDirection = () => {
+    scrollToSettingsBlock(thresholdBlockRef);
   };
 
   const setMetricMode = (metricMode: ChartMetricMode) => {
@@ -361,7 +370,7 @@ export default function IndicatorsSettingsPanel({
               />
             </div>
 
-            <div className="indicators-settings-block">
+            <div className="indicators-settings-block" ref={thresholdBlockRef}>
               <p className="indicators-settings-label">Коридор главного показателя</p>
               <ThresholdEditor
                 embedded
@@ -371,6 +380,7 @@ export default function IndicatorsSettingsPanel({
                 valueType={draft.chart.metricMode}
                 direction={mainDirection}
                 onDirectionChange={onMainDirectionChange}
+                onDirectionMenuOpen={scrollToThresholdDirection}
                 onApply={onThresholdApply}
                 onReset={onThresholdReset}
               />

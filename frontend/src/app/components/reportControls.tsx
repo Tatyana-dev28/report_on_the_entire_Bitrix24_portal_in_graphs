@@ -1279,6 +1279,7 @@ export function ThresholdEditor({
   valueType,
   direction = 'none',
   onDirectionChange,
+  onDirectionMenuOpen,
   onApply,
   onReset,
   onClose,
@@ -1291,6 +1292,7 @@ export function ThresholdEditor({
   valueType?: CorridorValueType;
   direction?: MetricDirection;
   onDirectionChange?: (direction: MetricDirection) => void;
+  onDirectionMenuOpen?: () => void;
   onApply: (value: ThresholdValues) => void;
   onReset: () => void;
   onClose?: () => void;
@@ -1431,20 +1433,22 @@ export function ThresholdEditor({
       {onDirectionChange ? (
         <label className="threshold-field compact-threshold-field threshold-direction-field">
           <span>Как оценивать показатель?</span>
-          <select
+          <CustomSelect
+            options={METRIC_DIRECTION_OPTIONS}
             value={direction}
-            onChange={(event) => {
+            onChange={(nextDirection) => {
               markDirty();
-              onDirectionChange(event.target.value as MetricDirection);
+              onDirectionChange(nextDirection);
             }}
-            aria-label="Как оценивать показатель?"
-          >
-            {METRIC_DIRECTION_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            ariaLabel="Как оценивать показатель?"
+            className="threshold-direction-select"
+            menuClassName="select-menu threshold-direction-menu"
+            expectedWidth={260}
+            expectedHeight={180}
+            verticalPlacement="below"
+            closeOnScroll={false}
+            onOpen={onDirectionMenuOpen}
+          />
         </label>
       ) : null}
 

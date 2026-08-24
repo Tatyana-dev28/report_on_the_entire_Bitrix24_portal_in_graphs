@@ -640,6 +640,8 @@ export function CustomSelect<T extends string>({
   expectedWidth = 220,
   expectedHeight = 280,
   verticalPlacement = 'auto',
+  closeOnScroll = true,
+  onOpen,
 }: {
   options: SelectOption<T>[];
   value: T;
@@ -652,10 +654,17 @@ export function CustomSelect<T extends string>({
   expectedWidth?: number;
   expectedHeight?: number;
   verticalPlacement?: 'auto' | 'anchor-start' | 'below';
+  closeOnScroll?: boolean;
+  onOpen?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
+  const ref = useOutsideClose<HTMLDivElement>(
+    open,
+    () => setOpen(false),
+    [popoverRef],
+    { closeOnScroll },
+  );
   const selected = options.find((option) => option.value === value) ?? options[0];
 
   useEffect(() => {
@@ -686,6 +695,9 @@ export function CustomSelect<T extends string>({
         window.dispatchEvent(new CustomEvent('nested-menu-open', {
           detail: { group: menuGroup, key: menuKey },
         }));
+      }
+      if (nextOpen) {
+        onOpen?.();
       }
 
       return nextOpen;

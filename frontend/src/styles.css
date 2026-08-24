@@ -303,15 +303,24 @@ body > .floating-popover {
 }
 
 .schedule-popover-close {
-  display: inline-grid;
+  display: grid;
   flex: 0 0 auto;
   width: 28px;
   height: 28px;
+  box-sizing: border-box;
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 9px;
+  padding: 0;
   background: #ffffff;
   color: #4b5563;
+  line-height: 0;
+}
+
+.schedule-popover-close svg {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 
 .schedule-popover-close:hover,

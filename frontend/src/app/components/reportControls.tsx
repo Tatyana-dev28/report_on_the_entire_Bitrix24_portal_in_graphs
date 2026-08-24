@@ -1699,6 +1699,13 @@ const cloneScheduleFilters = (value: ScheduleFilters): ScheduleFilters => ({
   weekendDayIds: [...value.weekendDayIds],
 });
 
+const scheduleTimeSelectOptions: SelectOption<string>[] = [
+  { value: '', label: '00:00' },
+  ...scheduleTimeOptions
+    .filter((time) => time !== '00:00')
+    .map((time) => ({ value: time, label: time })),
+];
+
 export function ScheduleMenu({
   schedule,
   period,
@@ -1707,6 +1714,7 @@ export function ScheduleMenu({
   menuKey,
   triggerLabel = 'Рабочий календарь',
   triggerCompact = false,
+  showWorkdayTimeFields = false,
 }: {
   schedule: ScheduleFilters;
   period: Period;
@@ -1716,12 +1724,17 @@ export function ScheduleMenu({
   triggerLabel?: string;
   /** Compact text button for embedded panels (W01 «Изменить»). */
   triggerCompact?: boolean;
+  /** Show workday start/end controls outside the hourly grouping menu. */
+  showWorkdayTimeFields?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [draftSchedule, setDraftSchedule] = useState<ScheduleFilters>(() => cloneScheduleFilters(schedule));
   const popoverRef = useRef<HTMLDivElement>(null);
   const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
-  const showWorkdayFields = period === 'hours';
+  const scheduleNestedMenuGroup = menuGroup && menuKey
+    ? `${menuGroup}-${menuKey}`
+    : 'schedule-menu';
+  const showWorkdayFields = showWorkdayTimeFields || period === 'hours';
   const showWeekendFields = period === 'days' || period === 'weeks';
   const showWeekStartFields = period === 'days' || period === 'weeks';
   const hasEditableFields = showWorkdayFields || showWeekendFields || showWeekStartFields;
@@ -1806,51 +1819,57 @@ export function ScheduleMenu({
           popoverRef={popoverRef}
           open={open}
           className="settings-popover schedule-popover"
-          expectedWidth={320}
+          expectedWidth={360}
           expectedHeight={expectedHeight}
         >
           <p>Рабочий календарь</p>
           <div className="schedule-form">
             {showWorkdayFields && (
               <>
-                <label className={`schedule-field ${workdayError ? 'has-error' : ''}`}>
-                  <span>Рабочий день с</span>
-                  <select
-                    value={draftSchedule.workdayStart}
-                    onChange={(event) =>
-                      updateDraftSchedule({
-                        ...draftSchedule,
-                        workdayStart: event.target.value,
-                      })
-                    }
-                  >
-                    <option value="">00:00</option>
-                    {scheduleTimeOptions.filter((time) => time !== '00:00').map((time) => (
-                      <option value={time} key={time}>
-                        {time}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className={`schedule-field ${workdayError ? 'has-error' : ''}`}>
-                  <span>Рабочий день до</span>
-                  <select
-                    value={draftSchedule.workdayEnd}
-                    onChange={(event) =>
-                      updateDraftSchedule({
-                        ...draftSchedule,
-                        workdayEnd: event.target.value,
-                      })
-                    }
-                  >
-                    <option value="">00:00</option>
-                    {scheduleTimeOptions.filter((time) => time !== '00:00').map((time) => (
-                      <option value={time} key={time}>
-                        {time}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <div className="schedule-workday-time-row">
+                  <div className={`schedule-field ${workdayError ? 'has-error' : ''}`}>
+                    <span>Рабочий день с</span>
+                    <CustomSelect
+                      options={scheduleTimeSelectOptions}
+                      value={draftSchedule.workdayStart}
+                      onChange={(workdayStart) =>
+                        updateDraftSchedule({
+                          ...draftSchedule,
+                          workdayStart,
+                        })
+                      }
+                      ariaLabel="Время начала рабочего дня"
+                      className="schedule-time-select"
+                      menuClassName="select-menu schedule-time-menu"
+                      expectedWidth={128}
+                      expectedHeight={240}
+                      verticalPlacement="below"
+                      menuGroup={scheduleNestedMenuGroup}
+                      menuKey="workday-start"
+                    />
+                  </div>
+                  <div className={`schedule-field ${workdayError ? 'has-error' : ''}`}>
+                    <span>Рабочий день до</span>
+                    <CustomSelect
+                      options={scheduleTimeSelectOptions}
+                      value={draftSchedule.workdayEnd}
+                      onChange={(workdayEnd) =>
+                        updateDraftSchedule({
+                          ...draftSchedule,
+                          workdayEnd,
+                        })
+                      }
+                      ariaLabel="Время окончания рабочего дня"
+                      className="schedule-time-select"
+                      menuClassName="select-menu schedule-time-menu"
+                      expectedWidth={128}
+                      expectedHeight={240}
+                      verticalPlacement="below"
+                      menuGroup={scheduleNestedMenuGroup}
+                      menuKey="workday-end"
+                    />
+                  </div>
+                </div>
                 {workdayError ? <em className="threshold-field-error">{workdayError}</em> : null}
               </>
             )}
@@ -1909,13 +1928,6 @@ export function ScheduleMenu({
               </p>
             ) : null}
             <div className="schedule-form-actions">
-              <button
-                className="popover-reset-button"
-                type="button"
-                onClick={() => updateDraftSchedule(createDefaultSchedule())}
-              >
-                Вернуть настройки по умолчанию
-              </button>
               {hasEditableFields ? (
                 <button
                   className="threshold-apply-button manual-apply-button"
@@ -1926,6 +1938,13 @@ export function ScheduleMenu({
                   Применить
                 </button>
               ) : null}
+              <button
+                className="popover-reset-button"
+                type="button"
+                onClick={() => updateDraftSchedule(createDefaultSchedule())}
+              >
+                Вернуть настройки по умолчанию
+              </button>
             </div>
           </div>
         </FloatingPopover>

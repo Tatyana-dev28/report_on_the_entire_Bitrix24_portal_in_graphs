@@ -46,10 +46,13 @@ const formatScheduleSummary = (schedule: ScheduleFilters) => {
   const workdayHint = weekendIds.length === 2 && weekendIds.includes(5) && weekendIds.includes(6)
     ? 'Пн–Пт'
     : 'Рабочие дни';
+  const workdayTime = schedule.workdayStart || schedule.workdayEnd
+    ? `${schedule.workdayStart || '00:00'}–${schedule.workdayEnd || '00:00'}`
+    : 'весь день';
 
   return {
     title: `${workdayHint} · неделя с ${weekStartLabel.toLowerCase() === 'пн' ? 'понедельника' : weekStartLabel}`,
-    weekends: `Выходные: ${weekendLabels || 'не заданы'}`,
+    weekends: `Выходные: ${weekendLabels || 'не заданы'} · ${workdayTime}`,
   };
 };
 
@@ -349,6 +352,7 @@ export default function IndicatorsSettingsPanel({
                   menuKey="schedule"
                   triggerLabel="Изменить"
                   triggerCompact
+                  showWorkdayTimeFields
                 />
               </div>
               {scheduleError ? (

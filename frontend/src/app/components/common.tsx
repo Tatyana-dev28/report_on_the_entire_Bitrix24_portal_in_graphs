@@ -162,7 +162,7 @@ export function FloatingPopover({
   expectedHeight: number;
   children: ReactNode;
   role?: string;
-  verticalPlacement?: 'auto' | 'anchor-start';
+  verticalPlacement?: 'auto' | 'anchor-start' | 'below';
   updateOnScroll?: boolean;
   constrainHeight?: boolean;
   /** Extra horizontal shift in px (positive = to the right), applied before viewport clamping. */
@@ -240,7 +240,9 @@ export function FloatingPopover({
       const spaceAbove = resolvedAnchorRect.top - gap - (visibleTop + padding);
       // Prefer under the trigger when there is usable space — do not require full expectedHeight.
       const minPlaceHeight = Math.min(expectedHeight, 200);
-      const placeBelow = verticalPlacement === 'anchor-start'
+      const placeBelow = verticalPlacement === 'below'
+        ? true
+        : verticalPlacement === 'anchor-start'
         ? false
         : spaceBelow >= minPlaceHeight || spaceBelow >= spaceAbove;
       const preferredViewportTop = verticalPlacement === 'anchor-start'
@@ -255,11 +257,13 @@ export function FloatingPopover({
         maxViewportLeft < minViewportLeft
           ? minViewportLeft
           : clamp(preferredViewportLeft, minViewportLeft, maxViewportLeft);
-      const viewportTop = clamp(
-        preferredViewportTop,
-        visibleTop + padding,
-        Math.max(visibleTop + padding, visibleBottom - padding - 180),
-      );
+      const viewportTop = verticalPlacement === 'below'
+        ? Math.max(visibleTop + padding, preferredViewportTop)
+        : clamp(
+            preferredViewportTop,
+            visibleTop + padding,
+            Math.max(visibleTop + padding, visibleBottom - padding - 180),
+          );
 
       setStyle({
         position: useFixedLayer ? 'fixed' : undefined,
@@ -623,6 +627,10 @@ export function CustomSelect<T extends string>({
   className = '',
   menuGroup,
   menuKey,
+  menuClassName = 'select-menu',
+  expectedWidth = 220,
+  expectedHeight = 280,
+  verticalPlacement = 'auto',
 }: {
   options: SelectOption<T>[];
   value: T;
@@ -631,6 +639,10 @@ export function CustomSelect<T extends string>({
   className?: string;
   menuGroup?: string;
   menuKey?: string;
+  menuClassName?: string;
+  expectedWidth?: number;
+  expectedHeight?: number;
+  verticalPlacement?: 'auto' | 'anchor-start' | 'below';
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -688,9 +700,10 @@ export function CustomSelect<T extends string>({
           anchorRef={ref}
           popoverRef={popoverRef}
           open={open}
-          className="select-menu"
-          expectedWidth={220}
-          expectedHeight={280}
+          className={menuClassName}
+          expectedWidth={expectedWidth}
+          expectedHeight={expectedHeight}
+          verticalPlacement={verticalPlacement}
           role="listbox"
         >
           {options.map((option) => (

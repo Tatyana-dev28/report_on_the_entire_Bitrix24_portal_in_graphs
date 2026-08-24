@@ -287,7 +287,7 @@ body > .floating-popover {
 }
 
 .schedule-popover {
-  width: min(320px, calc(100vw - 40px));
+  width: min(360px, calc(100vw - 40px));
 }
 
 .date-popover p,
@@ -385,10 +385,23 @@ body > .floating-popover {
 
 .schedule-form-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  margin-top: 10px;
+}
+
+.schedule-form-actions .popover-reset-button {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 7px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.schedule-form-actions .threshold-apply-button {
+  flex: 0 0 auto;
 }
 
 .schedule-field {
@@ -400,6 +413,16 @@ body > .floating-popover {
 
 .schedule-field.has-error select {
   border-color: #fca5a5;
+}
+
+.schedule-field.has-error .select-trigger {
+  border-color: #fca5a5;
+}
+
+.schedule-workday-time-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .schedule-period-hint {
@@ -432,6 +455,17 @@ body > .floating-popover {
 
 .schedule-field select {
   background: #ffffff;
+}
+
+.schedule-time-select .select-trigger {
+  min-height: 40px;
+  border-radius: 13px;
+  padding: 0 10px;
+  background: #ffffff;
+}
+
+.schedule-time-menu {
+  max-height: 240px;
 }
 
 .threshold-field input[readonly] {
@@ -708,12 +742,13 @@ body > .floating-popover {
 }
 
 .threshold-apply-button {
-  min-height: 34px;
+  min-height: 32px;
   border: 1px solid transparent;
   border-radius: 11px;
   color: #ffffff;
   padding: 0 12px;
   font-size: 13px;
+  line-height: 1.2;
 }
 
 .threshold-apply-button:disabled {

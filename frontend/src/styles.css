@@ -631,6 +631,13 @@ body > .floating-popover {
   margin-top: 0;
 }
 
+.threshold-editor.is-embedded .threshold-single-column .compact-threshold-field > span {
+  display: flex;
+  min-height: 30px;
+  align-items: flex-end;
+  line-height: 1.25;
+}
+
 .threshold-period-hint-spacer {
   display: block;
   min-height: 1px;
@@ -643,6 +650,10 @@ body > .floating-popover {
 
   .threshold-editor.is-embedded .threshold-single-column {
     grid-template-columns: 1fr;
+  }
+
+  .threshold-editor.is-embedded .threshold-single-column .compact-threshold-field > span {
+    min-height: 0;
   }
 }
 

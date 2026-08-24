@@ -1728,9 +1728,15 @@ export function ScheduleMenu({
   showWorkdayTimeFields?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [scheduleApplied, setScheduleApplied] = useState(false);
   const [draftSchedule, setDraftSchedule] = useState<ScheduleFilters>(() => cloneScheduleFilters(schedule));
   const popoverRef = useRef<HTMLDivElement>(null);
-  const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
+  const ref = useOutsideClose<HTMLDivElement>(
+    open,
+    () => setOpen(false),
+    [popoverRef],
+    { closeOnPointerDown: false, closeOnScroll: false },
+  );
   const scheduleNestedMenuGroup = menuGroup && menuKey
     ? `${menuGroup}-${menuKey}`
     : 'schedule-menu';
@@ -1747,28 +1753,9 @@ export function ScheduleMenu({
     + (workdayError ? 36 : 0)
     + (hasEditableFields ? 0 : 40);
 
-  useEffect(() => {
-    if (!menuGroup || !menuKey) {
-      return undefined;
-    }
-
-    const handleMenuOpen = (event: Event) => {
-      const detail = (event as CustomEvent<{ group?: string; key?: string }>).detail;
-
-      if (detail?.group === menuGroup && detail.key !== menuKey) {
-        setOpen(false);
-      }
-    };
-
-    window.addEventListener('nested-menu-open', handleMenuOpen);
-
-    return () => {
-      window.removeEventListener('nested-menu-open', handleMenuOpen);
-    };
-  }, [menuGroup, menuKey]);
-
   const openMenu = () => {
     setDraftSchedule(cloneScheduleFilters(schedule));
+    setScheduleApplied(false);
     if (menuGroup && menuKey) {
       window.dispatchEvent(new CustomEvent('nested-menu-open', {
         detail: { group: menuGroup, key: menuKey },
@@ -1778,6 +1765,7 @@ export function ScheduleMenu({
   };
 
   const updateDraftSchedule = (nextSchedule: ScheduleFilters) => {
+    setScheduleApplied(false);
     setDraftSchedule(cloneScheduleFilters(nextSchedule));
   };
 
@@ -1798,7 +1786,7 @@ export function ScheduleMenu({
     }
 
     onChange(cloneScheduleFilters(draftSchedule));
-    setOpen(false);
+    setScheduleApplied(true);
   };
 
   return (
@@ -1807,7 +1795,7 @@ export function ScheduleMenu({
         className={`threshold-trigger schedule-trigger${triggerCompact ? ' is-compact' : ''}`}
         type="button"
         aria-expanded={open}
-        onClick={open ? () => setOpen(false) : openMenu}
+        onClick={open ? undefined : openMenu}
       >
         {triggerCompact ? null : <CalendarClock size={17} />}
         <span>{triggerLabel}</span>
@@ -1822,7 +1810,17 @@ export function ScheduleMenu({
           expectedWidth={360}
           expectedHeight={expectedHeight}
         >
-          <p>Рабочий календарь</p>
+          <div className="schedule-popover-head">
+            <p>Рабочий календарь</p>
+            <button
+              className="schedule-popover-close"
+              type="button"
+              aria-label="Закрыть рабочий календарь"
+              onClick={() => setOpen(false)}
+            >
+              <X size={16} />
+            </button>
+          </div>
           <div className="schedule-form">
             {showWorkdayFields && (
               <>
@@ -1930,7 +1928,7 @@ export function ScheduleMenu({
             <div className="schedule-form-actions">
               {hasEditableFields ? (
                 <button
-                  className="threshold-apply-button manual-apply-button"
+                  className={`threshold-apply-button manual-apply-button${scheduleApplied ? ' is-applied' : ''}`}
                   type="button"
                   disabled={Boolean(workdayError)}
                   onClick={applySchedule}

@@ -290,6 +290,37 @@ body > .floating-popover {
   width: min(360px, calc(100vw - 40px));
 }
 
+.schedule-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.settings-popover .schedule-popover-head p {
+  margin: 0;
+}
+
+.schedule-popover-close {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #ffffff;
+  color: #4b5563;
+}
+
+.schedule-popover-close:hover,
+.schedule-popover-close:focus-visible {
+  border-color: #cfd8e3;
+  background: #f8fafc;
+  color: #1f2937;
+}
+
 .date-popover p,
 .settings-popover p {
   margin: 0 0 12px;
@@ -402,6 +433,12 @@ body > .floating-popover {
 
 .schedule-form-actions .threshold-apply-button {
   flex: 0 0 auto;
+}
+
+.schedule-form-actions .threshold-apply-button.is-applied {
+  background: #8fb5ff;
+  border-color: #8fb5ff;
+  box-shadow: none;
 }
 
 .schedule-field {

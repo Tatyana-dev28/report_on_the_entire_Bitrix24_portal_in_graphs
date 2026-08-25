@@ -1835,7 +1835,7 @@ body > .floating-popover {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 16px;
+  padding: 8px 16px;
   border-bottom: 1px solid #eef0f3;
 }
 
@@ -1860,7 +1860,7 @@ body > .floating-popover {
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  padding: 16px;
+  padding: 8px;
 }
 
 .indicators-settings-section {

@@ -1312,6 +1312,7 @@ export function ThresholdEditor({
   embedded = false,
   directionMenuContainer,
   directionMenuAllowVerticalOverflow = false,
+  directionMenuPortalToBody = false,
 }: {
   threshold: ThresholdValues;
   recommended: RecommendedThresholdValues;
@@ -1328,6 +1329,7 @@ export function ThresholdEditor({
   embedded?: boolean;
   directionMenuContainer?: HTMLElement | null;
   directionMenuAllowVerticalOverflow?: boolean;
+  directionMenuPortalToBody?: boolean;
 }) {
   const initialMode: 'manual' | 'recommended' = threshold.mode === 'manual' ? 'manual' : 'recommended';
   const [editorMode, setEditorMode] = useState<'manual' | 'recommended'>(initialMode);
@@ -1477,6 +1479,7 @@ export function ThresholdEditor({
             expectedHeight={180}
             verticalPlacement="below"
             closeOnScroll={false}
+            popoverPortalToBody={directionMenuPortalToBody}
             popoverContainer={directionMenuContainer}
             popoverAllowVerticalOverflow={directionMenuAllowVerticalOverflow}
             onOpen={onDirectionMenuOpen}
@@ -2773,6 +2776,8 @@ export function RowActionsMenu({
                 valueType={valueType}
                 direction={direction}
                 onDirectionChange={onDirectionChange}
+                directionMenuPortalToBody
+                directionMenuAllowVerticalOverflow
                 onApply={onThresholdChange}
                 onReset={() => onThresholdChange({ upper: '', lower: '', mode: null })}
                 onClose={() => setMode('actions')}

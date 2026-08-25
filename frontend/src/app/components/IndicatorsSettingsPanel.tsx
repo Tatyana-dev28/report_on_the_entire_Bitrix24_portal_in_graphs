@@ -65,12 +65,23 @@ const summarizeSelection = (count: number) => {
 
 const easeOutCubic = (value: number) => 1 - ((1 - value) ** 3);
 
-const animateScrollTop = (element: HTMLElement, targetTop: number, duration = 420) => {
+const animateScrollTop = (
+  element: HTMLElement,
+  targetTop: number,
+  duration = 420,
+  onComplete?: () => void,
+) => {
   const startTop = element.scrollTop;
   const distance = targetTop - startTop;
+  const finish = () => {
+    if (onComplete) {
+      window.requestAnimationFrame(onComplete);
+    }
+  };
 
   if (Math.abs(distance) < 1) {
     element.scrollTop = targetTop;
+    window.requestAnimationFrame(finish);
     return;
   }
 
@@ -82,7 +93,10 @@ const animateScrollTop = (element: HTMLElement, targetTop: number, duration = 42
 
     if (progress < 1) {
       window.requestAnimationFrame(step);
+      return;
     }
+
+    finish();
   };
 
   window.requestAnimationFrame(step);
@@ -128,6 +142,7 @@ export default function IndicatorsSettingsPanel({
   onCollapseAllRowCharts?: () => void;
 }) {
   const [scheduleError, setScheduleError] = useState('');
+  const [tableChartAction, setTableChartAction] = useState<'expand' | 'collapse' | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const thresholdBlockRef = useRef<HTMLDivElement>(null);
   const scheduleBlockRef = useRef<HTMLDivElement>(null);
@@ -166,12 +181,16 @@ export default function IndicatorsSettingsPanel({
     });
   };
 
-  const scrollToSettingsBlock = (targetRef: RefObject<HTMLDivElement | null>) => {
+  const scrollToSettingsBlock = (
+    targetRef: RefObject<HTMLDivElement | null>,
+    onComplete?: () => void,
+  ) => {
     window.requestAnimationFrame(() => {
       const body = bodyRef.current;
       const target = targetRef.current;
 
       if (!body || !target) {
+        onComplete?.();
         return;
       }
 
@@ -180,12 +199,29 @@ export default function IndicatorsSettingsPanel({
       const topPadding = 12;
       const nextScrollTop = body.scrollTop + targetRect.top - bodyRect.top - topPadding;
 
-      animateScrollTop(body, Math.max(0, nextScrollTop));
+      animateScrollTop(body, Math.max(0, nextScrollTop), 420, onComplete);
     });
   };
 
-  const scrollToSchedulePopover = () => {
-    scrollToSettingsBlock(scheduleBlockRef);
+  const prepareSchedulePopoverOpen = (openPopover: () => void, popoverHeight: number) => {
+    window.requestAnimationFrame(() => {
+      const body = bodyRef.current;
+      const trigger = scheduleBlockRef.current?.querySelector<HTMLElement>('.schedule-trigger');
+
+      if (!body || !trigger) {
+        openPopover();
+        return;
+      }
+
+      const bodyRect = body.getBoundingClientRect();
+      const triggerRect = trigger.getBoundingClientRect();
+      const gap = 8;
+      const bottomPadding = 12;
+      const desiredTriggerBottom = bodyRect.bottom - bottomPadding - gap - popoverHeight;
+      const nextScrollTop = body.scrollTop + triggerRect.bottom - desiredTriggerBottom;
+
+      animateScrollTop(body, Math.max(0, nextScrollTop), 420, openPopover);
+    });
   };
 
   const scrollToThresholdDirection = () => {
@@ -409,7 +445,9 @@ export default function IndicatorsSettingsPanel({
                   triggerCompact
                   showWorkdayTimeFields
                   popoverHorizontalPlacement="right"
-                  onOpen={scrollToSchedulePopover}
+                  popoverVerticalPlacement="below"
+                  popoverContainer={bodyRef.current}
+                  onBeforeOpen={prepareSchedulePopoverOpen}
                 />
               </div>
               {scheduleError ? (
@@ -429,7 +467,10 @@ export default function IndicatorsSettingsPanel({
                     type="radio"
                     name="indicators-table-row-charts-mode"
                     checked={draft.tableRowChartsMode === 'compact'}
-                    onChange={() => updateDraft({ tableRowChartsMode: 'compact' })}
+                    onChange={() => {
+                      setTableChartAction(null);
+                      updateDraft({ tableRowChartsMode: 'compact' });
+                    }}
                   />
                   <span>Компактный</span>
                 </label>
@@ -438,25 +479,34 @@ export default function IndicatorsSettingsPanel({
                     type="radio"
                     name="indicators-table-row-charts-mode"
                     checked={draft.tableRowChartsMode === 'with_charts'}
-                    onChange={() => updateDraft({ tableRowChartsMode: 'with_charts' })}
+                    onChange={() => {
+                      setTableChartAction(null);
+                      updateDraft({ tableRowChartsMode: 'with_charts' });
+                    }}
                   />
                   <span>С графиками</span>
                 </label>
               </div>
               <div className="table-settings-chart-actions">
                 <button
-                  className="table-settings-chart-button"
+                  className={`table-settings-chart-button${tableChartAction === 'expand' && draft.tableRowChartsMode === 'with_charts' ? ' is-active' : ''}`}
                   type="button"
                   disabled={draft.tableRowChartsMode !== 'with_charts'}
-                  onClick={() => onExpandAllRowCharts?.()}
+                  onClick={() => {
+                    setTableChartAction('expand');
+                    onExpandAllRowCharts?.();
+                  }}
                 >
                   Развернуть все
                 </button>
                 <button
-                  className="table-settings-chart-button"
+                  className={`table-settings-chart-button${tableChartAction === 'collapse' && draft.tableRowChartsMode === 'with_charts' ? ' is-active' : ''}`}
                   type="button"
                   disabled={draft.tableRowChartsMode !== 'with_charts'}
-                  onClick={() => onCollapseAllRowCharts?.()}
+                  onClick={() => {
+                    setTableChartAction('collapse');
+                    onCollapseAllRowCharts?.();
+                  }}
                 >
                   Свернуть все
                 </button>

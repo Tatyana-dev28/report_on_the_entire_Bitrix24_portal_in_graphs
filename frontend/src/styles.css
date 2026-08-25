@@ -1287,6 +1287,14 @@ body > .floating-popover {
   background: #1b63db;
 }
 
+.table-settings-chart-button.is-active {
+  border-color: #38bdf8;
+  background: #3f8cff;
+  box-shadow:
+    0 0 0 1px rgba(56, 189, 248, 0.48),
+    0 0 14px rgba(56, 189, 248, 0.42);
+}
+
 .table-settings-chart-button:disabled {
   border-color: #d7dde7;
   background: #eef1f5;
@@ -1818,6 +1826,7 @@ body > .floating-popover {
 }
 
 .indicators-settings-body {
+  position: relative;
   display: grid;
   gap: 18px;
   flex: 1 1 auto;

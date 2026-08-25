@@ -158,6 +158,9 @@ export function FloatingPopover({
   offsetLeft = 0,
   pinLeft,
   matchAnchorWidth = true,
+  portalToBody = false,
+  allowVerticalOverflow = false,
+  portalContainer,
 }: {
   anchorRef: RefObject<HTMLElement | null>;
   anchorRect?: Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'> | null;
@@ -178,6 +181,12 @@ export function FloatingPopover({
   pinLeft?: number;
   /** When false, keep expectedWidth instead of stretching to the trigger width. */
   matchAnchorWidth?: boolean;
+  /** Force fixed viewport coordinates, useful for popovers inside fixed modal overlays. */
+  portalToBody?: boolean;
+  /** Keep the popover tied to the anchor even when the anchor scrolls out of view. */
+  allowVerticalOverflow?: boolean;
+  /** Render into a specific positioned container instead of the app/body layer. */
+  portalContainer?: HTMLElement | null;
 }) {
   const [layer, setLayer] = useState<HTMLElement | null>(null);
   const [style, setStyle] = useState<CSSProperties>({
@@ -201,7 +210,7 @@ export function FloatingPopover({
     const app = anchor.closest('.report-card') as HTMLElement | null;
     const nextLayer = app?.querySelector('.floating-layer') as HTMLElement | null;
     // Outside report-card (e.g. WEB-SET-001 settings panel) portal to body with fixed coords.
-    const targetLayer = nextLayer ?? document.body;
+    const targetLayer = portalContainer ?? (portalToBody ? document.body : (nextLayer ?? document.body));
     const useFixedLayer = targetLayer === document.body;
     setLayer(targetLayer);
 
@@ -214,7 +223,10 @@ export function FloatingPopover({
       }
 
       const appElement = currentAnchor.closest('.report-card') as HTMLElement | null;
-      const appRect = (!useFixedLayer && appElement)
+      const layerRect = targetLayer.getBoundingClientRect();
+      const boundaryRect = (!useFixedLayer && portalContainer)
+        ? layerRect
+        : (!useFixedLayer && appElement)
         ? appElement.getBoundingClientRect()
         : {
             left: 0,
@@ -227,10 +239,10 @@ export function FloatingPopover({
       const resolvedAnchorRect = anchorRect ?? currentAnchor.getBoundingClientRect();
       const padding = 12;
       const gap = 8;
-      const visibleLeft = Math.max(appRect.left, 0);
-      const visibleRight = Math.min(appRect.right, window.innerWidth);
-      const visibleTop = Math.max(appRect.top, 0);
-      const visibleBottom = Math.min(appRect.bottom, window.innerHeight);
+      const visibleLeft = Math.max(boundaryRect.left, 0);
+      const visibleRight = Math.min(boundaryRect.right, window.innerWidth);
+      const visibleTop = Math.max(boundaryRect.top, 0);
+      const visibleBottom = Math.min(boundaryRect.bottom, window.innerHeight);
       const boundaryWidth = Math.max(180, visibleRight - visibleLeft - padding * 2);
       // pinLeft: keep expectedWidth. matchAnchorWidth: stretch to trigger, else keep expectedWidth.
       const desiredWidth = typeof pinLeft === 'number' || !matchAnchorWidth
@@ -241,7 +253,7 @@ export function FloatingPopover({
       const maxViewportLeft = visibleRight - padding - width;
       // Left-align under the trigger by default (pinLeft still wins).
       const preferredViewportLeft = typeof pinLeft === 'number'
-        ? appRect.left + pinLeft
+        ? boundaryRect.left + pinLeft
         : horizontalPlacement === 'right'
           ? resolvedAnchorRect.right - width + offsetLeft
           : resolvedAnchorRect.left + offsetLeft;
@@ -266,20 +278,22 @@ export function FloatingPopover({
         maxViewportLeft < minViewportLeft
           ? minViewportLeft
           : clamp(preferredViewportLeft, minViewportLeft, maxViewportLeft);
-      const viewportTop = verticalPlacement === 'below'
-        ? Math.max(visibleTop + padding, preferredViewportTop)
-        : clamp(
-            preferredViewportTop,
-            visibleTop + padding,
-            Math.max(visibleTop + padding, visibleBottom - padding - 180),
-          );
+      const viewportTop = allowVerticalOverflow
+        ? preferredViewportTop
+        : verticalPlacement === 'below'
+          ? Math.max(visibleTop + padding, preferredViewportTop)
+          : clamp(
+              preferredViewportTop,
+              visibleTop + padding,
+              Math.max(visibleTop + padding, visibleBottom - padding - 180),
+            );
 
       setStyle({
         position: useFixedLayer ? 'fixed' : undefined,
         zIndex: useFixedLayer ? 5600 : undefined,
         width,
-        left: useFixedLayer ? viewportLeft : viewportLeft - appRect.left,
-        top: useFixedLayer ? viewportTop : viewportTop - appRect.top,
+        left: useFixedLayer ? viewportLeft : viewportLeft - layerRect.left + targetLayer.scrollLeft,
+        top: useFixedLayer ? viewportTop : viewportTop - layerRect.top + targetLayer.scrollTop,
         maxHeight: constrainHeight
           ? Math.min(expectedHeight, availableHeight)
           : undefined,
@@ -306,7 +320,7 @@ export function FloatingPopover({
         window.removeEventListener('scroll', scheduleUpdate, true);
       }
     };
-  }, [anchorRect, anchorRef, constrainHeight, expectedHeight, expectedWidth, horizontalPlacement, matchAnchorWidth, offsetLeft, open, pinLeft, updateOnScroll, verticalPlacement]);
+  }, [allowVerticalOverflow, anchorRect, anchorRef, constrainHeight, expectedHeight, expectedWidth, horizontalPlacement, matchAnchorWidth, offsetLeft, open, pinLeft, portalContainer, portalToBody, updateOnScroll, verticalPlacement]);
 
   if (!open || !layer) {
     return null;
@@ -642,6 +656,9 @@ export function CustomSelect<T extends string>({
   verticalPlacement = 'auto',
   closeOnScroll = true,
   onOpen,
+  freezePopoverPositionOnOpen = false,
+  popoverPortalToBody = false,
+  popoverUpdateOnScroll = true,
 }: {
   options: SelectOption<T>[];
   value: T;
@@ -656,12 +673,19 @@ export function CustomSelect<T extends string>({
   verticalPlacement?: 'auto' | 'anchor-start' | 'below';
   closeOnScroll?: boolean;
   onOpen?: () => void;
+  freezePopoverPositionOnOpen?: boolean;
+  popoverPortalToBody?: boolean;
+  popoverUpdateOnScroll?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [frozenAnchorRect, setFrozenAnchorRect] = useState<Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'> | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const ref = useOutsideClose<HTMLDivElement>(
     open,
-    () => setOpen(false),
+    () => {
+      setOpen(false);
+      setFrozenAnchorRect(null);
+    },
     [popoverRef],
     { closeOnScroll },
   );
@@ -677,6 +701,7 @@ export function CustomSelect<T extends string>({
 
       if (detail?.group === menuGroup && detail.key !== menuKey) {
         setOpen(false);
+        setFrozenAnchorRect(null);
       }
     };
 
@@ -686,6 +711,24 @@ export function CustomSelect<T extends string>({
       window.removeEventListener('nested-menu-open', handleMenuOpen);
     };
   }, [menuGroup, menuKey]);
+
+  const captureAnchorRect = () => {
+    const rect = ref.current?.getBoundingClientRect();
+
+    if (!rect) {
+      setFrozenAnchorRect(null);
+      return;
+    }
+
+    setFrozenAnchorRect({
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height,
+    });
+  };
 
   const toggleOpen = () => {
     setOpen((current) => {
@@ -697,7 +740,12 @@ export function CustomSelect<T extends string>({
         }));
       }
       if (nextOpen) {
+        if (freezePopoverPositionOnOpen) {
+          captureAnchorRect();
+        }
         onOpen?.();
+      } else {
+        setFrozenAnchorRect(null);
       }
 
       return nextOpen;
@@ -719,12 +767,15 @@ export function CustomSelect<T extends string>({
       {open && (
         <FloatingPopover
           anchorRef={ref}
+          anchorRect={freezePopoverPositionOnOpen ? frozenAnchorRect : null}
           popoverRef={popoverRef}
           open={open}
           className={menuClassName}
           expectedWidth={expectedWidth}
           expectedHeight={expectedHeight}
           verticalPlacement={verticalPlacement}
+          updateOnScroll={popoverUpdateOnScroll}
+          portalToBody={popoverPortalToBody}
           role="listbox"
         >
           {options.map((option) => (
@@ -737,6 +788,7 @@ export function CustomSelect<T extends string>({
               onClick={() => {
                 onChange(option.value);
                 setOpen(false);
+                setFrozenAnchorRect(null);
               }}
             >
               <span>{option.label}</span>

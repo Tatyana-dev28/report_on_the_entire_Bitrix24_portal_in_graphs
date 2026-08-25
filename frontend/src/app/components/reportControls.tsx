@@ -1710,6 +1710,8 @@ const scheduleTimeSelectOptions: SelectOption<string>[] = [
     .map((time) => ({ value: time, label: time })),
 ];
 
+type PopoverAnchorRect = Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'>;
+
 export function ScheduleMenu({
   schedule,
   period,
@@ -1720,7 +1722,12 @@ export function ScheduleMenu({
   triggerCompact = false,
   showWorkdayTimeFields = false,
   popoverHorizontalPlacement = 'left',
+  popoverVerticalPlacement = 'auto',
+  popoverAnchorRect,
+  popoverContainer,
+  popoverPortalToBody = false,
   onOpen,
+  onBeforeOpen,
 }: {
   schedule: ScheduleFilters;
   period: Period;
@@ -1733,7 +1740,12 @@ export function ScheduleMenu({
   /** Show workday start/end controls outside the hourly grouping menu. */
   showWorkdayTimeFields?: boolean;
   popoverHorizontalPlacement?: 'left' | 'right';
+  popoverVerticalPlacement?: 'auto' | 'anchor-start' | 'below';
+  popoverAnchorRect?: PopoverAnchorRect | null;
+  popoverContainer?: HTMLElement | null;
+  popoverPortalToBody?: boolean;
   onOpen?: () => void;
+  onBeforeOpen?: (openMenu: () => void, popoverHeight: number) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [scheduleApplied, setScheduleApplied] = useState(false);
@@ -1769,8 +1781,18 @@ export function ScheduleMenu({
         detail: { group: menuGroup, key: menuKey },
       }));
     }
-    setOpen(true);
-    onOpen?.();
+
+    const commitOpen = () => {
+      setOpen(true);
+      onOpen?.();
+    };
+
+    if (onBeforeOpen) {
+      onBeforeOpen(commitOpen, expectedHeight);
+      return;
+    }
+
+    commitOpen();
   };
 
   const updateDraftSchedule = (nextSchedule: ScheduleFilters) => {
@@ -1813,12 +1835,19 @@ export function ScheduleMenu({
       {open && (
         <FloatingPopover
           anchorRef={ref}
+          anchorRect={popoverAnchorRect}
           popoverRef={popoverRef}
           open={open}
           className="settings-popover schedule-popover"
           expectedWidth={360}
           expectedHeight={expectedHeight}
           horizontalPlacement={popoverHorizontalPlacement}
+          verticalPlacement={popoverVerticalPlacement}
+          updateOnScroll
+          constrainHeight={false}
+          portalToBody={popoverPortalToBody}
+          allowVerticalOverflow={popoverPortalToBody}
+          portalContainer={popoverContainer}
         >
           <div className="schedule-popover-head">
             <p>Рабочий календарь</p>
@@ -1852,6 +1881,10 @@ export function ScheduleMenu({
                       expectedWidth={128}
                       expectedHeight={240}
                       verticalPlacement="below"
+                      closeOnScroll={!popoverPortalToBody}
+                      freezePopoverPositionOnOpen={popoverPortalToBody}
+                      popoverPortalToBody={popoverPortalToBody}
+                      popoverUpdateOnScroll={!popoverPortalToBody}
                       menuGroup={scheduleNestedMenuGroup}
                       menuKey="workday-start"
                     />
@@ -1873,6 +1906,10 @@ export function ScheduleMenu({
                       expectedWidth={128}
                       expectedHeight={240}
                       verticalPlacement="below"
+                      closeOnScroll={!popoverPortalToBody}
+                      freezePopoverPositionOnOpen={popoverPortalToBody}
+                      popoverPortalToBody={popoverPortalToBody}
+                      popoverUpdateOnScroll={!popoverPortalToBody}
                       menuGroup={scheduleNestedMenuGroup}
                       menuKey="workday-end"
                     />

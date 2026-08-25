@@ -451,7 +451,7 @@ export default function IndicatorsSettingsPanel({
               </div>
             </div>
 
-            <div className="indicators-settings-block" ref={thresholdBlockRef}>
+            <div className="indicators-settings-block indicators-threshold-block" ref={thresholdBlockRef}>
               <p className="indicators-settings-label">Коридор главного показателя</p>
               <ThresholdEditor
                 embedded

@@ -2373,6 +2373,24 @@ body > .floating-popover {
   overflow-y: auto;
 }
 
+.multi-menu--anchored.is-inline-anchor-menu {
+  position: static;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: none;
+  max-height: 360px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.multi-menu--anchored.is-inline-anchor-menu .multi-options-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+
 .multi-menu {
   width: 100%;
   max-height: min(78vh, 680px);

@@ -341,6 +341,7 @@ export default function IndicatorsSettingsPanel({
                 popoverContainer={bodyRef.current}
                 popoverVerticalPlacement="below"
                 popoverAllowVerticalOverflow
+                renderAnchorMenuInline
                 onBeforeOpen={(openMenu, popoverHeight) =>
                   prepareSelectPopoverOpen(mainSourcesBlockRef, openMenu, popoverHeight)
                 }
@@ -528,6 +529,7 @@ export default function IndicatorsSettingsPanel({
                 popoverContainer={bodyRef.current}
                 popoverVerticalPlacement="below"
                 popoverAllowVerticalOverflow
+                renderAnchorMenuInline
                 onBeforeOpen={(openMenu, popoverHeight) =>
                   prepareSelectPopoverOpen(tableSourcesBlockRef, openMenu, popoverHeight)
                 }

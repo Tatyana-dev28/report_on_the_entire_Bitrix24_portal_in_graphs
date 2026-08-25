@@ -463,6 +463,7 @@ export function MultiSelect({
   popoverContainer,
   popoverVerticalPlacement = 'auto',
   popoverAllowVerticalOverflow = false,
+  renderAnchorMenuInline = false,
   onBeforeOpen,
 }: {
   values: string[];
@@ -493,6 +494,7 @@ export function MultiSelect({
   popoverContainer?: HTMLElement | null;
   popoverVerticalPlacement?: 'auto' | 'anchor-start' | 'below';
   popoverAllowVerticalOverflow?: boolean;
+  renderAnchorMenuInline?: boolean;
   onBeforeOpen?: (openMenu: () => void, popoverHeight: number) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -781,7 +783,15 @@ export function MultiSelect({
         <span>{label}</span>
         <ChevronDown size={16} />
       </button>
-      {open ? (
+      {open && renderAnchorMenuInline ? (
+        <div
+          className={`select-menu multi-menu${anchorMenu ? ' multi-menu--anchored' : ''} is-inline-anchor-menu`}
+          ref={popoverRef}
+        >
+          {renderOptionsList()}
+        </div>
+      ) : null}
+      {open && !renderAnchorMenuInline ? (
         <FloatingPopover
           anchorRef={ref}
           popoverRef={popoverRef}

@@ -757,6 +757,12 @@ body > .floating-popover {
 
 .threshold-direction-menu {
   max-height: 180px;
+  overflow-y: hidden;
+}
+
+.threshold-direction-menu .select-option {
+  min-height: 40px;
+  padding: 7px 10px;
 }
 
 .compact-reset-button {
@@ -1295,6 +1301,18 @@ body > .floating-popover {
     0 0 14px rgba(56, 189, 248, 0.42);
 }
 
+.table-settings-chart-actions.has-active-action .table-settings-chart-button:not(.is-active):not(:disabled) {
+  border-color: #a6c7f8;
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.table-settings-chart-actions.has-active-action .table-settings-chart-button:not(.is-active):not(:disabled):hover,
+.table-settings-chart-actions.has-active-action .table-settings-chart-button:not(.is-active):not(:disabled):focus-visible {
+  border-color: #7fb0f4;
+  background: #cfe2ff;
+}
+
 .table-settings-chart-button:disabled {
   border-color: #d7dde7;
   background: #eef1f5;
@@ -1788,6 +1806,7 @@ body > .floating-popover {
   justify-content: flex-end;
   padding: 18px;
   background: rgba(15, 23, 42, 0.28);
+  overscroll-behavior: contain;
 }
 
 .indicators-settings-panel {
@@ -1832,6 +1851,7 @@ body > .floating-popover {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 16px;
 }
 
@@ -1904,6 +1924,13 @@ body > .floating-popover {
   color: #6a7482;
   font-size: 12px;
   line-height: 1.35;
+}
+
+.indicators-metric-mode-block {
+  margin-top: 2px;
+  padding: 14px 0;
+  border-top: 1px solid #dbe6f4;
+  border-bottom: 1px solid #e8eef7;
 }
 
 .indicators-metric-mode {
@@ -2061,6 +2088,12 @@ body > .floating-popover {
 
 .indicators-switch input:disabled + span {
   opacity: 0.55;
+}
+
+.indicators-calendar-block {
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid #dbe6f4;
 }
 
 .indicators-calendar-row {
@@ -2326,14 +2359,14 @@ body > .floating-popover {
   z-index: 5200;
 }
 
-body > .floating-popover.multi-menu--anchored {
+.floating-popover.multi-menu--anchored {
   display: flex;
   flex-direction: column;
   overflow: hidden;
   max-width: none;
 }
 
-body > .floating-popover.multi-menu--anchored .multi-options-list {
+.floating-popover.multi-menu--anchored .multi-options-list {
   flex: 1 1 auto;
   min-height: 0;
   max-height: none;

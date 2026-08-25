@@ -659,6 +659,8 @@ export function CustomSelect<T extends string>({
   freezePopoverPositionOnOpen = false,
   popoverPortalToBody = false,
   popoverUpdateOnScroll = true,
+  popoverContainer,
+  popoverAllowVerticalOverflow = false,
 }: {
   options: SelectOption<T>[];
   value: T;
@@ -676,6 +678,8 @@ export function CustomSelect<T extends string>({
   freezePopoverPositionOnOpen?: boolean;
   popoverPortalToBody?: boolean;
   popoverUpdateOnScroll?: boolean;
+  popoverContainer?: HTMLElement | null;
+  popoverAllowVerticalOverflow?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [frozenAnchorRect, setFrozenAnchorRect] = useState<Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'> | null>(null);
@@ -776,6 +780,8 @@ export function CustomSelect<T extends string>({
           verticalPlacement={verticalPlacement}
           updateOnScroll={popoverUpdateOnScroll}
           portalToBody={popoverPortalToBody}
+          allowVerticalOverflow={popoverAllowVerticalOverflow}
+          portalContainer={popoverContainer}
           role="listbox"
         >
           {options.map((option) => (

@@ -146,6 +146,8 @@ export default function IndicatorsSettingsPanel({
   const bodyRef = useRef<HTMLDivElement>(null);
   const thresholdBlockRef = useRef<HTMLDivElement>(null);
   const scheduleBlockRef = useRef<HTMLDivElement>(null);
+  const mainSourcesBlockRef = useRef<HTMLDivElement>(null);
+  const tableSourcesBlockRef = useRef<HTMLDivElement>(null);
   const menuGroup = 'indicators-settings-panel';
   const scheduleSummary = useMemo(
     () => formatScheduleSummary(draft.chart.schedule),
@@ -224,6 +226,34 @@ export default function IndicatorsSettingsPanel({
     });
   };
 
+  const prepareSelectPopoverOpen = (
+    targetRef: RefObject<HTMLDivElement | null>,
+    openPopover: () => void,
+    popoverHeight: number,
+  ) => {
+    window.requestAnimationFrame(() => {
+      const body = bodyRef.current;
+      const trigger = targetRef.current?.querySelector<HTMLElement>('.select-trigger');
+
+      if (!body || !trigger) {
+        openPopover();
+        return;
+      }
+
+      const bodyRect = body.getBoundingClientRect();
+      const triggerRect = trigger.getBoundingClientRect();
+      const gap = 8;
+      const topPadding = 12;
+      const bottomPadding = 12;
+      const currentSpaceBelow = bodyRect.bottom - bottomPadding - triggerRect.bottom - gap;
+      const targetScrollTop = currentSpaceBelow >= popoverHeight
+        ? body.scrollTop + triggerRect.top - bodyRect.top - topPadding
+        : body.scrollTop + triggerRect.bottom - (bodyRect.bottom - bottomPadding - gap - popoverHeight);
+
+      animateScrollTop(body, Math.max(0, targetScrollTop), 420, openPopover);
+    });
+  };
+
   const scrollToThresholdDirection = () => {
     scrollToSettingsBlock(thresholdBlockRef);
   };
@@ -269,26 +299,83 @@ export default function IndicatorsSettingsPanel({
           <section className="indicators-settings-section">
             <h3>1. Главный показатель</h3>
 
-            <div className="indicators-settings-block">
-              <p className="indicators-settings-label">Что считаем</p>
-              <div className="indicators-metric-mode" role="radiogroup" aria-label="Что считаем">
-                <button
-                  type="button"
-                  className={`indicators-metric-mode-option ${draft.chart.metricMode === 'count' ? 'is-active' : ''}`}
-                  onClick={() => setMetricMode('count')}
-                >
-                  <strong>Количество</strong>
-                  <span>Число сделок</span>
-                </button>
-                <button
-                  type="button"
-                  className={`indicators-metric-mode-option ${draft.chart.metricMode === 'money' ? 'is-active' : ''}`}
-                  onClick={() => setMetricMode('money')}
-                >
-                  <strong>Деньги</strong>
-                  <span>Сумма сделок</span>
-                </button>
+            <div
+              className={`indicators-settings-block indicators-picker-block${
+                draft.chart.selectedSources.length === 0 ? ' is-empty' : ''
+              }`}
+              ref={mainSourcesBlockRef}
+            >
+              <p className="indicators-settings-label">
+                {mainSelectionMode === 'multi'
+                  ? 'Источники главного показателя'
+                  : 'Источник главного показателя'}
+              </p>
+              <MultiSelect
+                values={draft.chart.selectedSources}
+                options={crmSourceOptions}
+                onChange={handleMainSourcesChange}
+                selectionMode={mainSelectionMode}
+                triggerLabel={summarizeSelection(draft.chart.selectedSources.length)}
+                ariaLabel={
+                  mainSelectionMode === 'multi'
+                    ? 'Источники главного показателя'
+                    : 'Источник главного показателя'
+                }
+                searchPlaceholder="Поиск по источникам"
+                menuGroup={menuGroup}
+                menuKey="main-sources"
+                anchorMenu
+                onSelectAll={
+                  mainSelectionMode === 'multi'
+                    ? () =>
+                        handleMainSourcesChange(
+                          crmSourceOptions
+                            .filter((option) => !option.disabled)
+                            .map((option) => option.value),
+                        )
+                    : undefined
+                }
+                onReset={() => handleMainSourcesChange([])}
+                onApply={() => undefined}
+                closeOnApply
+                popoverContainer={bodyRef.current}
+                popoverVerticalPlacement="below"
+                popoverAllowVerticalOverflow
+                onBeforeOpen={(openMenu, popoverHeight) =>
+                  prepareSelectPopoverOpen(mainSourcesBlockRef, openMenu, popoverHeight)
+                }
+              />
+              <p className="indicators-settings-hint">
+                {mainSelectionMode === 'multi'
+                  ? 'Можно выбрать несколько — суммируются в один график. «Применить» закрывает список; в отчёт — через «Показать сводку».'
+                  : canUseSum
+                    ? 'Сейчас можно выбрать только 1. Чтобы несколько — включите сумму выше.'
+                    : 'В бесплатной версии — только 1 источник. «Применить» закрывает список; в отчёт — через «Показать сводку».'}
+              </p>
+            </div>
+
+            <div className={`indicators-paid-row ${isProUser ? '' : 'is-locked'}`}>
+              <div className="indicators-paid-copy">
+                <div>
+                  <strong className="indicators-paid-title">
+                    Название показателя
+                    <ProFeatureBadge />
+                  </strong>
+                  <span>
+                    {isProUser
+                      ? 'Только отображаемое имя, формула не меняется'
+                      : 'Редактирование названия — в про версии'}
+                  </span>
+                </div>
               </div>
+              <input
+                className="indicators-title-input"
+                type="text"
+                value={draft.customTitle}
+                disabled={!isProUser}
+                placeholder="Например, Продажи · Основной"
+                onChange={(event) => updateDraft({ customTitle: event.target.value })}
+              />
             </div>
 
             <div className={`indicators-paid-row ${canUseSum ? '' : 'is-locked'}`}>
@@ -334,76 +421,26 @@ export default function IndicatorsSettingsPanel({
               </label>
             </div>
 
-            <div
-              className={`indicators-settings-block indicators-picker-block${
-                draft.chart.selectedSources.length === 0 ? ' is-empty' : ''
-              }`}
-            >
-              <p className="indicators-settings-label">
-                {mainSelectionMode === 'multi'
-                  ? 'Источники главного показателя'
-                  : 'Источник главного показателя'}
-              </p>
-              <MultiSelect
-                values={draft.chart.selectedSources}
-                options={crmSourceOptions}
-                onChange={handleMainSourcesChange}
-                selectionMode={mainSelectionMode}
-                triggerLabel={summarizeSelection(draft.chart.selectedSources.length)}
-                ariaLabel={
-                  mainSelectionMode === 'multi'
-                    ? 'Источники главного показателя'
-                    : 'Источник главного показателя'
-                }
-                searchPlaceholder="Поиск по источникам"
-                menuGroup={menuGroup}
-                menuKey="main-sources"
-                anchorMenu
-                onSelectAll={
-                  mainSelectionMode === 'multi'
-                    ? () =>
-                        handleMainSourcesChange(
-                          crmSourceOptions
-                            .filter((option) => !option.disabled)
-                            .map((option) => option.value),
-                        )
-                    : undefined
-                }
-                onReset={() => handleMainSourcesChange([])}
-                onApply={() => undefined}
-                closeOnApply
-              />
-              <p className="indicators-settings-hint">
-                {mainSelectionMode === 'multi'
-                  ? 'Можно выбрать несколько — суммируются в один график. «Применить» закрывает список; в отчёт — через «Показать сводку».'
-                  : canUseSum
-                    ? 'Сейчас можно выбрать только 1. Чтобы несколько — включите сумму выше.'
-                    : 'В бесплатной версии — только 1 источник. «Применить» закрывает список; в отчёт — через «Показать сводку».'}
-              </p>
-            </div>
-
-            <div className={`indicators-paid-row ${isProUser ? '' : 'is-locked'}`}>
-              <div className="indicators-paid-copy">
-                <div>
-                  <strong className="indicators-paid-title">
-                    Название показателя
-                    <ProFeatureBadge />
-                  </strong>
-                  <span>
-                    {isProUser
-                      ? 'Только отображаемое имя, формула не меняется'
-                      : 'Редактирование названия — в про версии'}
-                  </span>
-                </div>
+            <div className="indicators-settings-block indicators-metric-mode-block">
+              <p className="indicators-settings-label">Что считаем</p>
+              <div className="indicators-metric-mode" role="radiogroup" aria-label="Что считаем">
+                <button
+                  type="button"
+                  className={`indicators-metric-mode-option ${draft.chart.metricMode === 'count' ? 'is-active' : ''}`}
+                  onClick={() => setMetricMode('count')}
+                >
+                  <strong>Количество</strong>
+                  <span>Число сделок</span>
+                </button>
+                <button
+                  type="button"
+                  className={`indicators-metric-mode-option ${draft.chart.metricMode === 'money' ? 'is-active' : ''}`}
+                  onClick={() => setMetricMode('money')}
+                >
+                  <strong>Деньги</strong>
+                  <span>Сумма сделок</span>
+                </button>
               </div>
-              <input
-                className="indicators-title-input"
-                type="text"
-                value={draft.customTitle}
-                disabled={!isProUser}
-                placeholder="Например, Продажи · Основной"
-                onChange={(event) => updateDraft({ customTitle: event.target.value })}
-              />
             </div>
 
             <div className="indicators-settings-block" ref={thresholdBlockRef}>
@@ -417,12 +454,14 @@ export default function IndicatorsSettingsPanel({
                 direction={mainDirection}
                 onDirectionChange={onMainDirectionChange}
                 onDirectionMenuOpen={scrollToThresholdDirection}
+                directionMenuContainer={bodyRef.current}
+                directionMenuAllowVerticalOverflow
                 onApply={onThresholdApply}
                 onReset={onThresholdReset}
               />
             </div>
 
-            <div className="indicators-settings-block" ref={scheduleBlockRef}>
+            <div className="indicators-settings-block indicators-calendar-block" ref={scheduleBlockRef}>
               <p className="indicators-settings-label">Рабочий календарь</p>
               <div className="indicators-calendar-row">
                 <div className="indicators-calendar-summary">
@@ -459,6 +498,45 @@ export default function IndicatorsSettingsPanel({
           <section className="indicators-settings-section">
             <h3>2. Остальные показатели (таблица)</h3>
 
+            <div
+              className={`indicators-settings-block indicators-picker-block${
+                draft.tableSelectedSources.length === 0 ? ' is-empty' : ''
+              }`}
+              ref={tableSourcesBlockRef}
+            >
+              <p className="indicators-settings-label">Выберите показатели</p>
+              <MultiSelect
+                values={draft.tableSelectedSources}
+                options={crmSourceOptions}
+                onChange={(tableSelectedSources) => updateDraft({ tableSelectedSources })}
+                triggerLabel={summarizeSelection(draft.tableSelectedSources.length)}
+                ariaLabel="Показатели таблицы"
+                searchPlaceholder="Поиск по источникам и показателям"
+                menuGroup={menuGroup}
+                menuKey="table-sources"
+                anchorMenu
+                onSelectAll={() =>
+                  updateDraft({
+                    tableSelectedSources: crmSourceOptions
+                      .filter((option) => !option.disabled)
+                      .map((option) => option.value),
+                  })
+                }
+                onReset={() => updateDraft({ tableSelectedSources: [] })}
+                onApply={() => undefined}
+                closeOnApply
+                popoverContainer={bodyRef.current}
+                popoverVerticalPlacement="below"
+                popoverAllowVerticalOverflow
+                onBeforeOpen={(openMenu, popoverHeight) =>
+                  prepareSelectPopoverOpen(tableSourcesBlockRef, openMenu, popoverHeight)
+                }
+              />
+              <p className="indicators-settings-hint">
+                Можно выбрать несколько. «Применить» закрывает список; в отчёт — через «Показать сводку».
+              </p>
+            </div>
+
             <div className="indicators-settings-block">
               <p className="indicators-settings-label">Отображение</p>
               <div className="table-settings-mode-options" role="radiogroup" aria-label="Отображение таблицы">
@@ -487,7 +565,7 @@ export default function IndicatorsSettingsPanel({
                   <span>С графиками</span>
                 </label>
               </div>
-              <div className="table-settings-chart-actions">
+              <div className={`table-settings-chart-actions${tableChartAction ? ' has-active-action' : ''}`}>
                 <button
                   className={`table-settings-chart-button${tableChartAction === 'expand' && draft.tableRowChartsMode === 'with_charts' ? ' is-active' : ''}`}
                   type="button"
@@ -511,38 +589,6 @@ export default function IndicatorsSettingsPanel({
                   Свернуть все
                 </button>
               </div>
-            </div>
-
-            <div
-              className={`indicators-settings-block indicators-picker-block${
-                draft.tableSelectedSources.length === 0 ? ' is-empty' : ''
-              }`}
-            >
-              <p className="indicators-settings-label">Выберите показатели</p>
-              <MultiSelect
-                values={draft.tableSelectedSources}
-                options={crmSourceOptions}
-                onChange={(tableSelectedSources) => updateDraft({ tableSelectedSources })}
-                triggerLabel={summarizeSelection(draft.tableSelectedSources.length)}
-                ariaLabel="Показатели таблицы"
-                searchPlaceholder="Поиск по источникам и показателям"
-                menuGroup={menuGroup}
-                menuKey="table-sources"
-                anchorMenu
-                onSelectAll={() =>
-                  updateDraft({
-                    tableSelectedSources: crmSourceOptions
-                      .filter((option) => !option.disabled)
-                      .map((option) => option.value),
-                  })
-                }
-                onReset={() => updateDraft({ tableSelectedSources: [] })}
-                onApply={() => undefined}
-                closeOnApply
-              />
-              <p className="indicators-settings-hint">
-                Можно выбрать несколько. «Применить» закрывает список; в отчёт — через «Показать сводку».
-              </p>
             </div>
 
             <label className={`table-settings-checkbox ${draft.highlightDeviations ? 'is-active' : ''}`}>

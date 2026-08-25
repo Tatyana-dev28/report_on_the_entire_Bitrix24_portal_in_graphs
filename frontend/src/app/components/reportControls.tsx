@@ -460,6 +460,10 @@ export function MultiSelect({
   menuWidth = 280,
   matchAnchorWidth = false,
   anchorMenu = false,
+  popoverContainer,
+  popoverVerticalPlacement = 'auto',
+  popoverAllowVerticalOverflow = false,
+  onBeforeOpen,
 }: {
   values: string[];
   options: SelectOption<string>[];
@@ -486,6 +490,10 @@ export function MultiSelect({
   matchAnchorWidth?: boolean;
   /** Render menu under the trigger for settings panel (portal, full trigger width). */
   anchorMenu?: boolean;
+  popoverContainer?: HTMLElement | null;
+  popoverVerticalPlacement?: 'auto' | 'anchor-start' | 'below';
+  popoverAllowVerticalOverflow?: boolean;
+  onBeforeOpen?: (openMenu: () => void, popoverHeight: number) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -588,6 +596,8 @@ export function MultiSelect({
   const showSelectAll = (Boolean(onSelectAll) || commitOnApply) && selectionMode !== 'single';
   const showReset = Boolean(onReset) || commitOnApply;
   const showApply = Boolean(onApply) || commitOnApply;
+  const popoverExpectedWidth = anchorMenu ? 280 : menuWidth;
+  const popoverExpectedHeight = anchorMenu ? 360 : 680;
 
   const clearSearch = () => {
     setSearchQuery('');
@@ -653,22 +663,25 @@ export function MultiSelect({
   };
 
   const toggleOpen = () => {
-    setOpen((current) => {
-      const nextOpen = !current;
+    if (open) {
+      closeMenu();
+      return;
+    }
 
-      if (nextOpen && menuGroup && menuKey) {
-        window.dispatchEvent(new CustomEvent('nested-menu-open', {
-          detail: { group: menuGroup, key: menuKey },
-        }));
-      }
+    if (menuGroup && menuKey) {
+      window.dispatchEvent(new CustomEvent('nested-menu-open', {
+        detail: { group: menuGroup, key: menuKey },
+      }));
+    }
 
-      if (!nextOpen && commitOnApply) {
-        setDraftValues([...values]);
-        setSearchQuery('');
-      }
+    const commitOpen = () => setOpen(true);
 
-      return nextOpen;
-    });
+    if (onBeforeOpen) {
+      onBeforeOpen(commitOpen, popoverExpectedHeight);
+      return;
+    }
+
+    commitOpen();
   };
 
   const renderOption = (option: SelectOption<string>) => (
@@ -774,10 +787,13 @@ export function MultiSelect({
           popoverRef={popoverRef}
           open={open}
           className={`select-menu multi-menu${anchorMenu ? ' multi-menu--anchored' : ''}`}
-          expectedWidth={anchorMenu ? 280 : menuWidth}
-          expectedHeight={anchorMenu ? 360 : 680}
+          expectedWidth={popoverExpectedWidth}
+          expectedHeight={popoverExpectedHeight}
+          verticalPlacement={popoverVerticalPlacement}
           matchAnchorWidth={anchorMenu || matchAnchorWidth}
           constrainHeight
+          allowVerticalOverflow={popoverAllowVerticalOverflow}
+          portalContainer={popoverContainer}
         >
           {renderOptionsList()}
         </FloatingPopover>
@@ -1284,6 +1300,8 @@ export function ThresholdEditor({
   onReset,
   onClose,
   embedded = false,
+  directionMenuContainer,
+  directionMenuAllowVerticalOverflow = false,
 }: {
   threshold: ThresholdValues;
   recommended: RecommendedThresholdValues;
@@ -1298,6 +1316,8 @@ export function ThresholdEditor({
   onClose?: () => void;
   /** WEB-SET-001: inline in settings panel without popover chrome. */
   embedded?: boolean;
+  directionMenuContainer?: HTMLElement | null;
+  directionMenuAllowVerticalOverflow?: boolean;
 }) {
   const initialMode: 'manual' | 'recommended' = threshold.mode === 'manual' ? 'manual' : 'recommended';
   const [editorMode, setEditorMode] = useState<'manual' | 'recommended'>(initialMode);
@@ -1447,6 +1467,8 @@ export function ThresholdEditor({
             expectedHeight={180}
             verticalPlacement="below"
             closeOnScroll={false}
+            popoverContainer={directionMenuContainer}
+            popoverAllowVerticalOverflow={directionMenuAllowVerticalOverflow}
             onOpen={onDirectionMenuOpen}
           />
         </label>

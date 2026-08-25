@@ -63,10 +63,13 @@ const summarizeSelection = (count: number) => {
   return `Выбрано: ${count}`;
 };
 
-const easeOutCubic = (value: number) => 1 - ((1 - value) ** 3);
+const easeInOutCubic = (value: number) =>
+  value < 0.5
+    ? 4 * value ** 3
+    : 1 - ((-2 * value + 2) ** 3) / 2;
 
 const getAutoScrollDuration = (distance: number) =>
-  Math.round(Math.min(280, Math.max(140, Math.abs(distance) * 0.45)));
+  Math.round(Math.min(340, Math.max(220, Math.abs(distance) * 0.55)));
 
 const animateScrollTop = (
   element: HTMLElement,
@@ -92,7 +95,7 @@ const animateScrollTop = (
 
   const step = (currentTime: number) => {
     const progress = Math.min(1, (currentTime - startTime) / duration);
-    element.scrollTop = startTop + distance * easeOutCubic(progress);
+    element.scrollTop = startTop + distance * easeInOutCubic(progress);
 
     if (progress < 1) {
       window.requestAnimationFrame(step);
@@ -234,12 +237,13 @@ export default function IndicatorsSettingsPanel({
     openPopover: () => void,
     popoverHeight: number,
   ) => {
+    openPopover();
+
     window.requestAnimationFrame(() => {
       const body = bodyRef.current;
       const trigger = targetRef.current?.querySelector<HTMLElement>('.select-trigger');
 
       if (!body || !trigger) {
-        openPopover();
         return;
       }
 
@@ -253,7 +257,7 @@ export default function IndicatorsSettingsPanel({
         ? body.scrollTop + triggerRect.top - bodyRect.top - topPadding
         : body.scrollTop + triggerRect.bottom - (bodyRect.bottom - bottomPadding - gap - popoverHeight);
 
-      animateScrollTop(body, Math.max(0, targetScrollTop), undefined, openPopover);
+      animateScrollTop(body, Math.max(0, targetScrollTop));
     });
   };
 

@@ -65,10 +65,13 @@ const summarizeSelection = (count: number) => {
 
 const easeOutCubic = (value: number) => 1 - ((1 - value) ** 3);
 
+const getAutoScrollDuration = (distance: number) =>
+  Math.round(Math.min(280, Math.max(140, Math.abs(distance) * 0.45)));
+
 const animateScrollTop = (
   element: HTMLElement,
   targetTop: number,
-  duration = 420,
+  duration = getAutoScrollDuration(targetTop - element.scrollTop),
   onComplete?: () => void,
 ) => {
   const startTop = element.scrollTop;
@@ -201,7 +204,7 @@ export default function IndicatorsSettingsPanel({
       const topPadding = 12;
       const nextScrollTop = body.scrollTop + targetRect.top - bodyRect.top - topPadding;
 
-      animateScrollTop(body, Math.max(0, nextScrollTop), 420, onComplete);
+      animateScrollTop(body, Math.max(0, nextScrollTop), undefined, onComplete);
     });
   };
 
@@ -222,7 +225,7 @@ export default function IndicatorsSettingsPanel({
       const desiredTriggerBottom = bodyRect.bottom - bottomPadding - gap - popoverHeight;
       const nextScrollTop = body.scrollTop + triggerRect.bottom - desiredTriggerBottom;
 
-      animateScrollTop(body, Math.max(0, nextScrollTop), 420, openPopover);
+      animateScrollTop(body, Math.max(0, nextScrollTop), undefined, openPopover);
     });
   };
 
@@ -250,7 +253,7 @@ export default function IndicatorsSettingsPanel({
         ? body.scrollTop + triggerRect.top - bodyRect.top - topPadding
         : body.scrollTop + triggerRect.bottom - (bodyRect.bottom - bottomPadding - gap - popoverHeight);
 
-      animateScrollTop(body, Math.max(0, targetScrollTop), 420, openPopover);
+      animateScrollTop(body, Math.max(0, targetScrollTop), undefined, openPopover);
     });
   };
 

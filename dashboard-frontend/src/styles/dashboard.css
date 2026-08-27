@@ -1,0 +1,137 @@
+:root {
+  color: #202938;
+  background: #eef3fb;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 1024px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.dashboard-page {
+  min-height: 100vh;
+  padding: 18px;
+  background: #eef3fb;
+}
+
+.dashboard-shell {
+  min-height: calc(100vh - 36px);
+  border: 1px solid #d6e0ee;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 18px 46px rgba(32, 41, 56, 0.08);
+}
+
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid #e4ebf5;
+}
+
+.dashboard-header h1,
+.dashboard-report-placeholder h1 {
+  margin: 0;
+  color: #202938;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.dashboard-eyebrow {
+  margin: 0 0 4px;
+  color: #6a7482;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.dashboard-state {
+  margin: 18px 22px 0;
+  border: 1px solid #d6e0ee;
+  border-radius: 12px;
+  background: #f7faff;
+  padding: 14px 16px;
+  color: #5d6878;
+  font-size: 14px;
+}
+
+.dashboard-state.is-error {
+  border-color: #fecaca;
+  background: #fff7f7;
+  color: #b42318;
+}
+
+.dashboard-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 22px 0;
+  color: #5d6878;
+  font-size: 13px;
+}
+
+.dashboard-status-bar span,
+.dashboard-status-bar strong,
+.dashboard-status-bar em {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  border: 1px solid #d6e0ee;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 0 10px;
+  font-style: normal;
+}
+
+.dashboard-status-bar strong {
+  border-color: #b8e6cd;
+  color: #1f8f57;
+}
+
+.dashboard-status-bar em {
+  border-color: #fecaca;
+  color: #b42318;
+}
+
+.dashboard-report-placeholder {
+  display: grid;
+  min-height: 420px;
+  place-items: center;
+  margin: 18px 22px 22px;
+  border: 1px dashed #cfe0f7;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fbfdff 0%, #f3f7ff 100%);
+  text-align: center;
+}
+
+.dashboard-report-placeholder span {
+  display: block;
+  margin-top: 8px;
+  color: #6a7482;
+  font-size: 14px;
+}

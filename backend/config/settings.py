@@ -124,6 +124,7 @@ INSTALLED_APPS = [
     "apps.common.apps.CommonConfig",
     "apps.bitrix.apps.BitrixConfig",
     "apps.reports.apps.ReportsConfig",
+    "apps.dashboard.apps.DashboardConfig",
     "apps.billing.apps.BillingConfig",
     "apps.users.apps.UsersConfig",
 ]

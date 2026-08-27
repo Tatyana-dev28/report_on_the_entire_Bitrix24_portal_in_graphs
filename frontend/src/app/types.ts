@@ -252,6 +252,7 @@ export type AppSettings = {
   reportBuilderUserIds: string[];
   moneyViewerUserIds: string[];
   viewSaverUserIds: string[];
+  dashboardRefreshIntervalMinutes: 10 | 30 | 60 | null;
 };
 
 export type ChartDraftSettings = {

@@ -2241,6 +2241,12 @@ function App() {
             viewSaverUserIds: Array.isArray(appSettingsData.viewSaverUserIds)
               ? appSettingsData.viewSaverUserIds as string[]
               : [],
+            dashboardRefreshIntervalMinutes:
+              appSettingsData.dashboardRefreshIntervalMinutes === 10 ||
+              appSettingsData.dashboardRefreshIntervalMinutes === 30 ||
+              appSettingsData.dashboardRefreshIntervalMinutes === 60
+                ? appSettingsData.dashboardRefreshIntervalMinutes
+                : null,
           });
         }
 
@@ -5870,6 +5876,7 @@ function App() {
           reportBuilderUserIds: appSettings.reportBuilderUserIds,
           moneyViewerUserIds: appSettings.moneyViewerUserIds,
           viewSaverUserIds: appSettings.viewSaverUserIds,
+          dashboardRefreshIntervalMinutes: appSettings.dashboardRefreshIntervalMinutes,
         },
         detailColumnWidths: {},
       };
@@ -6484,9 +6491,9 @@ function App() {
             <TooltipButton
               label={isProUser ? 'PRO-подписка активна' : 'Активировать ПРО версию чтобы сохранять разные отображения отчета'}
               onClick={() => setIsProOpen(true)}
-              className="pro-crown-button"
+              className={`pro-crown-button${isProUser ? ' pro-crown-button--active' : ''}`}
             >
-              <Crown size={18} className={`pro-crown-icon${!isProUser ? ' pro-crown-icon--promo' : ''}`} />
+              <Crown size={18} className={`pro-crown-icon${isProUser ? ' pro-crown-icon--active' : ' pro-crown-icon--promo'}`} />
             </TooltipButton>
             <ReportDownloadMenu
               disabled={!hasBuiltReport || !reportData.length || reportLoading}

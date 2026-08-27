@@ -121,6 +121,7 @@ export const defaultAppSettings: AppSettings = {
   reportBuilderUserIds: [],
   moneyViewerUserIds: [],
   viewSaverUserIds: [],
+  dashboardRefreshIntervalMinutes: null,
 };
 
 export const detailColumnMinWidths = detailColumns.reduce<Record<DetailColumnKey, number>>(

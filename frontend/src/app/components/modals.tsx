@@ -6,7 +6,7 @@
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { CheckCircle2, ChevronDown, Download, FileText, X } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Clock3, Download, ExternalLink, FileText, QrCode, Share2, X } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -800,10 +800,13 @@ export function AppSettingsModal({
   onClose: () => void;
   onOpenPro: () => void;
 }) {
+  type EmployeeSettingsField = 'reportBuilderUserIds' | 'moneyViewerUserIds' | 'viewSaverUserIds';
+  const refreshIntervals = [10, 30, 60] as const;
   const [draftSettings, setDraftSettings] = useState<AppSettings>(() => ({
     reportBuilderUserIds: resolveDefaultEmployeeIds(settings.reportBuilderUserIds, employees),
     moneyViewerUserIds: resolveDefaultEmployeeIds(settings.moneyViewerUserIds, employees),
     viewSaverUserIds: resolveDefaultEmployeeIds(settings.viewSaverUserIds, employees),
+    dashboardRefreshIntervalMinutes: settings.dashboardRefreshIntervalMinutes ?? null,
   }));
   const seededEmptyFieldsRef = useRef({
     reportBuilderUserIds: settings.reportBuilderUserIds.length === 0,
@@ -831,11 +834,18 @@ export function AppSettingsModal({
     });
   }, [employees]);
 
-  const updateField = (field: keyof AppSettings, values: string[]) => {
+  const updateField = (field: EmployeeSettingsField, values: string[]) => {
     seededEmptyFieldsRef.current[field] = false;
     setDraftSettings((current) => ({
       ...current,
       [field]: values,
+    }));
+  };
+
+  const updateDashboardRefreshInterval = (value: AppSettings['dashboardRefreshIntervalMinutes']) => {
+    setDraftSettings((current) => ({
+      ...current,
+      dashboardRefreshIntervalMinutes: value,
     }));
   };
 
@@ -876,6 +886,77 @@ export function AppSettingsModal({
             selectedIds={draftSettings.viewSaverUserIds}
             onChange={(values) => updateField('viewSaverUserIds', values)}
           />
+          <section className="app-settings-pro-section" aria-labelledby="app-settings-refresh-title">
+            <div className="app-settings-pro-head">
+              <Clock3 size={18} aria-hidden="true" />
+              <div>
+                <h3 id="app-settings-refresh-title">Автоматическое обновление данных</h3>
+                <p>Интервал применяется ко всем сохранённым отчётам аккаунта.</p>
+              </div>
+            </div>
+            <div className="app-settings-refresh-options" role="radiogroup" aria-label="Автоматическое обновление данных">
+              {refreshIntervals.map((interval) => (
+                <label
+                  className={`app-settings-refresh-option ${
+                    draftSettings.dashboardRefreshIntervalMinutes === interval ? 'is-active' : ''
+                  }`}
+                  key={interval}
+                >
+                  <input
+                    type="radio"
+                    name="dashboard-refresh-interval"
+                    checked={draftSettings.dashboardRefreshIntervalMinutes === interval}
+                    onChange={() => updateDashboardRefreshInterval(interval)}
+                  />
+                  <span>{interval === 60 ? '1 час' : `${interval} минут`}</span>
+                </label>
+              ))}
+            </div>
+          </section>
+          <section className="app-settings-pro-section" aria-labelledby="app-settings-dashboard-title">
+            <div className="app-settings-pro-title-row">
+              <h3 id="app-settings-dashboard-title">Доступ к дашборду</h3>
+            </div>
+            <div className="app-settings-dashboard-card">
+              <div>
+                <strong>
+                  Быстрый доступ вне Битрикс24
+                  <span className="app-settings-pro-badge">PRO</span>
+                </strong>
+                <span>Полный личный кабинет владельца со всеми сохранёнными отчётами.</span>
+              </div>
+              <button className="app-settings-card-button" type="button" disabled>
+                <ExternalLink size={16} aria-hidden="true" />
+                Открыть дашборд
+              </button>
+            </div>
+            <div className="app-settings-dashboard-card">
+              <div>
+                <strong>
+                  Поделиться дашбордом
+                  <span className="app-settings-pro-badge">PRO</span>
+                </strong>
+                <span>Одна ссылка — один сохранённый отчёт. Просмотр без входа в Битрикс24.</span>
+              </div>
+              <button className="app-settings-card-button" type="button" disabled>
+                <Share2 size={16} aria-hidden="true" />
+                Создать ссылку
+              </button>
+            </div>
+            <div className="app-settings-dashboard-card is-soon">
+              <div>
+                <strong>
+                  Мобильный доступ
+                  <span className="app-settings-soon-badge">скоро</span>
+                </strong>
+                <span>QR для входа владельца в полный PRO-аккаунт с телефона.</span>
+              </div>
+              <button className="app-settings-card-button" type="button" disabled>
+                <QrCode size={16} aria-hidden="true" />
+                Показать QR-код
+              </button>
+            </div>
+          </section>
         </div>
         <div className="modal-actions">
           <button className="secondary-button" type="button" onClick={onClose}>

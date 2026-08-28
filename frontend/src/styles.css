@@ -5299,6 +5299,12 @@ body > .floating-popover {
   line-height: 1;
 }
 
+.app-settings-card-button:not(:disabled):hover {
+  border-color: #1b63db;
+  background: linear-gradient(180deg, #2a72ea 0%, #1b63db 100%);
+  color: #ffffff;
+}
+
 .app-settings-card-button:disabled {
   border-color: #d6e0ee;
   background: #ffffff;

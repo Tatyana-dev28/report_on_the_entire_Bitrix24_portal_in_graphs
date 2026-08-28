@@ -571,6 +571,9 @@ const readValuesByPeriod = (
 
 const ZERO_VALUE_TOOLTIP = 'За этот период в системе не зарегистрировано действий';
 
+const getDashboardBaseUrl = () =>
+  String(import.meta.env.VITE_DASHBOARD_BASE_URL ?? '').replace(/\/+$/, '');
+
 const valueStateTooltipByReason = {
   no_data: 'Данные за этот период отсутствуют',
   load_error: 'Не удалось получить данные',
@@ -1576,6 +1579,7 @@ function App() {
   const [expandedSourceSections, setExpandedSourceSections] = useState<Set<string>>(() => new Set());
   const isProUser = billingHasPro;
   billingHasProRef.current = billingHasPro;
+  const dashboardBaseUrl = getDashboardBaseUrl();
 
   const settingsEmployees = useMemo<ReportEmployee[]>(
     () =>
@@ -7724,6 +7728,8 @@ function App() {
           onSave={saveAppSettings}
           onClose={() => setIsAppSettingsOpen(false)}
           onOpenPro={() => setIsProOpen(true)}
+          dashboardUrl={dashboardBaseUrl}
+          canOpenDashboard={isProUser && Boolean(dashboardBaseUrl)}
         />
       )}
 

@@ -793,12 +793,16 @@ export function AppSettingsModal({
   onSave,
   onClose,
   onOpenPro,
+  dashboardUrl,
+  canOpenDashboard,
 }: {
   settings: AppSettings;
   employees: ReportEmployee[];
   onSave: (settings: AppSettings) => void;
   onClose: () => void;
   onOpenPro: () => void;
+  dashboardUrl: string;
+  canOpenDashboard: boolean;
 }) {
   type EmployeeSettingsField = 'reportBuilderUserIds' | 'moneyViewerUserIds' | 'viewSaverUserIds';
   const refreshIntervals = [10, 30, 60] as const;
@@ -847,6 +851,14 @@ export function AppSettingsModal({
       ...current,
       dashboardRefreshIntervalMinutes: value,
     }));
+  };
+
+  const openDashboard = () => {
+    if (!canOpenDashboard || !dashboardUrl) {
+      return;
+    }
+
+    window.open(dashboardUrl, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -925,7 +937,12 @@ export function AppSettingsModal({
                 </strong>
                 <span>Полный личный кабинет владельца со всеми сохранёнными отчётами.</span>
               </div>
-              <button className="app-settings-card-button" type="button" disabled>
+              <button
+                className="app-settings-card-button"
+                type="button"
+                onClick={openDashboard}
+                disabled={!canOpenDashboard}
+              >
                 <ExternalLink size={16} aria-hidden="true" />
                 Открыть дашборд
               </button>

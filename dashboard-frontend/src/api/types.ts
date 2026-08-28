@@ -15,6 +15,7 @@ export type DashboardSavedReport = {
 };
 
 export type OwnerDashboardBootstrap = {
+  ok: boolean;
   access: DashboardAccessState;
   portal: {
     domain: string;
@@ -23,4 +24,11 @@ export type OwnerDashboardBootstrap = {
   reports: DashboardSavedReport[];
   selectedReportId: string | null;
   refreshStatus: DashboardRefreshStatus | null;
+  refreshPolicy: {
+    defaultIntervalMinutes: 10 | 30 | 60;
+    allowedIntervalMinutes: Array<10 | 30 | 60>;
+    refreshRunRetentionDays: number;
+    successfulSnapshotLimit: number;
+    shareLinksMode: 'view_only';
+  };
 };

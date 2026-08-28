@@ -135,3 +135,81 @@ textarea {
   color: #6a7482;
   font-size: 14px;
 }
+
+.dashboard-access-card {
+  display: grid;
+  max-width: 520px;
+  gap: 18px;
+  margin: 42px auto 0;
+  border: 1px solid #d6e0ee;
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 26px;
+  box-shadow: 0 14px 36px rgba(32, 41, 56, 0.08);
+}
+
+.dashboard-access-card h2 {
+  margin: 0;
+  color: #202938;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.dashboard-access-card span {
+  display: block;
+  margin-top: 8px;
+  color: #6a7482;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.dashboard-access-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.dashboard-primary-button,
+.dashboard-secondary-button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.dashboard-primary-button {
+  border: 1px solid #2274ff;
+  background: linear-gradient(180deg, #2f7dff 0%, #2274ff 100%);
+  color: #ffffff;
+}
+
+.dashboard-primary-button:hover {
+  border-color: #1b63db;
+  background: linear-gradient(180deg, #2a72ea 0%, #1b63db 100%);
+}
+
+.dashboard-secondary-button {
+  border: 1px solid #d6e0ee;
+  background: #ffffff;
+  color: #202938;
+}
+
+.dashboard-secondary-button:hover {
+  background: #fbfdff;
+  border-color: #b9cbe3;
+}
+
+.dashboard-access-notice {
+  margin: 0;
+  border: 1px solid #cfe0f7;
+  border-radius: 10px;
+  background: #f3f7ff;
+  padding: 10px 12px;
+  color: #5d6878;
+  font-size: 13px;
+  line-height: 1.4;
+}

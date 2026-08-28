@@ -1,5 +1,15 @@
 export type DashboardAccessState = 'checking' | 'authorized' | 'needs_confirmation' | 'denied';
 
+export type DashboardAccessConfirmResponse = {
+  ok: boolean;
+  access: 'authorized';
+  session: {
+    id: string;
+    trusted: boolean;
+    fingerprint: string;
+  };
+};
+
 export type DashboardRefreshStatus = {
   lastSuccessfulUpdateAt: string | null;
   nextUpdateAt: string | null;

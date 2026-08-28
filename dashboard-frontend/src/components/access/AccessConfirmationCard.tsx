@@ -1,12 +1,14 @@
 type AccessConfirmationCardProps = {
   onTrustDevice: () => void;
   onUseTemporaryAccess: () => void;
+  busy: boolean;
   notice: string;
 };
 
 export function AccessConfirmationCard({
   onTrustDevice,
   onUseTemporaryAccess,
+  busy,
   notice,
 }: AccessConfirmationCardProps) {
   return (
@@ -19,10 +21,10 @@ export function AccessConfirmationCard({
         </span>
       </div>
       <div className="dashboard-access-actions">
-        <button className="dashboard-primary-button" type="button" onClick={onTrustDevice}>
+        <button className="dashboard-primary-button" type="button" onClick={onTrustDevice} disabled={busy}>
           Да, это мой компьютер
         </button>
-        <button className="dashboard-secondary-button" type="button" onClick={onUseTemporaryAccess}>
+        <button className="dashboard-secondary-button" type="button" onClick={onUseTemporaryAccess} disabled={busy}>
           Нет, это чужой компьютер
         </button>
       </div>

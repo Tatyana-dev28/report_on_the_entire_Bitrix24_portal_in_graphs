@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 
 from django.test import TestCase, override_settings
@@ -5,13 +6,16 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.bitrix.models import BitrixPortal
+from apps.bitrix.services.portal_tokens import make_portal_api_token
 from apps.dashboard.constants import (
     ALLOWED_REFRESH_INTERVAL_MINUTES,
+    DASHBOARD_ACCESS_COOKIE_NAME,
     DEFAULT_REFRESH_INTERVAL_MINUTES,
     REFRESH_RUN_RETENTION_DAYS,
     SUCCESSFUL_SNAPSHOT_LIMIT,
 )
-from apps.dashboard.models import DashboardPreparedSnapshot, DashboardRefreshRun
+from apps.dashboard.models import DashboardAccessSession, DashboardPreparedSnapshot, DashboardRefreshRun
+from apps.dashboard.services.access_sessions import create_dashboard_access_session
 from apps.dashboard.services.retention import prune_dashboard_history
 
 
@@ -92,3 +96,133 @@ class DashboardRetentionTests(TestCase):
         self.assertEqual(result["refreshRunsDeleted"], 1)
         self.assertFalse(DashboardRefreshRun.all_objects.filter(id=old_run.id).exists())
         self.assertTrue(DashboardRefreshRun.objects.filter(id=recent_run.id).exists())
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class DashboardAccessSessionApiTests(TestCase):
+    def setUp(self):
+        self.portal = BitrixPortal.objects.create(
+            member_id="test-member",
+            domain="test.bitrix24.ru",
+            protocol=BitrixPortal.Protocol.HTTPS,
+            status=BitrixPortal.Status.ACTIVE,
+        )
+        self.portal_token = make_portal_api_token(portal=self.portal, bitrix_user_id="42")
+
+    def test_confirm_rejects_request_without_owner_context(self):
+        response = self.client.post(
+            reverse("dashboard:owner-access-confirm"),
+            data=json.dumps({"trusted": True}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(DashboardAccessSession.objects.exists())
+
+    def test_confirm_creates_trusted_access_session(self):
+        response = self.client.post(
+            reverse("dashboard:owner-access-confirm"),
+            data=json.dumps(
+                {
+                    "trusted": True,
+                    "portalToken": self.portal_token,
+                    "bitrixUserId": "42",
+                    "bitrixUserName": "Test User",
+                }
+            ),
+            content_type="application/json",
+            HTTP_USER_AGENT="Dashboard test",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        payload = response.json()
+        session = DashboardAccessSession.objects.get()
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["access"], "authorized")
+        self.assertEqual(payload["session"]["id"], str(session.public_id))
+        self.assertTrue(payload["session"]["trusted"])
+        self.assertEqual(session.portal, self.portal)
+        self.assertEqual(session.bitrix_user_id, "42")
+        self.assertEqual(session.user_name, "Test User")
+        self.assertTrue(session.is_trusted_device)
+        self.assertIn(DASHBOARD_ACCESS_COOKIE_NAME, response.cookies)
+        self.assertTrue(response.cookies[DASHBOARD_ACCESS_COOKIE_NAME]["httponly"])
+
+    def test_confirm_creates_session_cookie_for_untrusted_access(self):
+        response = self.client.post(
+            reverse("dashboard:owner-access-confirm"),
+            data=json.dumps(
+                {
+                    "trusted": False,
+                    "portalToken": self.portal_token,
+                    "bitrixUserId": "42",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        session = DashboardAccessSession.objects.get()
+
+        self.assertFalse(session.is_trusted_device)
+        self.assertEqual(response.cookies[DASHBOARD_ACCESS_COOKIE_NAME]["max-age"], "")
+
+    def test_end_marks_current_session_as_ended(self):
+        _session, raw_token = create_dashboard_access_session(
+            portal=self.portal,
+            user=None,
+            bitrix_user_id="42",
+            user_name="",
+            is_trusted_device=False,
+        )
+        self.client.cookies[DASHBOARD_ACCESS_COOKIE_NAME] = raw_token
+
+        response = self.client.post(
+            reverse("dashboard:owner-access-end"),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ended"])
+
+        _session.refresh_from_db()
+        self.assertIsNotNone(_session.ended_at)
+
+    def test_revoke_all_closes_user_sessions(self):
+        first_session, _first_token = create_dashboard_access_session(
+            portal=self.portal,
+            user=None,
+            bitrix_user_id="42",
+            user_name="",
+            is_trusted_device=True,
+        )
+        second_session, _second_token = create_dashboard_access_session(
+            portal=self.portal,
+            user=None,
+            bitrix_user_id="42",
+            user_name="",
+            is_trusted_device=False,
+        )
+
+        response = self.client.post(
+            reverse("dashboard:owner-access-revoke-all"),
+            data=json.dumps(
+                {
+                    "portalToken": self.portal_token,
+                    "bitrixUserId": "42",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["revokedCount"], 2)
+
+        first_session.refresh_from_db()
+        second_session.refresh_from_db()
+        self.assertIsNotNone(first_session.revoked_at)
+        self.assertIsNotNone(second_session.revoked_at)

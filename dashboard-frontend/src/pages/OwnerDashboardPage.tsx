@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { confirmOwnerDashboardAccess } from '../api/dashboardApi';
 import { AccessConfirmationCard } from '../components/access/AccessConfirmationCard';
 import { DashboardShell } from '../components/layout/DashboardShell';
 import { ReportPlaceholder } from '../components/report/ReportPlaceholder';
@@ -8,8 +9,33 @@ import { useDashboardBootstrap } from '../hooks/useDashboardBootstrap';
 export function OwnerDashboardPage() {
   const { data, loading, error } = useDashboardBootstrap();
   const [accessNotice, setAccessNotice] = useState('');
+  const [accessBusy, setAccessBusy] = useState(false);
 
   const showAccessConfirmation = !loading && !error && data?.access === 'needs_confirmation';
+
+  const confirmAccess = (trusted: boolean) => {
+    setAccessBusy(true);
+    setAccessNotice('');
+
+    confirmOwnerDashboardAccess(trusted)
+      .then(() => {
+        setAccessNotice(
+          trusted
+            ? 'Вход сохранён на этом компьютере.'
+            : 'Временный вход активен до закрытия страницы.',
+        );
+      })
+      .catch((confirmError) => {
+        setAccessNotice(
+          confirmError instanceof Error
+            ? confirmError.message
+            : 'Не удалось подтвердить вход в WEB-дашборд.',
+        );
+      })
+      .finally(() => {
+        setAccessBusy(false);
+      });
+  };
 
   return (
     <DashboardShell>
@@ -26,12 +52,9 @@ export function OwnerDashboardPage() {
       {showAccessConfirmation ? (
         <AccessConfirmationCard
           notice={accessNotice}
-          onTrustDevice={() =>
-            setAccessNotice('Сценарий доверенного устройства подготовлен. Реальное сохранение входа подключим после личной ссылки владельца.')
-          }
-          onUseTemporaryAccess={() =>
-            setAccessNotice('Сценарий временного входа подготовлен. Реальная сессия будет жить только пока страница открыта.')
-          }
+          busy={accessBusy}
+          onTrustDevice={() => confirmAccess(true)}
+          onUseTemporaryAccess={() => confirmAccess(false)}
         />
       ) : null}
 

@@ -1,5 +1,5 @@
 import { dashboardConfig } from '../app/config';
-import type { OwnerDashboardBootstrap } from './types';
+import type { DashboardAccessConfirmResponse, OwnerDashboardBootstrap } from './types';
 
 const buildApiUrl = (path: string) => {
   if (!dashboardConfig.apiBaseUrl) {
@@ -35,5 +35,31 @@ const requestJson = async <T>(path: string, options: RequestInit = {}): Promise<
   return payload as T;
 };
 
+const getDashboardContext = () => {
+  const params = new URLSearchParams(window.location.search);
+
+  return {
+    memberId: params.get('memberId') || params.get('member_id') || '',
+    domain: params.get('domain') || params.get('DOMAIN') || '',
+    bitrixUserId: params.get('bitrixUserId') || params.get('user_id') || params.get('USER_ID') || '',
+    portalToken: params.get('portalToken') || params.get('portal_token') || '',
+  };
+};
+
 export const loadOwnerDashboardBootstrap = () =>
   requestJson<OwnerDashboardBootstrap>('/api/dashboard/owner/bootstrap/');
+
+export const confirmOwnerDashboardAccess = (trusted: boolean) =>
+  requestJson<DashboardAccessConfirmResponse>('/api/dashboard/owner/access/confirm/', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...getDashboardContext(),
+      trusted,
+    }),
+  });
+
+export const endOwnerDashboardAccess = () =>
+  requestJson<{ ok: boolean; ended: boolean }>('/api/dashboard/owner/access/end/', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });

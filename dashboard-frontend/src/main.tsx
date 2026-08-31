@@ -1,10 +1,10 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { DashboardApp } from './app/DashboardApp';
-import './styles/dashboard.css';
+import App from '../../frontend/src/App';
+import '../../frontend/src/styles.css';
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <DashboardApp />
+    <App />
   </React.StrictMode>,
 );

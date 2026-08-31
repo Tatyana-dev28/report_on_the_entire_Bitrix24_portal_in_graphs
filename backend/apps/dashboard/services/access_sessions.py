@@ -55,6 +55,26 @@ def end_dashboard_access_session(raw_token: str) -> DashboardAccessSession | Non
     return session
 
 
+def get_dashboard_access_session(raw_token: str) -> DashboardAccessSession | None:
+    if not raw_token:
+        return None
+
+    session = DashboardAccessSession.objects.select_related("portal", "user").filter(
+        session_key_hash=hash_value(raw_token),
+        ended_at__isnull=True,
+        revoked_at__isnull=True,
+        is_active=True,
+    ).first()
+
+    if not session:
+        return None
+
+    session.last_seen_at = timezone.now()
+    session.save(update_fields=["last_seen_at", "updated_at"])
+
+    return session
+
+
 def revoke_portal_dashboard_access_sessions(
     *,
     portal: BitrixPortal,

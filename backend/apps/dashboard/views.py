@@ -15,9 +15,12 @@ from apps.dashboard.constants import (
 from apps.dashboard.services.access_sessions import (
     create_dashboard_access_session,
     end_dashboard_access_session,
+    get_dashboard_access_session,
     revoke_portal_dashboard_access_sessions,
 )
+from apps.dashboard.models import DashboardAccessSession, DashboardPreparedSnapshot
 from apps.reports.services.exceptions import ReportPreviewSessionError
+from apps.reports.services.report_catalog import build_report_catalog
 from apps.reports.services.report_context import resolve_portal, resolve_user
 
 
@@ -73,6 +76,92 @@ def _resolve_owner_context(request, payload: dict):
     return portal, user, bitrix_user_id, user_name
 
 
+def _resolve_access_session(request) -> tuple[DashboardAccessSession | None, JsonResponse | None]:
+    session = get_dashboard_access_session(request.COOKIES.get(DASHBOARD_ACCESS_COOKIE_NAME, ""))
+
+    if not session:
+        return None, _json_error("Вход в WEB-дашборд не подтверждён.", status=401)
+
+    return session, None
+
+
+def _get_current_snapshot(portal):
+    return (
+        DashboardPreparedSnapshot.objects.filter(portal=portal, is_current=True)
+        .order_by("-prepared_at")
+        .first()
+        or DashboardPreparedSnapshot.objects.filter(portal=portal)
+        .order_by("-prepared_at")
+        .first()
+    )
+
+
+def _saved_reports_from_snapshot(snapshot: DashboardPreparedSnapshot | None) -> list[dict]:
+    saved_views = snapshot.saved_views_snapshot if snapshot else []
+
+    if not isinstance(saved_views, list):
+        return []
+
+    reports = []
+
+    for index, view in enumerate(saved_views):
+        if not isinstance(view, dict):
+            continue
+
+        report_id = str(view.get("value") or view.get("id") or view.get("stateKey") or "")
+        name = str(view.get("label") or view.get("name") or "").strip()
+
+        if not report_id or not name:
+            continue
+
+        reports.append(
+            {
+                "id": report_id,
+                "name": name,
+                "isDefault": bool(view.get("isDefault") or view.get("isSystem") or index == 0),
+            }
+        )
+
+    return reports
+
+
+def _snapshot_catalog(snapshot: DashboardPreparedSnapshot | None, portal) -> dict:
+    data = snapshot.data if snapshot and isinstance(snapshot.data, dict) else {}
+    catalog = data.get("catalog")
+
+    if isinstance(catalog, dict):
+        return {
+            "periods": catalog.get("periods") if isinstance(catalog.get("periods"), list) else [],
+            "sources": catalog.get("sources") if isinstance(catalog.get("sources"), list) else [],
+            "metricSections": catalog.get("metricSections") if isinstance(catalog.get("metricSections"), list) else [],
+            "metrics": catalog.get("metrics") if isinstance(catalog.get("metrics"), list) else [],
+        }
+
+    return build_report_catalog(portal)
+
+
+def _snapshot_preview(snapshot: DashboardPreparedSnapshot | None) -> dict:
+    data = snapshot.data if snapshot and isinstance(snapshot.data, dict) else {}
+    preview = data.get("preview") if isinstance(data.get("preview"), dict) else data
+    data_points = preview.get("data") if isinstance(preview.get("data"), list) else []
+    source_metrics = preview.get("source_metrics") if isinstance(preview.get("source_metrics"), dict) else {}
+
+    return {
+        "status": "ready" if snapshot else "empty",
+        "data": data_points,
+        "chart_data": preview.get("chart_data") if isinstance(preview.get("chart_data"), list) else data_points,
+        "employees": preview.get("employees") if isinstance(preview.get("employees"), list) else [],
+        "details": preview.get("details") if isinstance(preview.get("details"), list) else [],
+        "source_metrics": source_metrics,
+        "chart_source_metrics": (
+            preview.get("chart_source_metrics")
+            if isinstance(preview.get("chart_source_metrics"), dict)
+            else source_metrics
+        ),
+        "metadata": preview.get("metadata") if isinstance(preview.get("metadata"), dict) else {},
+    }
+
+
 @require_GET
 def owner_dashboard_bootstrap_view(request):
     """
@@ -81,6 +170,34 @@ def owner_dashboard_bootstrap_view(request):
     The final owner verification flow is intentionally not implemented here:
     OQ-5 from the PRO dashboard spec must be approved first.
     """
+
+    session = get_dashboard_access_session(request.COOKIES.get(DASHBOARD_ACCESS_COOKIE_NAME, ""))
+
+    if session:
+        snapshot = _get_current_snapshot(session.portal)
+        reports = _saved_reports_from_snapshot(snapshot)
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "access": "authorized",
+                "portal": {
+                    "domain": session.portal.domain,
+                    "memberId": session.portal.member_id,
+                },
+                "reports": reports,
+                "selectedReportId": reports[0]["id"] if reports else None,
+                "refreshStatus": None,
+                "refreshPolicy": {
+                    "defaultIntervalMinutes": DEFAULT_REFRESH_INTERVAL_MINUTES,
+                    "allowedIntervalMinutes": list(ALLOWED_REFRESH_INTERVAL_MINUTES),
+                    "refreshRunRetentionDays": REFRESH_RUN_RETENTION_DAYS,
+                    "successfulSnapshotLimit": SUCCESSFUL_SNAPSHOT_LIMIT,
+                    "shareLinksMode": "view_only",
+                },
+            },
+            json_dumps_params={"ensure_ascii": False},
+        )
 
     return JsonResponse(
         {
@@ -150,6 +267,62 @@ def owner_access_confirm_view(request):
     response.set_cookie(DASHBOARD_ACCESS_COOKIE_NAME, raw_token, **cookie_kwargs)
 
     return response
+
+
+@require_GET
+def owner_catalog_view(request):
+    session, error_response = _resolve_access_session(request)
+
+    if error_response:
+        return error_response
+
+    snapshot = _get_current_snapshot(session.portal)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            **_snapshot_catalog(snapshot, session.portal),
+        },
+        json_dumps_params={"ensure_ascii": False},
+    )
+
+
+@csrf_exempt
+@require_POST
+def owner_preview_view(request):
+    session, error_response = _resolve_access_session(request)
+
+    if error_response:
+        return error_response
+
+    snapshot = _get_current_snapshot(session.portal)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            **_snapshot_preview(snapshot),
+        },
+        json_dumps_params={"ensure_ascii": False},
+    )
+
+
+@require_GET
+def owner_employees_view(request):
+    session, error_response = _resolve_access_session(request)
+
+    if error_response:
+        return error_response
+
+    snapshot = _get_current_snapshot(session.portal)
+    preview = _snapshot_preview(snapshot)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "employees": preview["employees"],
+        },
+        json_dumps_params={"ensure_ascii": False},
+    )
 
 
 @csrf_exempt

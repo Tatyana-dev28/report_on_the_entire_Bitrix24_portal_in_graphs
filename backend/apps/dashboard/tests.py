@@ -226,3 +226,138 @@ class DashboardAccessSessionApiTests(TestCase):
         second_session.refresh_from_db()
         self.assertIsNotNone(first_session.revoked_at)
         self.assertIsNotNone(second_session.revoked_at)
+
+    def test_bootstrap_returns_authorized_context_for_valid_dashboard_cookie(self):
+        _session, raw_token = create_dashboard_access_session(
+            portal=self.portal,
+            user=None,
+            bitrix_user_id="42",
+            user_name="",
+            is_trusted_device=True,
+        )
+        DashboardPreparedSnapshot.objects.create(
+            portal=self.portal,
+            is_current=True,
+            saved_views_snapshot=[
+                {
+                    "value": "sales",
+                    "label": "Продажи",
+                    "isDefault": True,
+                }
+            ],
+        )
+        self.client.cookies[DASHBOARD_ACCESS_COOKIE_NAME] = raw_token
+
+        response = self.client.get(reverse("dashboard:owner-bootstrap"))
+
+        self.assertEqual(response.status_code, 200)
+
+        payload = response.json()
+
+        self.assertEqual(payload["access"], "authorized")
+        self.assertEqual(payload["portal"]["domain"], self.portal.domain)
+        self.assertEqual(payload["reports"], [{"id": "sales", "name": "Продажи", "isDefault": True}])
+        self.assertEqual(payload["selectedReportId"], "sales")
+
+    def test_owner_catalog_requires_dashboard_cookie(self):
+        response = self.client.get(reverse("dashboard:owner-catalog"))
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_owner_catalog_returns_snapshot_catalog_for_valid_cookie(self):
+        _session, raw_token = create_dashboard_access_session(
+            portal=self.portal,
+            user=None,
+            bitrix_user_id="42",
+            user_name="",
+            is_trusted_device=True,
+        )
+        DashboardPreparedSnapshot.objects.create(
+            portal=self.portal,
+            is_current=True,
+            data={
+                "catalog": {
+                    "periods": [{"value": "days", "label": "По дням"}],
+                    "sources": [{"id": "lead-default", "title": "Лиды"}],
+                    "metricSections": [{"id": "leads", "label": "Лиды", "metricIds": ["leads_created"]}],
+                    "metrics": [{"id": "leads_created", "label": "Создано лидов", "type": "number"}],
+                }
+            },
+        )
+        self.client.cookies[DASHBOARD_ACCESS_COOKIE_NAME] = raw_token
+
+        response = self.client.get(reverse("dashboard:owner-catalog"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["sources"], [{"id": "lead-default", "title": "Лиды"}])
+
+    def test_owner_preview_returns_current_snapshot_data_for_valid_cookie(self):
+        _session, raw_token = create_dashboard_access_session(
+            portal=self.portal,
+            user=None,
+            bitrix_user_id="42",
+            user_name="",
+            is_trusted_device=True,
+        )
+        DashboardPreparedSnapshot.objects.create(
+            portal=self.portal,
+            is_current=True,
+            data={
+                "preview": {
+                    "data": [
+                        {
+                            "key": "2026-08-31",
+                            "label": "31 авг.",
+                            "tooltipLabel": "31 августа 2026",
+                            "indicator": 10,
+                            "values": {"leads_created": 10},
+                        }
+                    ],
+                    "employees": [{"id": "42", "name": "Test User", "values": {"leads_created": 10}}],
+                    "details": [{"id": "lead-1", "metricId": "leads_created", "title": "Лид"}],
+                }
+            },
+        )
+        self.client.cookies[DASHBOARD_ACCESS_COOKIE_NAME] = raw_token
+
+        response = self.client.post(
+            reverse("dashboard:owner-preview"),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        payload = response.json()
+
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["data"][0]["values"]["leads_created"], 10)
+        self.assertEqual(payload["employees"][0]["id"], "42")
+        self.assertEqual(payload["details"][0]["id"], "lead-1")
+
+    def test_owner_employees_returns_snapshot_employees_for_valid_cookie(self):
+        _session, raw_token = create_dashboard_access_session(
+            portal=self.portal,
+            user=None,
+            bitrix_user_id="42",
+            user_name="",
+            is_trusted_device=True,
+        )
+        DashboardPreparedSnapshot.objects.create(
+            portal=self.portal,
+            is_current=True,
+            data={
+                "employees": [
+                    {
+                        "id": "42",
+                        "name": "Test User",
+                    }
+                ]
+            },
+        )
+        self.client.cookies[DASHBOARD_ACCESS_COOKIE_NAME] = raw_token
+
+        response = self.client.get(reverse("dashboard:owner-employees"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["employees"], [{"id": "42", "name": "Test User"}])

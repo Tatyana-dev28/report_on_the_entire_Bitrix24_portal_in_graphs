@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { confirmOwnerDashboardAccess } from '../api/dashboardApi';
 import { AccessConfirmationCard } from '../components/access/AccessConfirmationCard';
 import { DashboardShell } from '../components/layout/DashboardShell';
-import { ReportPlaceholder } from '../components/report/ReportPlaceholder';
+import { DashboardReportView } from '../components/report/DashboardReportView';
 import { UpdateStatusBar } from '../components/status/UpdateStatusBar';
 import { useDashboardBootstrap } from '../hooks/useDashboardBootstrap';
 
@@ -11,6 +11,7 @@ export function OwnerDashboardPage() {
   const [accessNotice, setAccessNotice] = useState('');
   const [accessBusy, setAccessBusy] = useState(false);
 
+  const apiNotConfigured = error === 'VITE_API_BASE_URL is not set.';
   const showAccessConfirmation = !loading && !error && data?.access === 'needs_confirmation';
 
   const confirmAccess = (trusted: boolean) => {
@@ -47,7 +48,7 @@ export function OwnerDashboardPage() {
       </header>
 
       {loading ? <div className="dashboard-state">Проверяем доступ...</div> : null}
-      {error ? <div className="dashboard-state is-error">{error}</div> : null}
+      {error && !apiNotConfigured ? <div className="dashboard-state is-error">{error}</div> : null}
 
       {showAccessConfirmation ? (
         <AccessConfirmationCard
@@ -58,12 +59,17 @@ export function OwnerDashboardPage() {
         />
       ) : null}
 
-      {!loading && !error && !showAccessConfirmation ? (
+      {!loading && (!error || apiNotConfigured) && !showAccessConfirmation ? (
         <>
           <UpdateStatusBar status={data?.refreshStatus ?? null} />
-          <ReportPlaceholder
+          <DashboardReportView
             reports={data?.reports ?? []}
             selectedReportId={data?.selectedReportId ?? null}
+            apiNotice={
+              apiNotConfigured
+                ? 'Локальный предпросмотр: API ещё не подключён, поэтому показан пример сохранённого отчёта.'
+                : undefined
+            }
           />
         </>
       ) : null}

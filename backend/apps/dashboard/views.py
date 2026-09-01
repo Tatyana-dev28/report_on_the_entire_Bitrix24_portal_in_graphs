@@ -1,9 +1,13 @@
 import json
+from datetime import timedelta
 
 from django.http import JsonResponse
+from django.db import transaction
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
+from apps.billing.models import PortalAccess
 from apps.dashboard.constants import (
     ALLOWED_REFRESH_INTERVAL_MINUTES,
     DASHBOARD_ACCESS_COOKIE_NAME,
@@ -19,9 +23,11 @@ from apps.dashboard.services.access_sessions import (
     revoke_portal_dashboard_access_sessions,
 )
 from apps.dashboard.models import DashboardAccessSession, DashboardPreparedSnapshot
+from apps.dashboard.models import DashboardRefreshRun
 from apps.reports.services.exceptions import ReportPreviewSessionError
 from apps.reports.services.report_catalog import build_report_catalog
 from apps.reports.services.report_context import resolve_portal, resolve_user
+from apps.dashboard.services.retention import prune_dashboard_history
 
 
 def _json_error(message: str, status: int = 400, details: dict | None = None) -> JsonResponse:
@@ -74,6 +80,18 @@ def _resolve_owner_context(request, payload: dict):
         ) from error
 
     return portal, user, bitrix_user_id, user_name
+
+
+def _check_pro_access(portal) -> tuple[bool, str | None]:
+    try:
+        access = PortalAccess.objects.get(portal=portal)
+    except PortalAccess.DoesNotExist:
+        return False, "Портал не имеет PRO-доступа."
+
+    if not access.is_pro_valid:
+        return False, "PRO-доступ портала истёк или недоступен."
+
+    return True, None
 
 
 def _resolve_access_session(request) -> tuple[DashboardAccessSession | None, JsonResponse | None]:
@@ -162,6 +180,55 @@ def _snapshot_preview(snapshot: DashboardPreparedSnapshot | None) -> dict:
     }
 
 
+def _refresh_status(portal) -> dict | None:
+    latest_run = DashboardRefreshRun.objects.filter(portal=portal).order_by("-created_at").first()
+    latest_success = (
+        DashboardRefreshRun.objects.filter(
+            portal=portal,
+            status=DashboardRefreshRun.Status.SUCCESS,
+            finished_at__isnull=False,
+        )
+        .order_by("-finished_at")
+        .first()
+    )
+
+    if not latest_run and not latest_success:
+        return None
+
+    return {
+        "lastSuccessfulUpdateAt": latest_success.finished_at.isoformat() if latest_success else None,
+        "nextUpdateAt": latest_success.next_planned_at.isoformat() if latest_success and latest_success.next_planned_at else None,
+        "isRefreshing": bool(latest_run and latest_run.status in {
+            DashboardRefreshRun.Status.PENDING,
+            DashboardRefreshRun.Status.RUNNING,
+        }),
+        "lastAttemptFailedAt": (
+            latest_run.finished_at.isoformat()
+            if latest_run
+            and latest_run.status == DashboardRefreshRun.Status.FAILED
+            and latest_run.finished_at
+            else None
+        ),
+        "lastErrorMessage": (
+            latest_run.error_message
+            if latest_run and latest_run.status == DashboardRefreshRun.Status.FAILED
+            else ""
+        ),
+    }
+
+
+def _safe_refresh_interval(value) -> int:
+    try:
+        interval = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_REFRESH_INTERVAL_MINUTES
+
+    if interval in ALLOWED_REFRESH_INTERVAL_MINUTES:
+        return interval
+
+    return DEFAULT_REFRESH_INTERVAL_MINUTES
+
+
 @require_GET
 def owner_dashboard_bootstrap_view(request):
     """
@@ -187,7 +254,7 @@ def owner_dashboard_bootstrap_view(request):
                 },
                 "reports": reports,
                 "selectedReportId": reports[0]["id"] if reports else None,
-                "refreshStatus": None,
+                "refreshStatus": _refresh_status(session.portal),
                 "refreshPolicy": {
                     "defaultIntervalMinutes": DEFAULT_REFRESH_INTERVAL_MINUTES,
                     "allowedIntervalMinutes": list(ALLOWED_REFRESH_INTERVAL_MINUTES),
@@ -301,6 +368,93 @@ def owner_preview_view(request):
         {
             "ok": True,
             **_snapshot_preview(snapshot),
+        },
+        json_dumps_params={"ensure_ascii": False},
+    )
+
+
+@csrf_exempt
+@require_POST
+def owner_snapshot_save_view(request):
+    payload, error_response = _parse_json_body(request)
+
+    if error_response:
+        return error_response
+
+    try:
+        portal, user, bitrix_user_id, _user_name = _resolve_owner_context(request, payload)
+    except ReportPreviewSessionError as error:
+        return _json_error(str(error), status=error.status, details=error.details)
+
+    has_pro, error_message = _check_pro_access(portal)
+
+    if not has_pro:
+        return _json_error(error_message or "PRO-доступ не найден.", status=403)
+
+    settings = payload.get("settings", {})
+    saved_views = payload.get("savedViews", [])
+    data = payload.get("data", {})
+    metadata = payload.get("metadata", {})
+
+    if not isinstance(settings, dict):
+        return _json_error("Поле 'settings' должно быть объектом JSON.")
+
+    if not isinstance(saved_views, list):
+        return _json_error("Поле 'savedViews' должно быть списком.")
+
+    if not isinstance(data, dict):
+        return _json_error("Поле 'data' должно быть объектом JSON.")
+
+    if not isinstance(metadata, dict):
+        return _json_error("Поле 'metadata' должно быть объектом JSON.")
+
+    refresh_interval = _safe_refresh_interval(payload.get("refreshIntervalMinutes"))
+    payload_size = len(json.dumps(data, ensure_ascii=False, default=str).encode("utf-8"))
+
+    with transaction.atomic():
+        DashboardPreparedSnapshot.objects.filter(
+            portal=portal,
+            is_current=True,
+        ).update(is_current=False)
+        snapshot = DashboardPreparedSnapshot.objects.create(
+            portal=portal,
+            prepared_at=timezone.now(),
+            is_current=True,
+            refresh_interval_minutes=refresh_interval,
+            settings_snapshot=settings,
+            saved_views_snapshot=saved_views,
+            data=data,
+            metadata=metadata,
+            payload_size_bytes=payload_size,
+        )
+        DashboardRefreshRun.objects.create(
+            portal=portal,
+            snapshot=snapshot,
+            trigger_type=DashboardRefreshRun.TriggerType.MANUAL,
+            status=DashboardRefreshRun.Status.SUCCESS,
+            refresh_interval_minutes=refresh_interval,
+            requested_by_bitrix_user_id=str(bitrix_user_id),
+            started_at=snapshot.prepared_at,
+            finished_at=snapshot.prepared_at,
+            next_planned_at=snapshot.prepared_at + timedelta(minutes=refresh_interval),
+            metadata={
+                "source": "bitrix_app_report_build",
+                "snapshotPublicId": str(snapshot.public_id),
+                "requestedByUserId": str(user.public_id) if user else "",
+            },
+        )
+
+    prune_dashboard_history(portal=portal)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "snapshot": {
+                "id": str(snapshot.public_id),
+                "preparedAt": snapshot.prepared_at.isoformat(),
+                "refreshIntervalMinutes": snapshot.refresh_interval_minutes,
+                "payloadSizeBytes": snapshot.payload_size_bytes,
+            },
         },
         json_dumps_params={"ensure_ascii": False},
     )

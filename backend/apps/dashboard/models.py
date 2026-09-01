@@ -187,6 +187,7 @@ class DashboardPreparedSnapshot(PublicBaseModel):
     def save(self, *args, **kwargs):
         self.settings_snapshot = sanitize_payload(self.settings_snapshot)
         self.saved_views_snapshot = sanitize_payload(self.saved_views_snapshot)
+        self.data = sanitize_payload(self.data)
         self.metadata = sanitize_payload(self.metadata)
         super().save(*args, **kwargs)
 

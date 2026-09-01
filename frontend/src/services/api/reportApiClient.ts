@@ -340,6 +340,24 @@ export type ReportSettingsSaveResponse = {
     lastSavedAt: string;
 };
 
+export type DashboardPreparedSnapshotSavePayload = {
+    refreshIntervalMinutes: 10 | 30 | 60;
+    settings: Record<string, unknown>;
+    savedViews: Array<Record<string, unknown>>;
+    data: Record<string, unknown>;
+    metadata: Record<string, unknown>;
+};
+
+export type DashboardPreparedSnapshotSaveResponse = {
+    ok: boolean;
+    snapshot: {
+        id: string;
+        preparedAt: string;
+        refreshIntervalMinutes: 10 | 30 | 60;
+        payloadSizeBytes: number;
+    };
+};
+
 export const loadReportSettings = () =>
     requestJson<ReportSettingsResponse>(
         appendQuery('/api/reports/settings/', getBitrixContext()),
@@ -347,6 +365,15 @@ export const loadReportSettings = () =>
 
 export const saveReportSettings = (payload: ReportSettingsSavePayload) =>
     requestJson<ReportSettingsSaveResponse>('/api/reports/settings/save/', {
+        method: 'POST',
+        body: JSON.stringify({
+            ...getBitrixContext(),
+            ...payload,
+        }),
+    });
+
+export const saveDashboardPreparedSnapshot = (payload: DashboardPreparedSnapshotSavePayload) =>
+    requestJson<DashboardPreparedSnapshotSaveResponse>('/api/dashboard/owner/snapshot/save/', {
         method: 'POST',
         body: JSON.stringify({
             ...getBitrixContext(),

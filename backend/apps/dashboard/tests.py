@@ -5,6 +5,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.billing.models import PortalAccess
 from apps.bitrix.models import BitrixPortal
 from apps.bitrix.services.portal_tokens import make_portal_api_token
 from apps.dashboard.constants import (
@@ -361,3 +362,121 @@ class DashboardAccessSessionApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["employees"], [{"id": "42", "name": "Test User"}])
+
+    def test_save_snapshot_requires_pro_access(self):
+        response = self.client.post(
+            reverse("dashboard:owner-snapshot-save"),
+            data=json.dumps(
+                {
+                    "portalToken": self.portal_token,
+                    "bitrixUserId": "42",
+                    "settings": {},
+                    "savedViews": [],
+                    "data": {},
+                    "metadata": {},
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(DashboardPreparedSnapshot.objects.exists())
+
+    def test_save_snapshot_creates_current_snapshot_and_refresh_run_for_pro_portal(self):
+        PortalAccess.objects.create(
+            portal=self.portal,
+            access_level=PortalAccess.AccessLevel.PRO,
+            has_pro=True,
+            is_lifetime=True,
+        )
+        old_snapshot = DashboardPreparedSnapshot.objects.create(
+            portal=self.portal,
+            is_current=True,
+            data={"preview": {"data": []}},
+        )
+
+        response = self.client.post(
+            reverse("dashboard:owner-snapshot-save"),
+            data=json.dumps(
+                {
+                    "portalToken": self.portal_token,
+                    "bitrixUserId": "42",
+                    "refreshIntervalMinutes": 30,
+                    "settings": {"filters": {"period": "days"}},
+                    "savedViews": [{"value": "sales", "label": "Продажи"}],
+                    "data": {
+                        "preview": {
+                            "data": [
+                                {
+                                    "key": "2026-09-01",
+                                    "label": "1 сент.",
+                                    "tooltipLabel": "1 сентября 2026",
+                                    "indicator": 12,
+                                    "values": {"leads_created": 12},
+                                }
+                            ]
+                        }
+                    },
+                    "metadata": {"source": "test"},
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        old_snapshot.refresh_from_db()
+        self.assertFalse(old_snapshot.is_current)
+
+        snapshot = DashboardPreparedSnapshot.objects.get(is_current=True)
+        refresh_run = DashboardRefreshRun.objects.get(snapshot=snapshot)
+
+        self.assertEqual(snapshot.refresh_interval_minutes, 30)
+        self.assertEqual(snapshot.settings_snapshot["filters"]["period"], "days")
+        self.assertEqual(snapshot.saved_views_snapshot, [{"value": "sales", "label": "Продажи"}])
+        self.assertEqual(snapshot.data["preview"]["data"][0]["values"]["leads_created"], 12)
+        self.assertGreater(snapshot.payload_size_bytes, 0)
+        self.assertEqual(refresh_run.status, DashboardRefreshRun.Status.SUCCESS)
+        self.assertEqual(refresh_run.trigger_type, DashboardRefreshRun.TriggerType.MANUAL)
+        self.assertEqual(refresh_run.requested_by_bitrix_user_id, "42")
+        self.assertIsNotNone(refresh_run.next_planned_at)
+
+    def test_bootstrap_returns_refresh_status_from_saved_snapshot_run(self):
+        PortalAccess.objects.create(
+            portal=self.portal,
+            access_level=PortalAccess.AccessLevel.PRO,
+            has_pro=True,
+            is_lifetime=True,
+        )
+        _session, raw_token = create_dashboard_access_session(
+            portal=self.portal,
+            user=None,
+            bitrix_user_id="42",
+            user_name="",
+            is_trusted_device=True,
+        )
+        snapshot = DashboardPreparedSnapshot.objects.create(
+            portal=self.portal,
+            is_current=True,
+            saved_views_snapshot=[{"value": "sales", "label": "Продажи"}],
+        )
+        finished_at = timezone.now()
+        next_planned_at = finished_at + timedelta(minutes=10)
+        DashboardRefreshRun.objects.create(
+            portal=self.portal,
+            snapshot=snapshot,
+            status=DashboardRefreshRun.Status.SUCCESS,
+            finished_at=finished_at,
+            next_planned_at=next_planned_at,
+        )
+        self.client.cookies[DASHBOARD_ACCESS_COOKIE_NAME] = raw_token
+
+        response = self.client.get(reverse("dashboard:owner-bootstrap"))
+
+        self.assertEqual(response.status_code, 200)
+
+        refresh_status = response.json()["refreshStatus"]
+
+        self.assertEqual(refresh_status["lastSuccessfulUpdateAt"], finished_at.isoformat())
+        self.assertEqual(refresh_status["nextUpdateAt"], next_planned_at.isoformat())
+        self.assertFalse(refresh_status["isRefreshing"])

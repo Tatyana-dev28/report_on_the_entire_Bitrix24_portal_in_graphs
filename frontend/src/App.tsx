@@ -69,6 +69,7 @@ import {
   isReloadRequiredErrorMessage,
   loadReportSettings,
   RELOAD_PAGE_TO_CONTINUE_MESSAGE,
+  saveDashboardPreparedSnapshot,
   saveReportSettings,
   type PortalEmployeeItem,
 } from './services/api/reportApiClient';
@@ -573,6 +574,7 @@ const ZERO_VALUE_TOOLTIP = 'За этот период в системе не з
 
 const getDashboardBaseUrl = () =>
   String(import.meta.env.VITE_DASHBOARD_BASE_URL ?? '').replace(/\/+$/, '');
+const isDashboardMode = import.meta.env.VITE_APP_MODE === 'dashboard';
 
 const valueStateTooltipByReason = {
   no_data: 'Данные за этот период отсутствуют',
@@ -2738,6 +2740,52 @@ function App() {
                 flushPendingFreeSettingsResetRef.current();
               }
             }, 0);
+          }
+
+          if (!isDashboardMode && billingHasProRef.current) {
+            const currentState = captureCurrentViewState();
+            const refreshInterval = appSettings.dashboardRefreshIntervalMinutes ?? 10;
+
+            saveDashboardPreparedSnapshot({
+              refreshIntervalMinutes: refreshInterval,
+              settings: {
+                ...currentState,
+                filters,
+              } as Record<string, unknown>,
+              savedViews: savedViews.map((view) => ({
+                value: view.value,
+                label: view.label,
+                isSystem: view.isSystem,
+                isDefault: view.value === selectedView,
+                state: view.state,
+              })),
+              data: {
+                catalog: {
+                  periods: periodOptions,
+                  sources: crmSources,
+                  metricSections,
+                  metrics,
+                },
+                preview: {
+                  data: preview.data,
+                  chart_data: preview.chartData ?? preview.data,
+                  employees: preview.employees ?? [],
+                  details: preview.details ?? [],
+                  source_metrics: preview.sourceMetrics ?? {},
+                  chart_source_metrics: preview.chartSourceMetrics ?? preview.sourceMetrics ?? {},
+                  metadata: {
+                    valueStates: preview.valueStates ?? {},
+                  },
+                },
+              },
+              metadata: {
+                builtAt: new Date().toISOString(),
+                selectedView,
+                source: 'bitrix_app_report_build',
+              },
+            }).catch((error) => {
+              console.warn('[Dashboard] prepared snapshot was not saved', error);
+            });
           }
         }
       })

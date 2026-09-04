@@ -59,7 +59,13 @@ logger = logging.getLogger(__name__)
 
 
 def _json_ready(value):
-    if value is None or isinstance(value, (str, int, bool)):
+    if value is None or isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        return value.encode("utf-8", "replace").decode("utf-8")
+
+    if isinstance(value, int) and not isinstance(value, bool):
         return value
 
     if isinstance(value, float):
@@ -82,14 +88,47 @@ def _json_ready(value):
     if isinstance(value, (list, tuple, set)):
         return [_json_ready(item) for item in value]
 
-    return str(value)
+    return str(value).encode("utf-8", "replace").decode("utf-8")
+
+
+def _empty_bootstrap_payload(*, access: str, portal=None) -> dict:
+    return {
+        "ok": True,
+        "access": access,
+        "portal": (
+            {
+                "domain": portal.domain,
+                "memberId": portal.member_id,
+            }
+            if portal
+            else None
+        ),
+        "reports": [],
+        "selectedReportId": None,
+        "savedViews": [],
+        "settings": {},
+        "appSettings": {
+            "dashboardRefreshIntervalMinutes": DEFAULT_REFRESH_INTERVAL_MINUTES,
+        },
+        "refreshStatus": None,
+        "hasPreparedData": False,
+        "refreshPolicy": {
+            "defaultIntervalMinutes": DEFAULT_REFRESH_INTERVAL_MINUTES,
+            "allowedIntervalMinutes": list(ALLOWED_REFRESH_INTERVAL_MINUTES),
+            "refreshRunRetentionDays": REFRESH_RUN_RETENTION_DAYS,
+            "successfulSnapshotLimit": SUCCESSFUL_SNAPSHOT_LIMIT,
+            "shareLinksMode": "view_only",
+        },
+        "confirmationMethod": "bitrix_launch_link",
+        "viewerMode": "owner" if access == "authorized" else "none",
+    }
 
 
 def _dashboard_json_response(payload: dict, status: int = 200) -> JsonResponse:
     return JsonResponse(
         _json_ready(payload),
         status=status,
-        json_dumps_params={"ensure_ascii": False, "default": str, "allow_nan": False},
+        json_dumps_params={"ensure_ascii": False},
     )
 
 
@@ -206,6 +245,17 @@ def _bootstrap_payload(*, access: str, portal=None, snapshot: DashboardPreparedS
     if not selected_report_id and reports:
         selected_report_id = reports[0]["id"]
 
+    try:
+        refresh_status = build_refresh_status(portal) if portal else None
+    except Exception:
+        logger.exception("Dashboard refresh status failed")
+        refresh_status = None
+
+    try:
+        has_prepared = _safe_has_prepared_data(snapshot)
+    except Exception:
+        has_prepared = False
+
     return {
         "ok": True,
         "access": access,
@@ -228,8 +278,8 @@ def _bootstrap_payload(*, access: str, portal=None, snapshot: DashboardPreparedS
                 else DEFAULT_REFRESH_INTERVAL_MINUTES
             ),
         },
-        "refreshStatus": build_refresh_status(portal) if portal else None,
-        "hasPreparedData": _safe_has_prepared_data(snapshot),
+        "refreshStatus": refresh_status,
+        "hasPreparedData": has_prepared,
         "refreshPolicy": {
             "defaultIntervalMinutes": DEFAULT_REFRESH_INTERVAL_MINUTES,
             "allowedIntervalMinutes": list(ALLOWED_REFRESH_INTERVAL_MINUTES),
@@ -473,26 +523,32 @@ def _safe_refresh_interval(value) -> int:
 
 @require_GET
 def owner_dashboard_bootstrap_view(request):
+    session = None
     try:
-        try:
-            session = get_dashboard_access_session(request.COOKIES.get(DASHBOARD_ACCESS_COOKIE_NAME, ""))
-        except Exception:
-            logger.exception("Dashboard access session lookup failed")
-            session = None
+        session = get_dashboard_access_session(request.COOKIES.get(DASHBOARD_ACCESS_COOKIE_NAME, ""))
+    except Exception:
+        logger.exception("Dashboard access session lookup failed")
 
-        if session:
+    if session:
+        try:
             snapshot = _get_current_snapshot(session.portal)
             return _dashboard_json_response(
                 _bootstrap_payload(access="authorized", portal=session.portal, snapshot=snapshot),
             )
+        except Exception:
+            logger.exception("Dashboard authorized bootstrap failed; returning a slim payload")
+            try:
+                return _dashboard_json_response(
+                    _empty_bootstrap_payload(access="authorized", portal=session.portal),
+                )
+            except Exception:
+                logger.exception("Dashboard slim authorized bootstrap failed")
 
+    try:
         return _dashboard_json_response(_bootstrap_payload(access="needs_confirmation"))
     except Exception:
-        logger.exception("Dashboard owner bootstrap failed")
-        return _json_error(
-            "Не удалось открыть WEB-дашборд. Откройте его заново кнопкой в приложении Битрикс24.",
-            status=503,
-        )
+        logger.exception("Dashboard confirmation bootstrap failed")
+        return JsonResponse(_empty_bootstrap_payload(access="needs_confirmation"))
 
 
 @csrf_exempt

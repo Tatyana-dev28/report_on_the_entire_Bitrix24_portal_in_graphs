@@ -6579,22 +6579,45 @@ function App() {
         ? dashboardLaunchUrl
         : '';
 
+    const openPreparedUrl = (url: string, popup?: Window | null) => {
+      if (popup && !popup.closed) {
+        popup.location.replace(url);
+        try {
+          popup.opener = null;
+        } catch {
+          // ignore
+        }
+        return true;
+      }
+
+      return openExternalBrowserUrl(url);
+    };
+
     if (readyUrl) {
-      openExternalBrowserUrl(readyUrl);
+      const opened = openPreparedUrl(readyUrl);
       setDashboardLaunchUrl('');
       dashboardLaunchExpiresAtRef.current = 0;
       void prefetchOwnerDashboardLaunchUrl().catch(() => undefined);
+      if (!opened) {
+        setNotification('Браузер заблокировал окно. Разрешите всплывающие окна для приложения и нажмите ещё раз.');
+      }
       return;
     }
 
+    const popup = window.open('about:blank', '_blank');
     setDashboardOpening(true);
     prefetchOwnerDashboardLaunchUrl()
       .then((url) => {
-        openExternalBrowserUrl(url);
+        const opened = openPreparedUrl(url, popup);
         setDashboardLaunchUrl('');
         dashboardLaunchExpiresAtRef.current = 0;
+        if (!opened) {
+          popup?.close();
+          setNotification('Браузер заблокировал окно. Разрешите всплывающие окна для приложения и нажмите ещё раз.');
+        }
       })
       .catch((error) => {
+        popup?.close();
         setNotification(error instanceof Error ? error.message : 'Не удалось открыть WEB-дашборд.');
       })
       .finally(() => {
@@ -6645,10 +6668,24 @@ function App() {
       return;
     }
 
+    const report = savedViews.find((view) => view.value === reportId && !view.isSystem);
+    const savedViewsPayload = savedViews
+      .filter((view) => !view.isSystem && view.value !== defaultSavedView.value)
+      .map((view) => ({
+        value: view.value,
+        label: view.label,
+        isSystem: false,
+        state: view.state,
+      }));
+
     setShareBusy(true);
+    const extras = {
+      reportName: report?.label,
+      savedViews: savedViewsPayload,
+    };
     const creator = isDashboardMode
-      ? createDashboardShareLink(reportId, expiresInDays)
-      : createDashboardShareLinkFromBitrix(reportId, expiresInDays);
+      ? createDashboardShareLink(reportId, expiresInDays, extras)
+      : createDashboardShareLinkFromBitrix(reportId, expiresInDays, extras);
 
     creator
       .then((response) => {
@@ -6664,7 +6701,7 @@ function App() {
       .finally(() => {
         setShareBusy(false);
       });
-  }, [dashboardBaseUrl, refreshShareLinks]);
+  }, [dashboardBaseUrl, refreshShareLinks, savedViews]);
 
   const disableOwnerShareLink = useCallback((id: string) => {
     setShareBusy(true);
@@ -7152,27 +7189,6 @@ function App() {
                     <em>Период, главный и остальные</em>
                   </span>
                 </button>
-                {isProUser && savedViews.some((view) => !view.isSystem) ? (
-                  <div className="business-saved-set-block">
-                    <p className="business-saved-set-label">Выбранный набор показателей</p>
-                    <SavedViewsSelect
-                      options={savedViews}
-                      value={selectedView}
-                      onChange={(value) => {
-                        const view = savedViews.find((item) => item.value === value);
-                        setSelectedView(value);
-                        if (view?.isSystem || !view?.state) {
-                          return;
-                        }
-                        // W05: apply set into state; build only on «Показать сводку».
-                        applySavedViewState(view.state, { rebuild: false });
-                      }}
-                      onSaveClick={openSaveCurrentView}
-                      onEdit={editSavedView}
-                      onDelete={(value) => setDeleteViewId(value)}
-                    />
-                  </div>
-                ) : null}
                 <button
                   type="button"
                   className="business-action-card business-action-card--primary"
@@ -8320,7 +8336,9 @@ function App() {
           onRevokeDashboardAccess={revokeOwnerDashboardAccess}
           onEndDashboardSession={isDashboardMode && !isDashboardShareViewer ? endOwnerDashboardSession : undefined}
           canShareDashboard={!isDashboardShareViewer && isProUser && Boolean(dashboardBaseUrl)}
-          shareReports={savedViews.filter((view) => !view.isSystem).map((view) => ({ id: view.value, name: view.label }))}
+          shareReports={savedViews
+            .filter((view) => view.value !== defaultSavedView.value)
+            .map((view) => ({ id: view.value, name: view.label }))}
           selectedShareReportId={selectedView === defaultSavedView.value ? '' : selectedView}
           shareLinks={shareLinks}
           shareCreatedUrl={shareCreatedUrl}

@@ -882,6 +882,18 @@ export function AppSettingsModal({
   });
 
   useEffect(() => {
+    setShareReportId((current) => {
+      if (selectedShareReportId && shareReports.some((report) => report.id === selectedShareReportId)) {
+        return selectedShareReportId;
+      }
+      if (current && shareReports.some((report) => report.id === current)) {
+        return current;
+      }
+      return shareReports[0]?.id ?? '';
+    });
+  }, [selectedShareReportId, shareReports]);
+
+  useEffect(() => {
     const onWheel = (event: WheelEvent) => {
       let node = event.target instanceof HTMLElement ? event.target : null;
       while (node && node !== document.body && node !== document.documentElement) {
@@ -934,21 +946,12 @@ export function AppSettingsModal({
     }));
   };
 
-  const openDashboard = (event?: { preventDefault: () => void }) => {
+  const openDashboard = () => {
     if (!canOpenDashboard || isOpeningDashboard) {
-      event?.preventDefault();
       return;
     }
 
-    if (dashboardLaunchUrl) {
-      onDashboardLaunchUsed?.();
-      return;
-    }
-
-    event?.preventDefault();
-    if (onOpenDashboard) {
-      onOpenDashboard();
-    }
+    onOpenDashboard?.();
   };
 
   const copyShareUrl = async () => {
@@ -1047,18 +1050,15 @@ export function AppSettingsModal({
                 <span>Полный личный кабинет владельца со всеми сохранёнными отчётами.</span>
               </div>
               {canOpenDashboard ? (
-                <a
+                <button
                   className="app-settings-card-button"
-                  href={dashboardLaunchUrl || undefined}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  data-slider-ignore="true"
+                  type="button"
                   onClick={openDashboard}
-                  aria-disabled={isOpeningDashboard}
+                  disabled={isOpeningDashboard}
                 >
                   <ExternalLink size={16} aria-hidden="true" />
                   {isOpeningDashboard ? 'Открываем...' : 'Открыть дашборд'}
-                </a>
+                </button>
               ) : (
                 <button className="app-settings-card-button" type="button" disabled>
                   <ExternalLink size={16} aria-hidden="true" />

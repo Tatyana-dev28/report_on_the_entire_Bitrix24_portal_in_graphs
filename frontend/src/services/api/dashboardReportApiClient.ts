@@ -173,10 +173,19 @@ export const openDashboardShareAccess = (shareToken: string) =>
 export const listDashboardShareLinks = () =>
   requestJson<{ ok: boolean; shareLinks: DashboardShareLinkItem[] }>('/api/dashboard/owner/share-links/');
 
-export const createDashboardShareLink = (reportId: string, expiresInDays: number | null) =>
+export const createDashboardShareLink = (
+  reportId: string,
+  expiresInDays: number | null,
+  extras?: { reportName?: string; savedViews?: unknown[] },
+) =>
   requestJson<{ ok: boolean; shareLink: DashboardShareLinkItem }>('/api/dashboard/owner/share-links/', {
     method: 'POST',
-    body: JSON.stringify({ reportId, expiresInDays }),
+    body: JSON.stringify({
+      reportId,
+      expiresInDays,
+      reportName: extras?.reportName,
+      savedViews: extras?.savedViews,
+    }),
   });
 
 export const disableDashboardShareLink = (id: string) =>

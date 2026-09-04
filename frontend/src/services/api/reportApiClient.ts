@@ -417,7 +417,11 @@ export const listDashboardShareLinksFromBitrix = () =>
         },
     );
 
-export const createDashboardShareLinkFromBitrix = (reportId: string, expiresInDays: number | null) =>
+export const createDashboardShareLinkFromBitrix = (
+    reportId: string,
+    expiresInDays: number | null,
+    extras?: { reportName?: string; savedViews?: unknown[] },
+) =>
     requestJson<{ ok: boolean; shareLink: {
         id: string;
         reportId: string;
@@ -435,6 +439,8 @@ export const createDashboardShareLinkFromBitrix = (reportId: string, expiresInDa
                 ...getBitrixContext(),
                 reportId,
                 expiresInDays,
+                reportName: extras?.reportName,
+                savedViews: extras?.savedViews,
             }),
         },
     );

@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import ReportBuildLoader from './app/components/ReportBuildLoader';
 import ReportOnboarding from './app/components/ReportOnboarding';
+import { UpdateStatusBar } from './app/components/UpdateStatusBar';
 import AutoSetupConfirmModal from './app/components/AutoSetupConfirmModal';
 import IndicatorsSettingsPanel, {
   createIndicatorsSettingsDraft,
@@ -66,13 +67,31 @@ import {
 import { reportDataSource } from './services/report/reportDataSource';
 import type { CrmSource, CrmSourceType, MetricDetailItem, ReportLoadFilters, SourceMetricsData, ValueStateMap } from './services/report/reportTypes';
 import {
+  createDashboardLaunchLink,
+  createDashboardShareLinkFromBitrix,
+  disableDashboardShareLinkFromBitrix,
   isReloadRequiredErrorMessage,
+  listDashboardShareLinksFromBitrix,
   loadReportSettings,
   RELOAD_PAGE_TO_CONTINUE_MESSAGE,
+  revokeDashboardAccessSessions,
   saveDashboardPreparedSnapshot,
   saveReportSettings,
   type PortalEmployeeItem,
 } from './services/api/reportApiClient';
+import {
+  createDashboardShareLink,
+  disableDashboardShareLink,
+  endDashboardOwnerAccess,
+  getDashboardViewerMode,
+  invalidateDashboardReportCache,
+  listDashboardShareLinks,
+  loadDashboardOwnerBootstrap,
+  loadDashboardOwnerSettings,
+  requestDashboardOwnerRefresh,
+  updateDashboardRefreshInterval,
+  type DashboardShareLinkItem,
+} from './services/api/dashboardReportApiClient';
 import {
   createProPayment,
   loadBillingState,
@@ -1483,6 +1502,21 @@ function App() {
   const [billingLoadFailed, setBillingLoadFailed] = useState(false);
   const [billingCustomerEmail, setBillingCustomerEmail] = useState('');
   const [paymentLoading, setPaymentLoading] = useState(false);
+  const [dashboardRefreshStatus, setDashboardRefreshStatus] = useState<{
+    lastSuccessfulUpdateAt: string | null;
+    nextUpdateAt: string | null;
+    isRefreshing: boolean;
+    lastAttemptFailedAt: string | null;
+    lastErrorMessage: string;
+  } | null>(null);
+  const [dashboardOpening, setDashboardOpening] = useState(false);
+  const [dashboardSnapshotEpoch, setDashboardSnapshotEpoch] = useState(0);
+  const dashboardLastSuccessAtRef = useRef<string | null>(null);
+  const isDashboardShareViewer = isDashboardMode && getDashboardViewerMode() === 'share';
+  const [dashboardShareBlocked, setDashboardShareBlocked] = useState(false);
+  const [shareLinks, setShareLinks] = useState<DashboardShareLinkItem[]>([]);
+  const [shareCreatedUrl, setShareCreatedUrl] = useState('');
+  const [shareBusy, setShareBusy] = useState(false);
   const [editingViewId, setEditingViewId] = useState<string | null>(null);
   const [deleteViewId, setDeleteViewId] = useState<string | null>(null);
   const [notification, setNotification] = useState('');
@@ -1722,6 +1756,15 @@ function App() {
   }, [reportLoading]);
 
   const refreshBillingState = useCallback(() => {
+    if (isDashboardMode) {
+      setBillingError('');
+      setBillingLoadFailed(false);
+      setBillingHasPro(true);
+      setBillingInitialized(true);
+      setBillingLoading(false);
+      return Promise.resolve(null);
+    }
+
     setBillingError('');
     setBillingLoading(true);
 
@@ -1788,7 +1831,7 @@ function App() {
   }, [refreshBillingState]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (isDashboardMode || typeof window === 'undefined') {
       return;
     }
 
@@ -1961,11 +2004,31 @@ function App() {
       }, 1500);
     };
 
-    loadReportSettings()
+    const settingsRequest = isDashboardMode
+      ? loadDashboardOwnerSettings()
+      : loadReportSettings();
+
+    settingsRequest
       .then((response) => {
         if (!response.ok) {
           scheduleRetryAfterFailedProSettingsLoad();
           return;
+        }
+
+        if (isDashboardMode && 'refreshStatus' in response) {
+          const nextStatus = response.refreshStatus ?? null;
+          setDashboardRefreshStatus(nextStatus);
+          if (nextStatus?.lastSuccessfulUpdateAt) {
+            dashboardLastSuccessAtRef.current = nextStatus.lastSuccessfulUpdateAt;
+          }
+        }
+
+        if (isDashboardMode && 'portal' in response && response.portal?.domain) {
+          try {
+            window.sessionStorage.setItem('sapp_dashboard_portal_domain', response.portal.domain);
+          } catch {
+            // ignore storage errors
+          }
         }
 
         const settings = response.settings as Record<string, unknown>;
@@ -2218,21 +2281,28 @@ function App() {
 
         // Apply saved views
         if (savedViewsData.length > 0) {
-          const restoredViews: SavedReportViewOption[] = [
-            defaultSavedView,
-            ...savedViewsData
-              .map((item) => ({
-                value: String(item.value ?? '').trim(),
-                label: String(item.label ?? '').trim(),
-                isSystem: Boolean(item.isSystem),
-                state: item.state as SavedReportViewState | undefined,
-              }))
-              .filter((item) => item.value && item.label && item.value !== defaultSavedView.value),
-          ];
+          const restoredItems = savedViewsData
+            .map((item) => ({
+              value: String(item.value ?? '').trim(),
+              label: String(item.label ?? '').trim(),
+              isSystem: Boolean(item.isSystem),
+              state: item.state as SavedReportViewState | undefined,
+            }))
+            .filter((item) => item.value && item.label && item.value !== defaultSavedView.value);
+          const restoredViews: SavedReportViewOption[] = isDashboardShareViewer
+            ? restoredItems
+            : [defaultSavedView, ...restoredItems];
           setSavedViews(restoredViews);
-          setSelectedView((current) =>
-            restoredViews.some((view) => view.value === current) ? current : defaultSavedView.value,
-          );
+          const preferredViewId = isDashboardMode && 'selectedReportId' in response
+            ? String(response.selectedReportId ?? '')
+            : '';
+          setSelectedView((current) => {
+            if (preferredViewId && restoredViews.some((view) => view.value === preferredViewId)) {
+              return preferredViewId;
+            }
+
+            return restoredViews.some((view) => view.value === current) ? current : defaultSavedView.value;
+          });
         }
 
         // Apply app settings
@@ -2260,6 +2330,9 @@ function App() {
         settingsHydratedRef.current = true;
         proSettingsLoadSucceededRef.current = true;
         proSettingsLoadAttemptRef.current = 0;
+        if (isDashboardMode) {
+          setHasBuiltReport(true);
+        }
       })
       .catch((error) => {
         console.warn('[Settings] Failed to load settings from backend', error);
@@ -2269,6 +2342,14 @@ function App() {
         applyingBackendSettingsRef.current = false;
       });
   }, []);
+
+  useEffect(() => {
+    if (!isDashboardMode || dashboardSnapshotEpoch === 0) {
+      return;
+    }
+
+    applyBackendSettings();
+  }, [applyBackendSettings, dashboardSnapshotEpoch]);
 
   // Effect: apply report settings only on initial billing load or an actual PRO/FREE access change.
   useEffect(() => {
@@ -2441,7 +2522,7 @@ function App() {
     return () => {
       isActive = false;
     };
-  }, [refreshPortalEmployees, suppressNextReportSettingsTouch]);
+  }, [refreshPortalEmployees, suppressNextReportSettingsTouch, dashboardSnapshotEpoch]);
 
   useEffect(() => {
     if (!hasBuiltReport) {
@@ -2876,6 +2957,7 @@ function App() {
     // changes to filters/settings should NOT trigger report building.
     hasBuiltReport,
     reportBuildRequest,
+    dashboardSnapshotEpoch,
   ]);
 
   const canStartReportBuild = useCallback(() => (
@@ -5869,7 +5951,7 @@ function App() {
     }
 
     // Free version: never save anything
-    if (!billingHasPro) {
+    if (!billingHasPro || isDashboardMode) {
       return;
     }
 
@@ -6220,13 +6302,33 @@ function App() {
 
   const saveAppSettings = useCallback((settings: AppSettings) => {
     setAppSettings(settings);
-    // Pro сохраняет appSettings через triggerAutoSave → saveReportSettings() на backend.
-    // localStorage не используется — ни для Free, ни для Pro.
+    if (
+      isDashboardMode
+      && !isDashboardShareViewer
+      && (settings.dashboardRefreshIntervalMinutes === 10
+        || settings.dashboardRefreshIntervalMinutes === 30
+        || settings.dashboardRefreshIntervalMinutes === 60)
+    ) {
+      updateDashboardRefreshInterval(settings.dashboardRefreshIntervalMinutes)
+        .then((response) => {
+          if (response.refreshStatus) {
+            setDashboardRefreshStatus(response.refreshStatus);
+          }
+        })
+        .catch((error) => {
+          setNotification(error instanceof Error ? error.message : 'Не удалось сохранить интервал обновления.');
+        });
+    }
     setNotification('Настройки приложения сохранены');
     setIsAppSettingsOpen(false);
-  }, []);
+  }, [isDashboardShareViewer]);
 
   const handleCreateProPayment = useCallback(() => {
+    if (isDashboardMode) {
+      setNotification('Оплата PRO доступна в приложении внутри Битрикс24.');
+      return;
+    }
+
     if (isProUser) {
       setNotification('PRO-подписка уже активна для этого портала.');
       refreshBillingState();
@@ -6273,7 +6375,188 @@ function App() {
   const openAppSettings = useCallback(() => {
     setIsAppSettingsOpen(true);
     refreshPortalEmployees();
-  }, [refreshPortalEmployees]);
+    if (isDashboardShareViewer || (!isDashboardMode && !isProUser && !billingHasPro)) {
+      return;
+    }
+
+    const loader = isDashboardMode ? listDashboardShareLinks() : listDashboardShareLinksFromBitrix();
+    loader
+      .then((response) => {
+        setShareLinks(response.shareLinks ?? []);
+      })
+      .catch(() => {
+        setShareLinks([]);
+      });
+  }, [billingHasPro, isDashboardShareViewer, isProUser, refreshPortalEmployees]);
+
+  const openOwnerDashboard = useCallback(() => {
+    if (!dashboardBaseUrl) {
+      setNotification('Адрес WEB-дашборда не настроен.');
+      return;
+    }
+
+    setDashboardOpening(true);
+    createDashboardLaunchLink()
+      .then((response) => {
+        const url = `${dashboardBaseUrl}?launch=${encodeURIComponent(response.launchToken)}`;
+        window.open(url, '_blank', 'noopener,noreferrer');
+      })
+      .catch((error) => {
+        console.warn('[Dashboard] launch link was not created', error);
+        setNotification(error instanceof Error ? error.message : 'Не удалось открыть WEB-дашборд.');
+      })
+      .finally(() => {
+        setDashboardOpening(false);
+      });
+  }, [dashboardBaseUrl]);
+
+  const revokeOwnerDashboardAccess = useCallback(() => {
+    revokeDashboardAccessSessions()
+      .then((response) => {
+        setNotification(
+          response.revokedCount > 0
+            ? `Закрыто входов в WEB-дашборд: ${response.revokedCount}.`
+            : 'Активных входов в WEB-дашборд нет.',
+        );
+      })
+      .catch((error) => {
+        console.warn('[Dashboard] sessions were not revoked', error);
+        setNotification(error instanceof Error ? error.message : 'Не удалось закрыть входы в WEB-дашборд.');
+      });
+  }, []);
+
+  const endOwnerDashboardSession = useCallback(() => {
+    endDashboardOwnerAccess()
+      .then(() => {
+        window.location.reload();
+      })
+      .catch((error) => {
+        console.warn('[Dashboard] session was not ended', error);
+        setNotification(error instanceof Error ? error.message : 'Не удалось выйти из WEB-дашборда.');
+      });
+  }, []);
+
+  const refreshShareLinks = useCallback(() => {
+    const loader = isDashboardMode ? listDashboardShareLinks() : listDashboardShareLinksFromBitrix();
+    return loader
+      .then((response) => {
+        setShareLinks(response.shareLinks ?? []);
+      })
+      .catch((error) => {
+        setNotification(error instanceof Error ? error.message : 'Не удалось загрузить ссылки.');
+      });
+  }, []);
+
+  const createOwnerShareLink = useCallback((reportId: string, expiresInDays: number | null) => {
+    if (!dashboardBaseUrl) {
+      setNotification('Адрес WEB-дашборда не настроен.');
+      return;
+    }
+
+    setShareBusy(true);
+    const creator = isDashboardMode
+      ? createDashboardShareLink(reportId, expiresInDays)
+      : createDashboardShareLinkFromBitrix(reportId, expiresInDays);
+
+    creator
+      .then((response) => {
+        const token = response.shareLink.token;
+        if (token) {
+          setShareCreatedUrl(`${dashboardBaseUrl}?share=${encodeURIComponent(token)}`);
+        }
+        return refreshShareLinks();
+      })
+      .catch((error) => {
+        setNotification(error instanceof Error ? error.message : 'Не удалось создать ссылку.');
+      })
+      .finally(() => {
+        setShareBusy(false);
+      });
+  }, [dashboardBaseUrl, refreshShareLinks]);
+
+  const disableOwnerShareLink = useCallback((id: string) => {
+    setShareBusy(true);
+    const disabler = isDashboardMode
+      ? disableDashboardShareLink(id)
+      : disableDashboardShareLinkFromBitrix(id);
+
+    disabler
+      .then(() => {
+        setShareCreatedUrl('');
+        return refreshShareLinks();
+      })
+      .catch((error) => {
+        setNotification(error instanceof Error ? error.message : 'Не удалось отключить ссылку.');
+      })
+      .finally(() => {
+        setShareBusy(false);
+      });
+  }, [refreshShareLinks]);
+
+  const applyDashboardRefreshStatus = useCallback((status: typeof dashboardRefreshStatus) => {
+    const previousSuccess = dashboardLastSuccessAtRef.current;
+    const nextSuccess = status?.lastSuccessfulUpdateAt ?? null;
+    setDashboardRefreshStatus(status);
+    if (nextSuccess && previousSuccess && nextSuccess !== previousSuccess) {
+      invalidateDashboardReportCache();
+      setDashboardSnapshotEpoch((current) => current + 1);
+    }
+    if (nextSuccess) {
+      dashboardLastSuccessAtRef.current = nextSuccess;
+    }
+  }, []);
+
+  const handleDashboardRefreshNow = useCallback(() => {
+    if (!isDashboardMode || isDashboardShareViewer || dashboardRefreshStatus?.isRefreshing) {
+      return;
+    }
+
+    requestDashboardOwnerRefresh()
+      .then((response) => {
+        applyDashboardRefreshStatus(response.refreshStatus);
+        if (response.accepted) {
+          setNotification('Обновляем данные всего аккаунта...');
+        } else {
+          setNotification('Обновление уже выполняется.');
+        }
+      })
+      .catch((error) => {
+        setNotification(error instanceof Error ? error.message : 'Не удалось запустить обновление.');
+      });
+  }, [applyDashboardRefreshStatus, dashboardRefreshStatus?.isRefreshing]);
+
+  useEffect(() => {
+    if (!isDashboardMode) {
+      return undefined;
+    }
+
+    let active = true;
+    const poll = () => {
+      loadDashboardOwnerBootstrap()
+        .then((data) => {
+          if (!active) {
+            return;
+          }
+          applyDashboardRefreshStatus(data.refreshStatus);
+        })
+        .catch(() => {
+          if (getDashboardViewerMode() === 'share') {
+            setDashboardShareBlocked(true);
+          }
+        });
+    };
+
+    poll();
+    const intervalId = window.setInterval(
+      poll,
+      dashboardRefreshStatus?.isRefreshing ? 3000 : 20000,
+    );
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [applyDashboardRefreshStatus, dashboardRefreshStatus?.isRefreshing]);
 
   const saveCurrentView = () => {
     const name = newViewName.trim();
@@ -6496,17 +6779,25 @@ function App() {
 
   return (
     <main className="page">
-      <section className="report-card" ref={reportCardRef}>
+      {dashboardShareBlocked ? (
+        <section className="report-card">
+          <div className="report-status-bar is-error">
+            <span>Ссылка на отчёт отключена или истекла. Попросите владельца прислать новую.</span>
+          </div>
+        </section>
+      ) : null}
+      <section className="report-card" ref={reportCardRef} hidden={dashboardShareBlocked}>
         <header className="top-panel">
           <BrandLogo />
-          <div className="top-controls">
+          <div className={`top-controls${isDashboardShareViewer ? ' is-readonly' : ''}`}>
             <SavedViewsSelect
               options={savedViews}
               value={selectedView}
-              onChange={handleSavedViewChange}
-              onSaveClick={openSaveCurrentView}
-              onEdit={editSavedView}
-              onDelete={requestDeleteSavedView}
+              onChange={isDashboardShareViewer ? () => undefined : handleSavedViewChange}
+              onSaveClick={isDashboardShareViewer ? () => undefined : openSaveCurrentView}
+              onEdit={isDashboardShareViewer ? () => undefined : editSavedView}
+              onDelete={isDashboardShareViewer ? () => undefined : requestDeleteSavedView}
+              readOnly={isDashboardShareViewer}
             />
             <CustomSelect
               options={periodOptions}
@@ -6522,12 +6813,14 @@ function App() {
             />
           </div>
           <div className="top-actions">
+            {isDashboardShareViewer ? null : (
             <TooltipButton
               label="Настроить приложение"
               onClick={openAppSettings}
             >
               <Cog size={18} />
             </TooltipButton>
+            )}
             <TooltipButton
               label="Как читать отчёт"
               onClick={() => setIsInstructionOpen(true)}
@@ -6540,13 +6833,22 @@ function App() {
             >
               <LifeBuoy size={18} />
             </TooltipButton>
+            {isDashboardShareViewer ? null : (
             <TooltipButton
               label={isProUser ? 'PRO-подписка активна' : 'Активировать ПРО версию чтобы сохранять разные отображения отчета'}
-              onClick={() => setIsProOpen(true)}
+              onClick={() => {
+                if (isDashboardMode) {
+                  setNotification('PRO-подписка активна. Оплата доступна в приложении Битрикс24.');
+                  return;
+                }
+
+                setIsProOpen(true);
+              }}
               className={`pro-crown-button${isProUser ? ' pro-crown-button--active' : ''}`}
             >
               <Crown size={18} className={`pro-crown-icon${isProUser ? ' pro-crown-icon--active' : ' pro-crown-icon--promo'}`} />
             </TooltipButton>
+            )}
             <ReportDownloadMenu
               disabled={!hasBuiltReport || !reportData.length || reportLoading}
               pdfBusy={pdfExporting}
@@ -6560,6 +6862,13 @@ function App() {
             />
           </div>
         </header>
+        {isDashboardMode ? (
+          <UpdateStatusBar
+            status={dashboardRefreshStatus}
+            canRefresh={!isDashboardShareViewer}
+            onRefresh={isDashboardShareViewer ? undefined : handleDashboardRefreshNow}
+          />
+        ) : null}
 
         <div className="soft-divider" />
 
@@ -6592,6 +6901,8 @@ function App() {
                 </div>
               </div>
               <div className="business-indicators-actions">
+                {isDashboardShareViewer ? null : (
+                <>
                 <button
                   type="button"
                   className="business-action-card"
@@ -6655,6 +6966,8 @@ function App() {
                     <em>Отобразить выбранный набор</em>
                   </span>
                 </button>
+                </>
+                )}
               </div>
             </div>
 
@@ -7777,7 +8090,20 @@ function App() {
           onClose={() => setIsAppSettingsOpen(false)}
           onOpenPro={() => setIsProOpen(true)}
           dashboardUrl={dashboardBaseUrl}
-          canOpenDashboard={isProUser && Boolean(dashboardBaseUrl)}
+          canOpenDashboard={!isDashboardMode && isProUser && Boolean(dashboardBaseUrl)}
+          isOpeningDashboard={dashboardOpening}
+          onOpenDashboard={openOwnerDashboard}
+          canRevokeDashboardAccess={!isDashboardMode && isProUser}
+          onRevokeDashboardAccess={revokeOwnerDashboardAccess}
+          onEndDashboardSession={isDashboardMode && !isDashboardShareViewer ? endOwnerDashboardSession : undefined}
+          canShareDashboard={!isDashboardShareViewer && isProUser && Boolean(dashboardBaseUrl)}
+          shareReports={savedViews.filter((view) => !view.isSystem).map((view) => ({ id: view.value, name: view.label }))}
+          selectedShareReportId={selectedView === defaultSavedView.value ? '' : selectedView}
+          shareLinks={shareLinks}
+          shareCreatedUrl={shareCreatedUrl}
+          shareBusy={shareBusy}
+          onCreateShareLink={createOwnerShareLink}
+          onDisableShareLink={disableOwnerShareLink}
         />
       )}
 

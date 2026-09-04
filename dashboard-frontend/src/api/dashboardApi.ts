@@ -35,26 +35,15 @@ const requestJson = async <T>(path: string, options: RequestInit = {}): Promise<
   return payload as T;
 };
 
-const getDashboardContext = () => {
-  const params = new URLSearchParams(window.location.search);
-
-  return {
-    memberId: params.get('memberId') || params.get('member_id') || '',
-    domain: params.get('domain') || params.get('DOMAIN') || '',
-    bitrixUserId: params.get('bitrixUserId') || params.get('user_id') || params.get('USER_ID') || '',
-    portalToken: params.get('portalToken') || params.get('portal_token') || '',
-  };
-};
-
 export const loadOwnerDashboardBootstrap = () =>
   requestJson<OwnerDashboardBootstrap>('/api/dashboard/owner/bootstrap/');
 
-export const confirmOwnerDashboardAccess = (trusted: boolean) =>
+export const confirmOwnerDashboardAccess = (trusted: boolean, launchToken = '') =>
   requestJson<DashboardAccessConfirmResponse>('/api/dashboard/owner/access/confirm/', {
     method: 'POST',
     body: JSON.stringify({
-      ...getDashboardContext(),
       trusted,
+      launchToken,
     }),
   });
 

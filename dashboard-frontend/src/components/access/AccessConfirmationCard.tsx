@@ -3,6 +3,7 @@ type AccessConfirmationCardProps = {
   onUseTemporaryAccess: () => void;
   busy: boolean;
   notice: string;
+  error?: string;
 };
 
 export function AccessConfirmationCard({
@@ -10,14 +11,16 @@ export function AccessConfirmationCard({
   onUseTemporaryAccess,
   busy,
   notice,
+  error,
 }: AccessConfirmationCardProps) {
   return (
     <section className="dashboard-access-card" aria-labelledby="dashboard-access-title">
       <div>
         <p className="dashboard-eyebrow">Подтверждение входа</p>
-        <h2 id="dashboard-access-title">Это ваш компьютер?</h2>
+        <h2 id="dashboard-access-title">Запомнить доступ на этом устройстве?</h2>
         <span>
-          Выберите, нужно ли сохранить вход в личный WEB-дашборд на этом устройстве.
+          Личность уже подтверждена ссылкой из приложения Битрикс24. Выберите, сохранить ли вход
+          на этом компьютере.
         </span>
       </div>
       <div className="dashboard-access-actions">
@@ -29,6 +32,7 @@ export function AccessConfirmationCard({
         </button>
       </div>
       {notice ? <p className="dashboard-access-notice">{notice}</p> : null}
+      {error ? <p className="dashboard-access-notice">{error}</p> : null}
     </section>
   );
 }

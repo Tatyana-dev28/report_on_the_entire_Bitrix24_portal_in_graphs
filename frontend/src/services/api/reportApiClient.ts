@@ -380,3 +380,73 @@ export const saveDashboardPreparedSnapshot = (payload: DashboardPreparedSnapshot
             ...payload,
         }),
     });
+
+export const createDashboardLaunchLink = () =>
+    requestJson<{ ok: boolean; launchToken: string; expiresInSeconds: number }>(
+        '/api/dashboard/owner/launch-link/',
+        {
+            method: 'POST',
+            body: JSON.stringify(getBitrixContext()),
+        },
+    );
+
+export const revokeDashboardAccessSessions = () =>
+    requestJson<{ ok: boolean; revokedCount: number }>(
+        '/api/dashboard/owner/access/revoke-all/',
+        {
+            method: 'POST',
+            body: JSON.stringify(getBitrixContext()),
+        },
+    );
+
+export const listDashboardShareLinksFromBitrix = () =>
+    requestJson<{ ok: boolean; shareLinks: Array<{
+        id: string;
+        reportId: string;
+        reportName: string;
+        expiresAt: string | null;
+        disabledAt: string | null;
+        isAvailable: boolean;
+        fingerprint: string;
+        token?: string;
+    }> }>(
+        '/api/dashboard/owner/share-links/list/',
+        {
+            method: 'POST',
+            body: JSON.stringify(getBitrixContext()),
+        },
+    );
+
+export const createDashboardShareLinkFromBitrix = (reportId: string, expiresInDays: number | null) =>
+    requestJson<{ ok: boolean; shareLink: {
+        id: string;
+        reportId: string;
+        reportName: string;
+        expiresAt: string | null;
+        disabledAt: string | null;
+        isAvailable: boolean;
+        fingerprint: string;
+        token?: string;
+    } }>(
+        '/api/dashboard/owner/share-links/',
+        {
+            method: 'POST',
+            body: JSON.stringify({
+                ...getBitrixContext(),
+                reportId,
+                expiresInDays,
+            }),
+        },
+    );
+
+export const disableDashboardShareLinkFromBitrix = (id: string) =>
+    requestJson<{ ok: boolean; shareLink: { id: string; isAvailable: boolean } }>(
+        '/api/dashboard/owner/share-links/disable/',
+        {
+            method: 'POST',
+            body: JSON.stringify({
+                ...getBitrixContext(),
+                id,
+            }),
+        },
+    );

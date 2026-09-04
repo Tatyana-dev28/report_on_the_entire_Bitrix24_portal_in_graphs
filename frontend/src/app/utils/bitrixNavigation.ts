@@ -142,6 +142,16 @@ const getBitrixPortalOrigin = () => {
   }
 
   try {
+    const storedDomain = window.sessionStorage.getItem('sapp_dashboard_portal_domain');
+    if (storedDomain) {
+      const normalizedDomain = storedDomain.replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+      return normalizedDomain ? `https://${normalizedDomain}` : null;
+    }
+  } catch {
+    // ignore storage errors
+  }
+
+  try {
     const referrer = document.referrer ? new URL(document.referrer) : null;
 
     return referrer?.origin || null;

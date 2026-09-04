@@ -6,7 +6,7 @@
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { CheckCircle2, ChevronDown, Clock3, Download, ExternalLink, FileText, QrCode, Share2, X } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Clock3, Copy, Download, ExternalLink, FileText, QrCode, Share2, X } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -795,6 +795,19 @@ export function AppSettingsModal({
   onOpenPro,
   dashboardUrl,
   canOpenDashboard,
+  isOpeningDashboard = false,
+  onOpenDashboard,
+  canRevokeDashboardAccess = false,
+  onRevokeDashboardAccess,
+  onEndDashboardSession,
+  canShareDashboard = false,
+  shareReports = [],
+  selectedShareReportId = '',
+  shareLinks = [],
+  shareCreatedUrl = '',
+  shareBusy = false,
+  onCreateShareLink,
+  onDisableShareLink,
 }: {
   settings: AppSettings;
   employees: ReportEmployee[];
@@ -803,9 +816,38 @@ export function AppSettingsModal({
   onOpenPro: () => void;
   dashboardUrl: string;
   canOpenDashboard: boolean;
+  isOpeningDashboard?: boolean;
+  onOpenDashboard?: () => void;
+  canRevokeDashboardAccess?: boolean;
+  onRevokeDashboardAccess?: () => void;
+  onEndDashboardSession?: () => void;
+  canShareDashboard?: boolean;
+  shareReports?: Array<{ id: string; name: string }>;
+  selectedShareReportId?: string;
+  shareLinks?: Array<{
+    id: string;
+    reportId: string;
+    reportName: string;
+    expiresAt: string | null;
+    disabledAt: string | null;
+    isAvailable: boolean;
+  }>;
+  shareCreatedUrl?: string;
+  shareBusy?: boolean;
+  onCreateShareLink?: (reportId: string, expiresInDays: number | null) => void;
+  onDisableShareLink?: (id: string) => void;
 }) {
   type EmployeeSettingsField = 'reportBuilderUserIds' | 'moneyViewerUserIds' | 'viewSaverUserIds';
   const refreshIntervals = [10, 30, 60] as const;
+  const shareTtlOptions = [
+    { value: 1, label: '1 день' },
+    { value: 7, label: '7 дней' },
+    { value: 30, label: '30 дней' },
+    { value: 0, label: 'Пока не отключу' },
+  ] as const;
+  const [shareReportId, setShareReportId] = useState(selectedShareReportId);
+  const [shareTtlDays, setShareTtlDays] = useState<number>(7);
+  const [shareCopied, setShareCopied] = useState(false);
   const [draftSettings, setDraftSettings] = useState<AppSettings>(() => ({
     reportBuilderUserIds: resolveDefaultEmployeeIds(settings.reportBuilderUserIds, employees),
     moneyViewerUserIds: resolveDefaultEmployeeIds(settings.moneyViewerUserIds, employees),
@@ -854,12 +896,33 @@ export function AppSettingsModal({
   };
 
   const openDashboard = () => {
+    if (onOpenDashboard) {
+      onOpenDashboard();
+      return;
+    }
+
     if (!canOpenDashboard || !dashboardUrl) {
       return;
     }
 
     window.open(dashboardUrl, '_blank', 'noopener,noreferrer');
   };
+
+  const copyShareUrl = async () => {
+    if (!shareCreatedUrl) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareCreatedUrl);
+      setShareCopied(true);
+      window.setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      setShareCopied(false);
+    }
+  };
+
+  const activeShareLinks = shareLinks.filter((link) => link.isAvailable);
 
   return (
     <div className="modal-layer app-settings-modal-layer" role="presentation">
@@ -941,13 +1004,43 @@ export function AppSettingsModal({
                 className="app-settings-card-button"
                 type="button"
                 onClick={openDashboard}
-                disabled={!canOpenDashboard}
+                disabled={!canOpenDashboard || isOpeningDashboard}
               >
                 <ExternalLink size={16} aria-hidden="true" />
-                Открыть дашборд
+                {isOpeningDashboard ? 'Открываем...' : 'Открыть дашборд'}
               </button>
             </div>
-            <div className="app-settings-dashboard-card">
+            {canRevokeDashboardAccess ? (
+              <div className="app-settings-dashboard-card">
+                <div>
+                  <strong>Закрыть все входы</strong>
+                  <span>Сбросить сохранённый доступ на всех устройствах, включая этот компьютер.</span>
+                </div>
+                <button
+                  className="app-settings-card-button"
+                  type="button"
+                  onClick={onRevokeDashboardAccess}
+                >
+                  Закрыть все входы
+                </button>
+              </div>
+            ) : null}
+            {onEndDashboardSession ? (
+              <div className="app-settings-dashboard-card">
+                <div>
+                  <strong>Выйти из WEB-дашборда</strong>
+                  <span>Завершить текущий вход на этом устройстве.</span>
+                </div>
+                <button
+                  className="app-settings-card-button"
+                  type="button"
+                  onClick={onEndDashboardSession}
+                >
+                  Выйти
+                </button>
+              </div>
+            ) : null}
+            <div className="app-settings-dashboard-card app-settings-dashboard-card--stack">
               <div>
                 <strong>
                   Поделиться дашбордом
@@ -955,10 +1048,84 @@ export function AppSettingsModal({
                 </strong>
                 <span>Одна ссылка — один сохранённый отчёт. Просмотр без входа в Битрикс24.</span>
               </div>
-              <button className="app-settings-card-button" type="button" disabled>
-                <Share2 size={16} aria-hidden="true" />
-                Создать ссылку
-              </button>
+              {canShareDashboard ? (
+                <div className="app-settings-share-form">
+                  <label>
+                    Отчёт
+                    <select
+                      value={shareReportId}
+                      onChange={(event) => setShareReportId(event.target.value)}
+                      disabled={shareBusy || shareReports.length === 0}
+                    >
+                      <option value="">Выберите сохранённый отчёт</option>
+                      {shareReports.map((report) => (
+                        <option key={report.id} value={report.id}>
+                          {report.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Срок жизни
+                    <select
+                      value={shareTtlDays}
+                      onChange={(event) => setShareTtlDays(Number(event.target.value))}
+                      disabled={shareBusy}
+                    >
+                      {shareTtlOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    className="app-settings-card-button"
+                    type="button"
+                    disabled={shareBusy || !shareReportId || !onCreateShareLink}
+                    onClick={() => onCreateShareLink?.(shareReportId, shareTtlDays === 0 ? null : shareTtlDays)}
+                  >
+                    <Share2 size={16} aria-hidden="true" />
+                    {shareBusy ? 'Создаём...' : 'Создать ссылку'}
+                  </button>
+                  {shareCreatedUrl ? (
+                    <div className="app-settings-share-url">
+                      <input readOnly value={shareCreatedUrl} aria-label="Ссылка для получателя" />
+                      <button className="app-settings-card-button" type="button" onClick={() => void copyShareUrl()}>
+                        {shareCopied ? <CheckCircle2 size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
+                        {shareCopied ? 'Скопировано' : 'Копировать'}
+                      </button>
+                    </div>
+                  ) : null}
+                  {activeShareLinks.length > 0 ? (
+                    <ul className="app-settings-share-list">
+                      {activeShareLinks.map((link) => (
+                        <li key={link.id}>
+                          <span>
+                            {link.reportName}
+                            {link.expiresAt
+                              ? ` · до ${new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(link.expiresAt))}`
+                              : ' · без срока'}
+                          </span>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={shareBusy}
+                            onClick={() => onDisableShareLink?.(link.id)}
+                          >
+                            Отключить
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : (
+                <button className="app-settings-card-button" type="button" disabled>
+                  <Share2 size={16} aria-hidden="true" />
+                  Создать ссылку
+                </button>
+              )}
             </div>
             <div className="app-settings-dashboard-card is-soon">
               <div>

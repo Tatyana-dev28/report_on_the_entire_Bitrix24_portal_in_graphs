@@ -1,5 +1,20 @@
-import type { PortalEmployeeItem, ReportCatalogResponse, ReportPreviewResponse } from './reportApiClient';
+import type { PortalEmployeeItem, ReportCatalogResponse, ReportPreviewResponse, ReportSettingsResponse } from './reportApiClient';
 import type { ReportLoadFilters } from '../report/reportTypes';
+
+export type DashboardViewerMode = 'owner' | 'share';
+
+let dashboardViewerMode: DashboardViewerMode = 'owner';
+
+export const setDashboardViewerMode = (mode: DashboardViewerMode) => {
+  dashboardViewerMode = mode;
+};
+
+export const getDashboardViewerMode = () => dashboardViewerMode;
+
+export const isDashboardShareViewer = () =>
+  import.meta.env.VITE_APP_MODE === 'dashboard' && dashboardViewerMode === 'share';
+
+const dashboardApiPrefix = () => (dashboardViewerMode === 'share' ? '/api/dashboard/share' : '/api/dashboard/owner');
 
 const getApiBaseUrl = () => {
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
@@ -58,7 +73,7 @@ let dashboardCatalogPromise: Promise<ReportCatalogResponse> | null = null;
 
 export const loadDashboardReportCatalog = () => {
   if (!dashboardCatalogPromise) {
-    dashboardCatalogPromise = requestJson<ReportCatalogResponse>('/api/dashboard/owner/catalog/').catch((error) => {
+    dashboardCatalogPromise = requestJson<ReportCatalogResponse>(`${dashboardApiPrefix()}/catalog/`).catch((error) => {
       dashboardCatalogPromise = null;
       throw error;
     });
@@ -68,11 +83,103 @@ export const loadDashboardReportCatalog = () => {
 };
 
 export const loadDashboardReportPreview = (_filters: ReportLoadFilters) =>
-  requestJson<ReportPreviewResponse>('/api/dashboard/owner/preview/', {
+  requestJson<ReportPreviewResponse>(`${dashboardApiPrefix()}/preview/`, {
     method: 'POST',
     body: JSON.stringify({}),
   });
 
 export const loadDashboardPortalEmployees = () =>
-  requestJson<{ ok: boolean; employees: PortalEmployeeItem[] }>('/api/dashboard/owner/employees/')
+  requestJson<{ ok: boolean; employees: PortalEmployeeItem[] }>(`${dashboardApiPrefix()}/employees/`)
     .then((response) => response.employees);
+
+export type DashboardShareLinkItem = {
+  id: string;
+  reportId: string;
+  reportName: string;
+  expiresAt: string | null;
+  disabledAt: string | null;
+  isAvailable: boolean;
+  fingerprint: string;
+  token?: string;
+};
+
+export type DashboardOwnerBootstrapResponse = ReportSettingsResponse & {
+  access: string;
+  viewerMode?: 'owner' | 'share' | 'none';
+  portal: { domain: string; memberId: string } | null;
+  selectedReportId: string | null;
+  refreshStatus: {
+    lastSuccessfulUpdateAt: string | null;
+    nextUpdateAt: string | null;
+    isRefreshing: boolean;
+    lastAttemptFailedAt: string | null;
+    lastErrorMessage: string;
+  } | null;
+  share?: DashboardShareLinkItem;
+};
+
+export const loadDashboardOwnerBootstrap = () =>
+  requestJson<DashboardOwnerBootstrapResponse>(`${dashboardApiPrefix()}/bootstrap/`);
+
+export const loadDashboardOwnerSettings = () =>
+  loadDashboardOwnerBootstrap().then((response) => ({
+    ok: response.ok,
+    settings: response.settings ?? {},
+    savedViews: Array.isArray(response.savedViews) ? response.savedViews : [],
+    appSettings: response.appSettings ?? {},
+    detailColumnWidths: {},
+    selectedReportId: response.selectedReportId,
+    refreshStatus: response.refreshStatus,
+    portal: response.portal,
+  }));
+
+export const endDashboardOwnerAccess = () =>
+  requestJson<{ ok: boolean; ended: boolean }>('/api/dashboard/owner/access/end/', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+
+export const requestDashboardOwnerRefresh = () =>
+  requestJson<{
+    ok: boolean;
+    accepted: boolean;
+    refreshStatus: DashboardOwnerBootstrapResponse['refreshStatus'];
+  }>('/api/dashboard/owner/refresh/', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+
+export const updateDashboardRefreshInterval = (refreshIntervalMinutes: 10 | 30 | 60) =>
+  requestJson<{
+    ok: boolean;
+    refreshIntervalMinutes: 10 | 30 | 60;
+    refreshStatus: DashboardOwnerBootstrapResponse['refreshStatus'];
+  }>('/api/dashboard/owner/refresh-interval/', {
+    method: 'POST',
+    body: JSON.stringify({ refreshIntervalMinutes }),
+  });
+
+export const openDashboardShareAccess = (shareToken: string) =>
+  requestJson<DashboardOwnerBootstrapResponse>('/api/dashboard/share/open/', {
+    method: 'POST',
+    body: JSON.stringify({ shareToken }),
+  });
+
+export const listDashboardShareLinks = () =>
+  requestJson<{ ok: boolean; shareLinks: DashboardShareLinkItem[] }>('/api/dashboard/owner/share-links/');
+
+export const createDashboardShareLink = (reportId: string, expiresInDays: number | null) =>
+  requestJson<{ ok: boolean; shareLink: DashboardShareLinkItem }>('/api/dashboard/owner/share-links/', {
+    method: 'POST',
+    body: JSON.stringify({ reportId, expiresInDays }),
+  });
+
+export const disableDashboardShareLink = (id: string) =>
+  requestJson<{ ok: boolean; shareLink: DashboardShareLinkItem }>('/api/dashboard/owner/share-links/disable/', {
+    method: 'POST',
+    body: JSON.stringify({ id }),
+  });
+
+export const invalidateDashboardReportCache = () => {
+  dashboardCatalogPromise = null;
+};

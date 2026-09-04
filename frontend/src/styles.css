@@ -118,6 +118,11 @@ button {
   min-width: 0;
 }
 
+.top-controls.is-readonly {
+  pointer-events: none;
+  opacity: 0.92;
+}
+
 .top-actions {
   flex: 0 1 auto;
   justify-content: flex-end;
@@ -3177,6 +3182,46 @@ body > .floating-popover {
   color: #a33131;
 }
 
+.report-update-status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  min-height: 38px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid #d8e6f3;
+  background: #f7fafc;
+  color: #31506c;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.report-update-status-bar em {
+  font-style: normal;
+  color: #a33131;
+}
+
+.report-update-now-button {
+  margin-left: auto;
+  height: 28px;
+  border: 1px solid #d6e0ee;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #8a94a3;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: default;
+}
+
+.report-update-now-button.is-active {
+  border-color: #2274ff;
+  background: #2274ff;
+  color: #ffffff;
+  cursor: pointer;
+}
+}
+
 .report-table-row.is-section-row.has-section-load-error {
   height: auto;
   min-height: var(--section-row-height);
@@ -5258,6 +5303,56 @@ body > .floating-popover {
 
 .app-settings-dashboard-card:hover {
   background: #fbfdff;
+}
+
+.app-settings-dashboard-card--stack {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.app-settings-share-form,
+.app-settings-share-url,
+.app-settings-share-list {
+  display: grid;
+  gap: 10px;
+}
+
+.app-settings-share-form label {
+  display: grid;
+  gap: 4px;
+  color: #6a7482;
+  font-size: 12px;
+}
+
+.app-settings-share-form select,
+.app-settings-share-url input {
+  min-height: 34px;
+  border: 1px solid #d6e0ee;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #202938;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.app-settings-share-url {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.app-settings-share-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-settings-share-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #5d6878;
+  font-size: 12px;
 }
 
 .app-settings-dashboard-card > div {

@@ -173,6 +173,7 @@ export function SavedViewsSelect({
   onSaveClick,
   onEdit,
   onDelete,
+  readOnly = false,
 }: {
   options: SavedReportViewOption[];
   value: string;
@@ -180,6 +181,7 @@ export function SavedViewsSelect({
   onSaveClick: () => void;
   onEdit: (value: string) => void;
   onDelete: (value: string) => void;
+  readOnly?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [actionsOpenFor, setActionsOpenFor] = useState<string | null>(null);
@@ -199,7 +201,13 @@ export function SavedViewsSelect({
         type="button"
         aria-label="Сохраненные отображения отчета"
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        disabled={readOnly}
+        onClick={() => {
+          if (readOnly) {
+            return;
+          }
+          setOpen((current) => !current);
+        }}
       >
         <span>{selected.label}</span>
         <ChevronDown size={16} />

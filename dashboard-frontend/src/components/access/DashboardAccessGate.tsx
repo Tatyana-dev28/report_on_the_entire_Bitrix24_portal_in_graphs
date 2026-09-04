@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import App from '../../../frontend/src/App';
+import App from '../../../../frontend/src/App';
 import {
   confirmOwnerDashboardAccess,
   loadOwnerDashboardBootstrap,
@@ -7,7 +7,7 @@ import {
 import {
   openDashboardShareAccess,
   setDashboardViewerMode,
-} from '../../../frontend/src/services/api/dashboardReportApiClient';
+} from '../../../../frontend/src/services/api/dashboardReportApiClient';
 import { AccessConfirmationCard } from './AccessConfirmationCard';
 
 const PORTAL_DOMAIN_STORAGE_KEY = 'sapp_dashboard_portal_domain';
@@ -71,7 +71,7 @@ export function DashboardAccessGate() {
           clearSearchParam('share');
           setStatus('share');
         })
-        .catch((loadError) => {
+        .catch((loadError: unknown) => {
           if (!active) {
             return;
           }

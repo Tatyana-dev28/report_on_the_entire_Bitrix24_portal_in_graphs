@@ -59,6 +59,46 @@ class OwnerDashboardBootstrapTests(TestCase):
                 "shareLinksMode": "view_only",
             },
         )
+        self.assertFalse(payload["hasPreparedData"])
+
+    def test_bootstrap_with_non_json_snapshot_values_does_not_500(self):
+        portal = BitrixPortal.objects.create(
+            member_id="nan-member",
+            domain="nan.bitrix24.ru",
+            protocol=BitrixPortal.Protocol.HTTPS,
+            status=BitrixPortal.Status.ACTIVE,
+        )
+        snapshot = DashboardPreparedSnapshot.objects.create(
+            portal=portal,
+            is_current=True,
+            settings_snapshot={"period": "days"},
+            saved_views_snapshot=[],
+            data={"preview": {"data": [{"key": "x"}]}},
+        )
+        snapshot.settings_snapshot = {
+            "period": "days",
+            "broken": float("nan"),
+            "infinite": float("inf"),
+        }
+        _session, raw_token = create_dashboard_access_session(
+            portal=portal,
+            user=None,
+            bitrix_user_id="42",
+            user_name="",
+            is_trusted_device=True,
+        )
+        self.client.cookies[DASHBOARD_ACCESS_COOKIE_NAME] = raw_token
+
+        from apps.dashboard.views import _bootstrap_payload, _dashboard_json_response
+
+        response = _dashboard_json_response(
+            _bootstrap_payload(access="authorized", portal=portal, snapshot=snapshot),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content)
+        self.assertEqual(payload["access"], "authorized")
+        self.assertIsNone(payload["settings"]["broken"])
 
 
 class DashboardRetentionTests(TestCase):

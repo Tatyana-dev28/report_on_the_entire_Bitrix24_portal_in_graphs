@@ -1,6 +1,9 @@
 import json
 import logging
-from datetime import timedelta
+import math
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
+from uuid import UUID
 
 from django.http import JsonResponse
 from django.db import transaction
@@ -53,6 +56,41 @@ from apps.dashboard.services.retention import prune_dashboard_history
 
 
 logger = logging.getLogger(__name__)
+
+
+def _json_ready(value):
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+
+    if isinstance(value, Decimal):
+        return float(value)
+
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+
+    if isinstance(value, UUID):
+        return str(value)
+
+    if isinstance(value, dict):
+        return {str(key): _json_ready(item) for key, item in value.items()}
+
+    if isinstance(value, (list, tuple, set)):
+        return [_json_ready(item) for item in value]
+
+    return str(value)
+
+
+def _dashboard_json_response(payload: dict, status: int = 200) -> JsonResponse:
+    return JsonResponse(
+        _json_ready(payload),
+        status=status,
+        json_dumps_params={"ensure_ascii": False, "default": str, "allow_nan": False},
+    )
 
 
 def _json_error(message: str, status: int = 400, details: dict | None = None) -> JsonResponse:
@@ -191,7 +229,7 @@ def _bootstrap_payload(*, access: str, portal=None, snapshot: DashboardPreparedS
             ),
         },
         "refreshStatus": build_refresh_status(portal) if portal else None,
-        "hasPreparedData": _snapshot_has_prepared_data(snapshot),
+        "hasPreparedData": _safe_has_prepared_data(snapshot),
         "refreshPolicy": {
             "defaultIntervalMinutes": DEFAULT_REFRESH_INTERVAL_MINUTES,
             "allowedIntervalMinutes": list(ALLOWED_REFRESH_INTERVAL_MINUTES),
@@ -413,6 +451,14 @@ def _snapshot_has_prepared_data(snapshot: DashboardPreparedSnapshot | None) -> b
     return bool(preview["data"] or preview["source_metrics"] or preview["employees"])
 
 
+def _safe_has_prepared_data(snapshot: DashboardPreparedSnapshot | None) -> bool:
+    try:
+        return _snapshot_has_prepared_data(snapshot)
+    except Exception:
+        logger.exception("Failed to detect prepared dashboard data")
+        return False
+
+
 def _safe_refresh_interval(value) -> int:
     try:
         interval = int(value)
@@ -427,19 +473,26 @@ def _safe_refresh_interval(value) -> int:
 
 @require_GET
 def owner_dashboard_bootstrap_view(request):
-    session = get_dashboard_access_session(request.COOKIES.get(DASHBOARD_ACCESS_COOKIE_NAME, ""))
+    try:
+        try:
+            session = get_dashboard_access_session(request.COOKIES.get(DASHBOARD_ACCESS_COOKIE_NAME, ""))
+        except Exception:
+            logger.exception("Dashboard access session lookup failed")
+            session = None
 
-    if session:
-        snapshot = _get_current_snapshot(session.portal)
-        return JsonResponse(
-            _bootstrap_payload(access="authorized", portal=session.portal, snapshot=snapshot),
-            json_dumps_params={"ensure_ascii": False},
+        if session:
+            snapshot = _get_current_snapshot(session.portal)
+            return _dashboard_json_response(
+                _bootstrap_payload(access="authorized", portal=session.portal, snapshot=snapshot),
+            )
+
+        return _dashboard_json_response(_bootstrap_payload(access="needs_confirmation"))
+    except Exception:
+        logger.exception("Dashboard owner bootstrap failed")
+        return _json_error(
+            "Не удалось открыть WEB-дашборд. Откройте его заново кнопкой в приложении Битрикс24.",
+            status=503,
         )
-
-    return JsonResponse(
-        _bootstrap_payload(access="needs_confirmation"),
-        json_dumps_params={"ensure_ascii": False},
-    )
 
 
 @csrf_exempt
@@ -498,19 +551,25 @@ def owner_access_confirm_view(request):
             )
         else:
             portal, user, bitrix_user_id, user_name = _resolve_owner_context(request, payload)
+
+        is_trusted_device = bool(payload.get("trusted"))
+        session, raw_token = create_dashboard_access_session(
+            portal=portal,
+            user=user,
+            bitrix_user_id=bitrix_user_id,
+            user_name=user_name,
+            is_trusted_device=is_trusted_device,
+            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+            ip_address=_client_ip(request),
+        )
     except ReportPreviewSessionError as error:
         return _json_error(str(error), status=error.status, details=error.details)
-
-    is_trusted_device = bool(payload.get("trusted"))
-    session, raw_token = create_dashboard_access_session(
-        portal=portal,
-        user=user,
-        bitrix_user_id=bitrix_user_id,
-        user_name=user_name,
-        is_trusted_device=is_trusted_device,
-        user_agent=request.META.get("HTTP_USER_AGENT", ""),
-        ip_address=_client_ip(request),
-    )
+    except Exception:
+        logger.exception("Dashboard access confirm failed")
+        return _json_error(
+            "Не удалось подтвердить вход в WEB-дашборд. Откройте его заново из приложения Битрикс24.",
+            status=503,
+        )
 
     response = JsonResponse(
         {

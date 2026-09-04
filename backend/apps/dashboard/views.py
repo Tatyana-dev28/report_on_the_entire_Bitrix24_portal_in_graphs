@@ -418,6 +418,7 @@ def _share_bootstrap_payload(link: DashboardShareLink, snapshot: DashboardPrepar
         },
         "share": serialize_share_link(link),
         "confirmationMethod": "share_link",
+        "hasPreparedData": _safe_has_prepared_data(snapshot),
     }
 
 

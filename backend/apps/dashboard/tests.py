@@ -1011,6 +1011,7 @@ class DashboardShareLinkTests(TestCase):
         self.assertEqual(len(payload["reports"]), 1)
         self.assertEqual(payload["reports"][0]["id"], "sales")
         self.assertEqual(payload["savedViews"][0]["value"], "sales")
+        self.assertTrue(payload["hasPreparedData"])
         self.assertIn(DASHBOARD_SHARE_COOKIE_NAME, response.cookies)
 
     def test_share_live_bootstrap_follows_new_snapshot(self):

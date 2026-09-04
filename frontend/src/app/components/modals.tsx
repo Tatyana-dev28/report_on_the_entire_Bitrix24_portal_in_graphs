@@ -14,6 +14,7 @@ import { formatMetricValue } from '../../services/report/reportCatalog';
 import { defaultDetailColumnWidths, detailColumnMinWidthSum, detailColumns } from '../constants';
 import type { AppSettings, DetailColumnKey, DetailContext, DetailRow, DetailSort, ReportEmployee } from '../types';
 import { TooltipButton, useOutsideClose, CustomSelect } from './common';
+import { copyTextToClipboard } from '../utils/copyTextToClipboard';
 import { getBitrixDetailRowPath, openBitrixDetailRow, openBitrixEntity, openBitrixUser } from '../utils/bitrixNavigation';
 import { normalizeDetailColumnWidths, resizeDetailColumnWidths, sumDetailColumnWidths } from '../utils/detailColumns';
 import { compareDetailValues, formatDetailContextSummary } from '../utils/detailRows';
@@ -869,6 +870,8 @@ export function AppSettingsModal({
   const [shareReportId, setShareReportId] = useState(selectedShareReportId);
   const [shareTtlDays, setShareTtlDays] = useState<number>(7);
   const [shareCopied, setShareCopied] = useState(false);
+  const shareUrlInputRef = useRef<HTMLInputElement>(null);
+  const shareCopiedTimerRef = useRef(0);
   const [draftSettings, setDraftSettings] = useState<AppSettings>(() => ({
     reportBuilderUserIds: resolveDefaultEmployeeIds(settings.reportBuilderUserIds, employees),
     moneyViewerUserIds: resolveDefaultEmployeeIds(settings.moneyViewerUserIds, employees),
@@ -880,6 +883,13 @@ export function AppSettingsModal({
     moneyViewerUserIds: settings.moneyViewerUserIds.length === 0,
     viewSaverUserIds: settings.viewSaverUserIds.length === 0,
   });
+
+  useEffect(() => {
+    setShareCopied(false);
+    window.clearTimeout(shareCopiedTimerRef.current);
+  }, [shareCreatedUrl]);
+
+  useEffect(() => () => window.clearTimeout(shareCopiedTimerRef.current), []);
 
   useEffect(() => {
     setShareReportId((current) => {
@@ -955,17 +965,20 @@ export function AppSettingsModal({
   };
 
   const copyShareUrl = async () => {
-    if (!shareCreatedUrl) {
+    const text = shareCreatedUrl || shareUrlInputRef.current?.value || '';
+    if (!text) {
       return;
     }
 
-    try {
-      await navigator.clipboard.writeText(shareCreatedUrl);
-      setShareCopied(true);
-      window.setTimeout(() => setShareCopied(false), 2000);
-    } catch {
-      setShareCopied(false);
+    const copied = await copyTextToClipboard(text, shareUrlInputRef.current);
+    if (!copied) {
+      shareUrlInputRef.current?.select();
+      return;
     }
+
+    setShareCopied(true);
+    window.clearTimeout(shareCopiedTimerRef.current);
+    shareCopiedTimerRef.current = window.setTimeout(() => setShareCopied(false), 1800);
   };
 
   const activeShareLinks = shareLinks.filter((link) => link.isAvailable);
@@ -1154,11 +1167,20 @@ export function AppSettingsModal({
                     {shareBusy ? 'Создаём...' : 'Создать ссылку'}
                   </button>
                   {shareCreatedUrl ? (
-                    <div className="app-settings-share-url">
-                      <input readOnly value={shareCreatedUrl} aria-label="Ссылка для получателя" />
-                      <button className="app-settings-card-button" type="button" onClick={() => void copyShareUrl()}>
-                        {shareCopied ? <CheckCircle2 size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
-                        {shareCopied ? 'Скопировано' : 'Копировать'}
+                    <div className={`app-settings-share-url${shareCopied ? ' is-copied' : ''}`}>
+                      <input
+                        ref={shareUrlInputRef}
+                        readOnly
+                        value={shareCreatedUrl}
+                        aria-label="Ссылка для получателя"
+                      />
+                      <button
+                        className="app-settings-share-copy"
+                        type="button"
+                        onClick={() => void copyShareUrl()}
+                      >
+                        <Copy size={13} aria-hidden="true" />
+                        Копировать
                       </button>
                     </div>
                   ) : null}
@@ -1173,12 +1195,13 @@ export function AppSettingsModal({
                               : ' · без срока'}
                           </span>
                           <button
-                            className="secondary-button"
+                            className="secondary-button app-settings-share-revoke"
                             type="button"
                             disabled={shareBusy}
+                            title="Ссылка перестанет открываться. Получатель больше не увидит отчёт."
                             onClick={() => onDisableShareLink?.(link.id)}
                           >
-                            Отключить
+                            Отозвать ссылку
                           </button>
                         </li>
                       ))}

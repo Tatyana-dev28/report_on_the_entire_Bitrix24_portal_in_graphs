@@ -40,14 +40,16 @@ export function UpdateStatusBar({ status, canRefresh = false, onRefresh }: Updat
           {status.lastErrorMessage ? `. ${status.lastErrorMessage}` : ''}
         </em>
       ) : null}
-      <button
-        type="button"
-        className={`report-update-now-button${refreshDisabled ? '' : ' is-active'}`}
-        disabled={refreshDisabled}
-        onClick={onRefresh}
-      >
-        Обновить сейчас
-      </button>
+      {canRefresh ? (
+        <button
+          type="button"
+          className={`report-update-now-button${refreshDisabled ? '' : ' is-active'}`}
+          disabled={refreshDisabled}
+          onClick={onRefresh}
+        >
+          Обновить сейчас
+        </button>
+      ) : null}
     </div>
   );
 }

@@ -7,6 +7,7 @@ const projectRoot = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
+  publicDir: resolve(projectRoot, '../frontend/public'),
   define: {
     'import.meta.env.VITE_APP_MODE': JSON.stringify('dashboard'),
     'import.meta.env.VITE_USE_MOCK_DATA': JSON.stringify(process.env.VITE_USE_MOCK_DATA ?? 'false'),

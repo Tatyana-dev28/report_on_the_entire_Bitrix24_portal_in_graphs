@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
+import sappLogoUrl from '../../../public/sapp-logo.svg?url';
 import type { SelectOption } from '../types';
 
 export function useOutsideClose<T extends HTMLElement>(
@@ -350,14 +351,15 @@ export function BrandLogo() {
       rel="noreferrer"
       aria-label="Открыть сайт САПП"
     >
-      {logoAvailable && (
+      {logoAvailable ? (
         <img
-          src="/sapp-logo.svg"
+          src={sappLogoUrl}
           alt="САПП"
           onError={() => setLogoAvailable(false)}
         />
+      ) : (
+        <span>САПП</span>
       )}
-      {!logoAvailable && <span>САПП</span>}
     </a>
   );
 }

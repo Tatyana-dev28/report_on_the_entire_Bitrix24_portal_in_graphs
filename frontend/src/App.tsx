@@ -2367,11 +2367,11 @@ function App() {
         proSettingsLoadSucceededRef.current = true;
         proSettingsLoadAttemptRef.current = 0;
         if (isDashboardMode) {
-          const hasPreparedData = 'hasPreparedData' in response
-            ? Boolean(response.hasPreparedData)
-            : true;
+          const hasPreparedData = Boolean(response.hasPreparedData)
+            || (getDashboardViewerMode() === 'share' && savedViewsData.length > 0);
           if (hasPreparedData) {
             setHasBuiltReport(true);
+            setReportBuildRequest((current) => current + 1);
           }
         }
       })
@@ -7048,27 +7048,44 @@ function App() {
         <header className="top-panel">
           <BrandLogo />
           <div className={`top-controls${isDashboardShareViewer ? ' is-readonly' : ''}`}>
-            <SavedViewsSelect
-              options={savedViews}
-              value={selectedView}
-              onChange={isDashboardShareViewer ? () => undefined : handleSavedViewChange}
-              onSaveClick={isDashboardShareViewer ? () => undefined : openSaveCurrentView}
-              onEdit={isDashboardShareViewer ? () => undefined : editSavedView}
-              onDelete={isDashboardShareViewer ? () => undefined : requestDeleteSavedView}
-              readOnly={isDashboardShareViewer}
-            />
-            <CustomSelect
-              options={periodOptions}
-              value={draftFilters.period}
-              onChange={handlePeriodChange}
-              ariaLabel="Фильтр периода"
-              className="period-select"
-            />
-            <DateRangePicker
-              period={draftFilters.period}
-              range={draftFilters.dateRange}
-              onChange={handleDateRangeChange}
-            />
+            {isDashboardShareViewer ? (
+              <span className="share-view-caption">
+                {savedViews.find((view) => view.value === selectedView)?.label
+                  ?? 'Сохранённый отчёт'}
+              </span>
+            ) : (
+              <SavedViewsSelect
+                options={savedViews}
+                value={selectedView}
+                onChange={handleSavedViewChange}
+                onSaveClick={openSaveCurrentView}
+                onEdit={editSavedView}
+                onDelete={requestDeleteSavedView}
+              />
+            )}
+            {isDashboardShareViewer ? (
+              <span className="share-view-meta">
+                {(periodOptions.find((option) => option.value === draftFilters.period)?.label
+                  ?? 'Группировка')}
+                {' · '}
+                {formatRangeLabel(draftFilters.period, draftFilters.dateRange)}
+              </span>
+            ) : (
+              <CustomSelect
+                options={periodOptions}
+                value={draftFilters.period}
+                onChange={handlePeriodChange}
+                ariaLabel="Фильтр периода"
+                className="period-select"
+              />
+            )}
+            {isDashboardShareViewer ? null : (
+              <DateRangePicker
+                period={draftFilters.period}
+                range={draftFilters.dateRange}
+                onChange={handleDateRangeChange}
+              />
+            )}
           </div>
           <div className="top-actions">
             {isDashboardShareViewer ? null : (

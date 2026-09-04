@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -11,12 +12,25 @@ from apps.bitrix.services.portal_tokens import make_portal_api_token
 from apps.dashboard.constants import (
     ALLOWED_REFRESH_INTERVAL_MINUTES,
     DASHBOARD_ACCESS_COOKIE_NAME,
+    DASHBOARD_SHARE_COOKIE_NAME,
     DEFAULT_REFRESH_INTERVAL_MINUTES,
     REFRESH_RUN_RETENTION_DAYS,
     SUCCESSFUL_SNAPSHOT_LIMIT,
 )
-from apps.dashboard.models import DashboardAccessSession, DashboardPreparedSnapshot, DashboardRefreshRun
+from apps.dashboard.models import (
+    DashboardAccessSession,
+    DashboardPreparedSnapshot,
+    DashboardRefreshRun,
+    DashboardShareLink,
+)
 from apps.dashboard.services.access_sessions import create_dashboard_access_session
+from apps.dashboard.services.refresh import (
+    DashboardRefreshError,
+    request_portal_refresh,
+    run_portal_refresh,
+    refresh_due_portals,
+    sync_portal_refresh_interval,
+)
 from apps.dashboard.services.retention import prune_dashboard_history
 
 
@@ -480,3 +494,455 @@ class DashboardAccessSessionApiTests(TestCase):
         self.assertEqual(refresh_status["lastSuccessfulUpdateAt"], finished_at.isoformat())
         self.assertEqual(refresh_status["nextUpdateAt"], next_planned_at.isoformat())
         self.assertFalse(refresh_status["isRefreshing"])
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class DashboardLaunchTokenApiTests(TestCase):
+    def setUp(self):
+        self.portal = BitrixPortal.objects.create(
+            member_id="test-member",
+            domain="test.bitrix24.ru",
+            protocol=BitrixPortal.Protocol.HTTPS,
+            status=BitrixPortal.Status.ACTIVE,
+        )
+        self.portal_token = make_portal_api_token(portal=self.portal, bitrix_user_id="42")
+        PortalAccess.objects.create(
+            portal=self.portal,
+            access_level=PortalAccess.AccessLevel.PRO,
+            has_pro=True,
+            is_lifetime=True,
+        )
+
+    def test_launch_link_requires_pro_and_portal_token(self):
+        response = self.client.post(
+            reverse("dashboard:owner-launch-link"),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_launch_link_returns_one_time_token_for_pro_owner(self):
+        response = self.client.post(
+            reverse("dashboard:owner-launch-link"),
+            data=json.dumps(
+                {
+                    "portalToken": self.portal_token,
+                    "bitrixUserId": "42",
+                    "bitrixUserName": "Test User",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["launchToken"])
+        self.assertEqual(payload["expiresInSeconds"], 300)
+
+    def test_confirm_accepts_launch_token_without_portal_token(self):
+        launch_response = self.client.post(
+            reverse("dashboard:owner-launch-link"),
+            data=json.dumps(
+                {
+                    "portalToken": self.portal_token,
+                    "bitrixUserId": "42",
+                    "bitrixUserName": "Test User",
+                }
+            ),
+            content_type="application/json",
+        )
+        launch_token = launch_response.json()["launchToken"]
+
+        response = self.client.post(
+            reverse("dashboard:owner-access-confirm"),
+            data=json.dumps({"trusted": True, "launchToken": launch_token}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["access"], "authorized")
+        self.assertTrue(DashboardAccessSession.objects.filter(bitrix_user_id="42").exists())
+
+        reused = self.client.post(
+            reverse("dashboard:owner-access-confirm"),
+            data=json.dumps({"trusted": True, "launchToken": launch_token}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(reused.status_code, 403)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False, REPORT_DATA_PROVIDER="empty")
+class DashboardRefreshTests(TestCase):
+    def setUp(self):
+        self.portal = BitrixPortal.objects.create(
+            member_id="refresh-member",
+            domain="refresh.bitrix24.ru",
+            protocol=BitrixPortal.Protocol.HTTPS,
+            status=BitrixPortal.Status.ACTIVE,
+        )
+        PortalAccess.objects.create(
+            portal=self.portal,
+            access_level=PortalAccess.AccessLevel.PRO,
+            has_pro=True,
+            is_lifetime=True,
+        )
+        self.snapshot = DashboardPreparedSnapshot.objects.create(
+            portal=self.portal,
+            is_current=True,
+            refresh_interval_minutes=10,
+            settings_snapshot={
+                "period": "days",
+                "dateRange": {"start": "2026-09-01", "end": "2026-09-03"},
+                "selectedSources": ["lead-default"],
+                "enabledMetricIdsBySection": {"leads": ["leads_created"]},
+            },
+            saved_views_snapshot=[{"value": "sales", "label": "Продажи", "isDefault": True}],
+            data={"preview": {"data": [{"key": "old", "values": {"leads_created": 1}}]}},
+        )
+
+    def test_refresh_without_snapshot_is_rejected(self):
+        DashboardPreparedSnapshot.objects.all().delete()
+
+        with self.assertRaises(DashboardRefreshError):
+            request_portal_refresh(portal=self.portal, enqueue=False)
+
+    def test_manual_refresh_is_locked_while_running(self):
+        first_run, accepted = request_portal_refresh(portal=self.portal, enqueue=False)
+
+        self.assertTrue(accepted)
+        self.assertEqual(first_run.status, DashboardRefreshRun.Status.PENDING)
+
+        second_run, second_accepted = request_portal_refresh(portal=self.portal, enqueue=False)
+
+        self.assertFalse(second_accepted)
+        self.assertEqual(second_run.id, first_run.id)
+        self.assertEqual(DashboardRefreshRun.objects.filter(portal=self.portal).count(), 1)
+
+    def test_successful_refresh_replaces_current_snapshot(self):
+        run, _accepted = request_portal_refresh(portal=self.portal, enqueue=False)
+        run_portal_refresh(run.id)
+
+        run.refresh_from_db()
+        self.snapshot.refresh_from_db()
+        current = DashboardPreparedSnapshot.objects.get(is_current=True)
+
+        self.assertEqual(run.status, DashboardRefreshRun.Status.SUCCESS)
+        self.assertFalse(self.snapshot.is_current)
+        self.assertNotEqual(current.id, self.snapshot.id)
+        self.assertIsNotNone(run.next_planned_at)
+
+    def test_failed_refresh_keeps_previous_snapshot(self):
+        provider = MagicMock()
+        provider.build_preview.side_effect = Exception("Bitrix24 API error")
+
+        run, _accepted = request_portal_refresh(portal=self.portal, enqueue=False)
+        with patch("apps.dashboard.services.refresh.get_report_data_provider", return_value=provider):
+            run_portal_refresh(run.id)
+
+        run.refresh_from_db()
+        self.snapshot.refresh_from_db()
+
+        self.assertEqual(run.status, DashboardRefreshRun.Status.FAILED)
+        self.assertTrue(self.snapshot.is_current)
+        self.assertIsNotNone(run.next_planned_at)
+        self.assertEqual(
+            DashboardPreparedSnapshot.objects.filter(portal=self.portal, is_current=True).count(),
+            1,
+        )
+
+    def test_due_portals_start_scheduled_refresh(self):
+        finished_at = timezone.now() - timedelta(minutes=20)
+        DashboardRefreshRun.objects.create(
+            portal=self.portal,
+            snapshot=self.snapshot,
+            status=DashboardRefreshRun.Status.SUCCESS,
+            finished_at=finished_at,
+            next_planned_at=timezone.now() - timedelta(minutes=1),
+        )
+
+        with patch("apps.dashboard.services.refresh.enqueue_dashboard_refresh", return_value="test-job"):
+            result = refresh_due_portals()
+
+        self.assertEqual(result["started"], 1)
+        self.assertTrue(
+            DashboardRefreshRun.objects.filter(
+                portal=self.portal,
+                trigger_type=DashboardRefreshRun.TriggerType.SCHEDULED,
+                status=DashboardRefreshRun.Status.PENDING,
+            ).exists()
+        )
+
+    def test_owner_refresh_endpoint_requires_session_and_starts_run(self):
+        _session, raw_token = create_dashboard_access_session(
+            portal=self.portal,
+            user=None,
+            bitrix_user_id="42",
+            user_name="",
+            is_trusted_device=True,
+        )
+        self.client.cookies[DASHBOARD_ACCESS_COOKIE_NAME] = raw_token
+
+        with patch("apps.dashboard.services.refresh.enqueue_dashboard_refresh", return_value="test-job"):
+            response = self.client.post(
+                reverse("dashboard:owner-refresh"),
+                data=json.dumps({}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["accepted"])
+        self.assertTrue(payload["refreshStatus"]["isRefreshing"])
+
+    def test_app_settings_interval_is_used_for_next_refresh(self):
+        from apps.reports.models import PortalReportSettings
+
+        PortalReportSettings.objects.create(
+            portal=self.portal,
+            app_settings={"dashboardRefreshIntervalMinutes": 30},
+        )
+        run, accepted = request_portal_refresh(portal=self.portal, enqueue=False)
+
+        self.assertTrue(accepted)
+        self.assertEqual(run.refresh_interval_minutes, 30)
+
+    def test_owner_can_change_refresh_interval_without_rebuild(self):
+        interval = sync_portal_refresh_interval(self.portal, 60)
+        self.snapshot.refresh_from_db()
+
+        self.assertEqual(interval, 60)
+        self.assertEqual(self.snapshot.refresh_interval_minutes, 60)
+
+        _session, raw_token = create_dashboard_access_session(
+            portal=self.portal,
+            user=None,
+            bitrix_user_id="42",
+            user_name="",
+            is_trusted_device=True,
+        )
+        self.client.cookies[DASHBOARD_ACCESS_COOKIE_NAME] = raw_token
+        response = self.client.post(
+            reverse("dashboard:owner-refresh-interval"),
+            data=json.dumps({"refreshIntervalMinutes": 30}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["refreshIntervalMinutes"], 30)
+        self.snapshot.refresh_from_db()
+        self.assertEqual(self.snapshot.refresh_interval_minutes, 30)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class DashboardShareLinkTests(TestCase):
+    def setUp(self):
+        self.portal = BitrixPortal.objects.create(
+            member_id="share-member",
+            domain="share.bitrix24.ru",
+            protocol=BitrixPortal.Protocol.HTTPS,
+            status=BitrixPortal.Status.ACTIVE,
+        )
+        self.portal_token = make_portal_api_token(portal=self.portal, bitrix_user_id="42")
+        PortalAccess.objects.create(
+            portal=self.portal,
+            access_level=PortalAccess.AccessLevel.PRO,
+            has_pro=True,
+            is_lifetime=True,
+        )
+        self.snapshot = DashboardPreparedSnapshot.objects.create(
+            portal=self.portal,
+            is_current=True,
+            refresh_interval_minutes=10,
+            settings_snapshot={"period": "days"},
+            saved_views_snapshot=[
+                {
+                    "value": "sales",
+                    "label": "Продажи",
+                    "isDefault": True,
+                    "state": {
+                        "appliedFilters": {"period": "days"},
+                        "draftFilters": {"period": "days"},
+                    },
+                },
+                {
+                    "value": "leads",
+                    "label": "Лиды",
+                },
+            ],
+            data={
+                "preview": {
+                    "data": [{"key": "2026-09-01", "values": {"leads_created": 7}}],
+                    "employees": [{"id": "42", "name": "Test User"}],
+                }
+            },
+        )
+
+    def _create_link(self, report_id="sales", expires_in_days=7):
+        response = self.client.post(
+            reverse("dashboard:owner-share-links"),
+            data=json.dumps(
+                {
+                    "portalToken": self.portal_token,
+                    "bitrixUserId": "42",
+                    "reportId": report_id,
+                    "expiresInDays": expires_in_days,
+                }
+            ),
+            content_type="application/json",
+        )
+        return response
+
+    def test_create_share_link_requires_pro_and_saved_report(self):
+        PortalAccess.objects.filter(portal=self.portal).delete()
+
+        response = self._create_link()
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(DashboardShareLink.objects.exists())
+
+    def test_create_share_link_returns_unguessable_token_once(self):
+        response = self._create_link()
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["shareLink"]
+        self.assertTrue(payload["token"])
+        self.assertEqual(payload["reportId"], "sales")
+        self.assertTrue(payload["isAvailable"])
+        self.assertEqual(DashboardShareLink.objects.count(), 1)
+        self.assertNotEqual(DashboardShareLink.objects.get().token_hash, payload["token"])
+
+    def test_share_open_returns_only_selected_report(self):
+        token = self._create_link().json()["shareLink"]["token"]
+
+        response = self.client.post(
+            reverse("dashboard:share-open"),
+            data=json.dumps({"shareToken": token}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["access"], "share")
+        self.assertEqual(payload["viewerMode"], "share")
+        self.assertEqual(payload["selectedReportId"], "sales")
+        self.assertEqual(len(payload["reports"]), 1)
+        self.assertEqual(payload["reports"][0]["id"], "sales")
+        self.assertEqual(payload["savedViews"][0]["value"], "sales")
+        self.assertIn(DASHBOARD_SHARE_COOKIE_NAME, response.cookies)
+
+    def test_share_live_bootstrap_follows_new_snapshot(self):
+        token = self._create_link().json()["shareLink"]["token"]
+        self.client.post(
+            reverse("dashboard:share-open"),
+            data=json.dumps({"shareToken": token}),
+            content_type="application/json",
+        )
+        self.snapshot.is_current = False
+        self.snapshot.save(update_fields=["is_current"])
+        DashboardPreparedSnapshot.objects.create(
+            portal=self.portal,
+            is_current=True,
+            saved_views_snapshot=[{"value": "sales", "label": "Продажи"}],
+            data={"preview": {"data": [{"key": "new", "values": {"leads_created": 21}}]}},
+        )
+
+        bootstrap = self.client.get(reverse("dashboard:share-bootstrap"))
+        preview = self.client.post(
+            reverse("dashboard:share-preview"),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(bootstrap.status_code, 200)
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.json()["data"][0]["values"]["leads_created"], 21)
+
+    def test_disabled_share_link_stops_immediately(self):
+        created = self._create_link().json()["shareLink"]
+        disable = self.client.post(
+            reverse("dashboard:owner-share-link-disable"),
+            data=json.dumps(
+                {
+                    "portalToken": self.portal_token,
+                    "bitrixUserId": "42",
+                    "id": created["id"],
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(disable.status_code, 200)
+        self.assertFalse(disable.json()["shareLink"]["isAvailable"])
+
+        opened = self.client.post(
+            reverse("dashboard:share-open"),
+            data=json.dumps({"shareToken": created["token"]}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(opened.status_code, 403)
+
+    def test_new_token_does_not_reactivate_disabled_link(self):
+        first = self._create_link().json()["shareLink"]
+        self.client.post(
+            reverse("dashboard:owner-share-link-disable"),
+            data=json.dumps(
+                {
+                    "portalToken": self.portal_token,
+                    "bitrixUserId": "42",
+                    "id": first["id"],
+                }
+            ),
+            content_type="application/json",
+        )
+        second = self._create_link().json()["shareLink"]
+
+        self.assertNotEqual(first["token"], second["token"])
+        self.assertEqual(
+            self.client.post(
+                reverse("dashboard:share-open"),
+                data=json.dumps({"shareToken": first["token"]}),
+                content_type="application/json",
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.post(
+                reverse("dashboard:share-open"),
+                data=json.dumps({"shareToken": second["token"]}),
+                content_type="application/json",
+            ).status_code,
+            200,
+        )
+
+    def test_expired_share_link_is_rejected(self):
+        token = self._create_link(expires_in_days=1).json()["shareLink"]["token"]
+        DashboardShareLink.objects.update(expires_at=timezone.now() - timedelta(minutes=1))
+
+        response = self.client.post(
+            reverse("dashboard:share-open"),
+            data=json.dumps({"shareToken": token}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_share_session_cannot_start_owner_refresh(self):
+        token = self._create_link().json()["shareLink"]["token"]
+        self.client.post(
+            reverse("dashboard:share-open"),
+            data=json.dumps({"shareToken": token}),
+            content_type="application/json",
+        )
+
+        response = self.client.post(
+            reverse("dashboard:owner-refresh"),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 401)

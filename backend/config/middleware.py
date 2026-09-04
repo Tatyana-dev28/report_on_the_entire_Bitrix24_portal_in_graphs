@@ -23,6 +23,7 @@ class CorsMiddleware:
 
         if self._is_allowed_origin(origin):
             response["Access-Control-Allow-Origin"] = origin
+            response["Access-Control-Allow-Credentials"] = "true"
             response["Access-Control-Allow-Methods"] = ", ".join(
                 getattr(settings, "CORS_ALLOWED_METHODS", ["GET", "POST", "OPTIONS"])
             )

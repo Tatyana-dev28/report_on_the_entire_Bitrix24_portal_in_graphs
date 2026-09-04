@@ -247,6 +247,12 @@ def report_settings_save_view(request):
         },
     )
 
+    from apps.dashboard.services.refresh import sync_portal_refresh_interval
+
+    interval_value = app_settings.get("dashboardRefreshIntervalMinutes")
+    if interval_value not in (None, ""):
+        sync_portal_refresh_interval(portal, interval_value)
+
     return JsonResponse(
         {
             "ok": True,

@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from apps.dashboard.models import (
     DashboardAccessSession,
+    DashboardOwnerLaunchToken,
     DashboardPreparedSnapshot,
     DashboardRefreshRun,
     DashboardShareLink,
@@ -52,6 +53,20 @@ class DashboardRefreshRunAdmin(admin.ModelAdmin):
     list_filter = ("trigger_type", "status", "refresh_interval_minutes")
     search_fields = ("portal__domain", "requested_by_bitrix_user_id", "error_message")
     readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(DashboardOwnerLaunchToken)
+class DashboardOwnerLaunchTokenAdmin(admin.ModelAdmin):
+    list_display = (
+        "portal",
+        "bitrix_user_id",
+        "expires_at",
+        "used_at",
+        "is_active",
+    )
+    list_filter = ("is_active",)
+    search_fields = ("portal__domain", "bitrix_user_id", "token_fingerprint")
+    readonly_fields = ("public_id", "created_at", "updated_at")
 
 
 @admin.register(DashboardShareLink)

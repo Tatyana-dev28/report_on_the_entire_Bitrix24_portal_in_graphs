@@ -318,6 +318,84 @@ class DashboardRefreshRun(BaseModel):
         return f"{self.portal.domain} — {self.trigger_type} — {self.status}"
 
 
+class DashboardOwnerLaunchToken(PublicBaseModel, ActiveModel):
+    """
+    Одноразовая ссылка запуска личного WEB-дашборда.
+
+    Выдаётся только из приложения внутри Битрикс24 и подтверждает личность
+    владельца без повторного portalToken в браузере дашборда.
+    """
+
+    portal = models.ForeignKey(
+        BitrixPortal,
+        on_delete=models.CASCADE,
+        related_name="dashboard_owner_launch_tokens",
+        verbose_name="Портал",
+    )
+    user = models.ForeignKey(
+        PortalUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="dashboard_owner_launch_tokens",
+        verbose_name="Пользователь",
+    )
+
+    bitrix_user_id = models.CharField(
+        max_length=100,
+        db_index=True,
+        verbose_name="ID пользователя в Битрикс24",
+    )
+    user_name = models.CharField(
+        max_length=350,
+        blank=True,
+        verbose_name="Имя пользователя",
+    )
+
+    token_hash = models.CharField(
+        max_length=128,
+        unique=True,
+        db_index=True,
+        verbose_name="Хэш токена запуска",
+    )
+    token_fingerprint = models.CharField(
+        max_length=16,
+        blank=True,
+        verbose_name="Отпечаток токена",
+    )
+
+    expires_at = models.DateTimeField(
+        db_index=True,
+        verbose_name="Срок действия",
+    )
+    used_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="Использован",
+    )
+
+    class Meta:
+        verbose_name = "Токен запуска WEB-дашборда"
+        verbose_name_plural = "Токены запуска WEB-дашборда"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["portal", "bitrix_user_id"], name="dash_launch_portal_uid_idx"),
+            models.Index(fields=["expires_at"], name="dash_launch_expires_idx"),
+            models.Index(fields=["used_at"], name="dash_launch_used_idx"),
+        ]
+
+    @property
+    def is_available(self):
+        if not self.is_active or self.used_at:
+            return False
+
+        return self.expires_at > timezone.now()
+
+    def __str__(self):
+        return f"{self.portal.domain} — launch {self.token_fingerprint or self.public_id}"
+
+
 class DashboardShareLink(PublicBaseModel, ActiveModel):
     """
     Расшаренная ссылка на один сохранённый отчёт.

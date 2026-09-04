@@ -49,6 +49,7 @@ from apps.reports.services.report_context import resolve_portal, resolve_user
 from apps.dashboard.services.refresh import (
     DashboardRefreshError,
     build_refresh_status,
+    get_current_snapshot,
     request_portal_refresh,
     sync_portal_refresh_interval,
 )
@@ -252,7 +253,7 @@ def _bootstrap_payload(*, access: str, portal=None, snapshot: DashboardPreparedS
         refresh_status = None
 
     try:
-        has_prepared = _safe_has_prepared_data(snapshot)
+        has_prepared = bool(snapshot and int(snapshot.payload_size_bytes or 0) > 0)
     except Exception:
         has_prepared = False
 
@@ -419,15 +420,8 @@ def _resolve_access_session(request) -> tuple[DashboardAccessSession | None, Jso
     return session, None
 
 
-def _get_current_snapshot(portal):
-    return (
-        DashboardPreparedSnapshot.objects.filter(portal=portal, is_current=True)
-        .order_by("-prepared_at")
-        .first()
-        or DashboardPreparedSnapshot.objects.filter(portal=portal)
-        .order_by("-prepared_at")
-        .first()
-    )
+def _get_current_snapshot(portal, *, load_data: bool = True):
+    return get_current_snapshot(portal, load_data=load_data)
 
 
 def _saved_reports_from_snapshot(snapshot: DashboardPreparedSnapshot | None) -> list[dict]:
@@ -531,7 +525,7 @@ def owner_dashboard_bootstrap_view(request):
 
     if session:
         try:
-            snapshot = _get_current_snapshot(session.portal)
+            snapshot = _get_current_snapshot(session.portal, load_data=False)
             return _dashboard_json_response(
                 _bootstrap_payload(access="authorized", portal=session.portal, snapshot=snapshot),
             )

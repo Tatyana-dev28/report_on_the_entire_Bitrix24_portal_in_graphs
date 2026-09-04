@@ -44,15 +44,14 @@ def build_refresh_status(portal: BitrixPortal | None) -> dict | None:
     if portal is None:
         return None
 
-    latest_run = DashboardRefreshRun.objects.filter(portal=portal).order_by("-created_at").first()
-    latest_success = (
-        DashboardRefreshRun.objects.filter(
-            portal=portal,
-            status=DashboardRefreshRun.Status.SUCCESS,
-            finished_at__isnull=False,
-        )
-        .order_by("-finished_at")
-        .first()
+    latest_run = _latest_refresh_run(portal)
+    latest_success = _latest_refresh_run(
+        portal,
+        extra_filters={
+            "status": DashboardRefreshRun.Status.SUCCESS,
+            "finished_at__isnull": False,
+        },
+        order_by="-finished_at",
     )
 
     if not latest_run and not latest_success:
@@ -87,15 +86,39 @@ def build_refresh_status(portal: BitrixPortal | None) -> dict | None:
     }
 
 
-def get_current_snapshot(portal: BitrixPortal) -> DashboardPreparedSnapshot | None:
-    return (
-        DashboardPreparedSnapshot.objects.filter(portal=portal, is_current=True)
-        .order_by("-prepared_at")
-        .first()
-        or DashboardPreparedSnapshot.objects.filter(portal=portal)
-        .order_by("-prepared_at")
-        .first()
+def _latest_row_id(queryset, order_by: str) -> int | None:
+    return queryset.order_by(order_by).values_list("pk", flat=True).first()
+
+
+def _latest_refresh_run(
+    portal: BitrixPortal,
+    *,
+    extra_filters: dict | None = None,
+    order_by: str = "-created_at",
+) -> DashboardRefreshRun | None:
+    queryset = DashboardRefreshRun.objects.filter(portal=portal)
+    if extra_filters:
+        queryset = queryset.filter(**extra_filters)
+    run_id = _latest_row_id(queryset, order_by)
+    if run_id is None:
+        return None
+    return DashboardRefreshRun.objects.defer("metadata").filter(pk=run_id).first()
+
+
+def get_current_snapshot(portal: BitrixPortal, *, load_data: bool = True) -> DashboardPreparedSnapshot | None:
+    snapshot_id = _latest_row_id(
+        DashboardPreparedSnapshot.objects.filter(portal=portal, is_current=True),
+        "-prepared_at",
+    ) or _latest_row_id(
+        DashboardPreparedSnapshot.objects.filter(portal=portal),
+        "-prepared_at",
     )
+    if snapshot_id is None:
+        return None
+    queryset = DashboardPreparedSnapshot.objects.filter(pk=snapshot_id)
+    if not load_data:
+        queryset = queryset.defer("data")
+    return queryset.first()
 
 
 def persist_refresh_settings(
@@ -301,7 +324,7 @@ def refresh_due_portals() -> dict:
     skipped = 0
 
     for portal in BitrixPortal.objects.filter(id__in=portal_ids, status=BitrixPortal.Status.ACTIVE):
-        last_run = DashboardRefreshRun.objects.filter(portal=portal).order_by("-created_at").first()
+        last_run = _latest_refresh_run(portal)
         if last_run and last_run.status in ACTIVE_REFRESH_STATUSES:
             skipped += 1
             continue
@@ -526,7 +549,7 @@ def sync_portal_refresh_interval(portal: BitrixPortal, minutes) -> int:
             report_settings.app_settings = app_settings
             report_settings.save(update_fields=["app_settings", "updated_at"])
 
-    latest_run = DashboardRefreshRun.objects.filter(portal=portal).order_by("-created_at").first()
+    latest_run = _latest_refresh_run(portal)
     if latest_run:
         latest_run.refresh_interval_minutes = interval
         update_fields = ["refresh_interval_minutes", "updated_at"]

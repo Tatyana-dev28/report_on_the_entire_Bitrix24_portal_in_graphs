@@ -13,12 +13,29 @@ import { jsPDF } from 'jspdf';
 import { formatMetricValue } from '../../services/report/reportCatalog';
 import { defaultDetailColumnWidths, detailColumnMinWidthSum, detailColumns } from '../constants';
 import type { AppSettings, DetailColumnKey, DetailContext, DetailRow, DetailSort, ReportEmployee } from '../types';
-import { TooltipButton, useOutsideClose } from './common';
+import { TooltipButton, useOutsideClose, CustomSelect } from './common';
 import { getBitrixDetailRowPath, openBitrixDetailRow, openBitrixEntity, openBitrixUser } from '../utils/bitrixNavigation';
 import { normalizeDetailColumnWidths, resizeDetailColumnWidths, sumDetailColumnWidths } from '../utils/detailColumns';
 import { compareDetailValues, formatDetailContextSummary } from '../utils/detailRows';
 import { getEmployeeFullName } from '../utils/employees';
 import type { BillingPlan } from '../../services/api/billingApiClient';
+
+const canAbsorbWheel = (element: HTMLElement, deltaY: number) => {
+  const overflowY = window.getComputedStyle(element).overflowY;
+  if (overflowY !== 'auto' && overflowY !== 'scroll') {
+    return false;
+  }
+
+  if (element.scrollHeight <= element.clientHeight + 1) {
+    return false;
+  }
+
+  if (deltaY < 0) {
+    return element.scrollTop > 0;
+  }
+
+  return element.scrollTop + element.clientHeight < element.scrollHeight - 1;
+};
 
 export function SaveViewModal({
   value,
@@ -794,9 +811,11 @@ export function AppSettingsModal({
   onClose,
   onOpenPro,
   dashboardUrl,
+  dashboardLaunchUrl = '',
   canOpenDashboard,
   isOpeningDashboard = false,
   onOpenDashboard,
+  onDashboardLaunchUsed,
   canRevokeDashboardAccess = false,
   onRevokeDashboardAccess,
   onEndDashboardSession,
@@ -815,9 +834,11 @@ export function AppSettingsModal({
   onClose: () => void;
   onOpenPro: () => void;
   dashboardUrl: string;
+  dashboardLaunchUrl?: string;
   canOpenDashboard: boolean;
   isOpeningDashboard?: boolean;
   onOpenDashboard?: () => void;
+  onDashboardLaunchUsed?: () => void;
   canRevokeDashboardAccess?: boolean;
   onRevokeDashboardAccess?: () => void;
   onEndDashboardSession?: () => void;
@@ -861,6 +882,24 @@ export function AppSettingsModal({
   });
 
   useEffect(() => {
+    const onWheel = (event: WheelEvent) => {
+      let node = event.target instanceof HTMLElement ? event.target : null;
+      while (node && node !== document.body && node !== document.documentElement) {
+        if (canAbsorbWheel(node, event.deltaY)) {
+          return;
+        }
+        node = node.parentElement;
+      }
+      event.preventDefault();
+    };
+
+    window.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    return () => {
+      window.removeEventListener('wheel', onWheel, true);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!employees.length) {
       return;
     }
@@ -895,17 +934,21 @@ export function AppSettingsModal({
     }));
   };
 
-  const openDashboard = () => {
+  const openDashboard = (event?: { preventDefault: () => void }) => {
+    if (!canOpenDashboard || isOpeningDashboard) {
+      event?.preventDefault();
+      return;
+    }
+
+    if (dashboardLaunchUrl) {
+      onDashboardLaunchUsed?.();
+      return;
+    }
+
+    event?.preventDefault();
     if (onOpenDashboard) {
       onOpenDashboard();
-      return;
     }
-
-    if (!canOpenDashboard || !dashboardUrl) {
-      return;
-    }
-
-    window.open(dashboardUrl, '_blank', 'noopener,noreferrer');
   };
 
   const copyShareUrl = async () => {
@@ -943,24 +986,27 @@ export function AppSettingsModal({
           </button>.
         </p>
         <div className="app-settings-fields">
-          <EmployeeMultiSelect
-            label="Сотрудники, которым разрешено строить отчеты:"
-            employees={employees}
-            selectedIds={draftSettings.reportBuilderUserIds}
-            onChange={(values) => updateField('reportBuilderUserIds', values)}
-          />
-          <EmployeeMultiSelect
-            label="Сотрудники, которым разрешено видеть показатели с деньгами:"
-            employees={employees}
-            selectedIds={draftSettings.moneyViewerUserIds}
-            onChange={(values) => updateField('moneyViewerUserIds', values)}
-          />
-          <EmployeeMultiSelect
-            label="Сотрудники, которым разрешено сохранять отображения отчета:"
-            employees={employees}
-            selectedIds={draftSettings.viewSaverUserIds}
-            onChange={(values) => updateField('viewSaverUserIds', values)}
-          />
+          <div className="app-settings-employee-fields">
+            <EmployeeMultiSelect
+              label="Сотрудники, которым разрешено строить отчеты:"
+              employees={employees}
+              selectedIds={draftSettings.reportBuilderUserIds}
+              onChange={(values) => updateField('reportBuilderUserIds', values)}
+            />
+            <EmployeeMultiSelect
+              label="Сотрудники, которым разрешено видеть показатели с деньгами:"
+              employees={employees}
+              selectedIds={draftSettings.moneyViewerUserIds}
+              onChange={(values) => updateField('moneyViewerUserIds', values)}
+            />
+            <EmployeeMultiSelect
+              label="Сотрудники, которым разрешено сохранять отображения отчета:"
+              employees={employees}
+              selectedIds={draftSettings.viewSaverUserIds}
+              onChange={(values) => updateField('viewSaverUserIds', values)}
+            />
+          </div>
+          <div className="app-settings-divider" role="separator" />
           <section className="app-settings-pro-section" aria-labelledby="app-settings-refresh-title">
             <div className="app-settings-pro-head">
               <Clock3 size={18} aria-hidden="true" />
@@ -1000,15 +1046,25 @@ export function AppSettingsModal({
                 </strong>
                 <span>Полный личный кабинет владельца со всеми сохранёнными отчётами.</span>
               </div>
-              <button
-                className="app-settings-card-button"
-                type="button"
-                onClick={openDashboard}
-                disabled={!canOpenDashboard || isOpeningDashboard}
-              >
-                <ExternalLink size={16} aria-hidden="true" />
-                {isOpeningDashboard ? 'Открываем...' : 'Открыть дашборд'}
-              </button>
+              {canOpenDashboard ? (
+                <a
+                  className="app-settings-card-button"
+                  href={dashboardLaunchUrl || undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-slider-ignore="true"
+                  onClick={openDashboard}
+                  aria-disabled={isOpeningDashboard}
+                >
+                  <ExternalLink size={16} aria-hidden="true" />
+                  {isOpeningDashboard ? 'Открываем...' : 'Открыть дашборд'}
+                </a>
+              ) : (
+                <button className="app-settings-card-button" type="button" disabled>
+                  <ExternalLink size={16} aria-hidden="true" />
+                  Открыть дашборд
+                </button>
+              )}
             </div>
             {canRevokeDashboardAccess ? (
               <div className="app-settings-dashboard-card">
@@ -1052,32 +1108,41 @@ export function AppSettingsModal({
                 <div className="app-settings-share-form">
                   <label>
                     Отчёт
-                    <select
+                    <CustomSelect
+                      className="app-settings-mini-select"
+                      menuClassName="select-menu app-settings-mini-menu"
+                      ariaLabel="Сохранённый отчёт"
                       value={shareReportId}
-                      onChange={(event) => setShareReportId(event.target.value)}
+                      options={[
+                        { value: '', label: 'Выберите сохранённый отчёт' },
+                        ...shareReports.map((report) => ({ value: report.id, label: report.name })),
+                      ]}
+                      onChange={setShareReportId}
                       disabled={shareBusy || shareReports.length === 0}
-                    >
-                      <option value="">Выберите сохранённый отчёт</option>
-                      {shareReports.map((report) => (
-                        <option key={report.id} value={report.id}>
-                          {report.name}
-                        </option>
-                      ))}
-                    </select>
+                      closeOnScroll={false}
+                      popoverPortalToBody
+                      expectedWidth={280}
+                      expectedHeight={220}
+                    />
                   </label>
                   <label>
                     Срок жизни
-                    <select
-                      value={shareTtlDays}
-                      onChange={(event) => setShareTtlDays(Number(event.target.value))}
+                    <CustomSelect
+                      className="app-settings-mini-select"
+                      menuClassName="select-menu app-settings-mini-menu"
+                      ariaLabel="Срок жизни ссылки"
+                      value={String(shareTtlDays)}
+                      options={shareTtlOptions.map((option) => ({
+                        value: String(option.value),
+                        label: option.label,
+                      }))}
+                      onChange={(value) => setShareTtlDays(Number(value))}
                       disabled={shareBusy}
-                    >
-                      {shareTtlOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      closeOnScroll={false}
+                      popoverPortalToBody
+                      expectedWidth={280}
+                      expectedHeight={220}
+                    />
                   </label>
                   <button
                     className="app-settings-card-button"

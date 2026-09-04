@@ -4856,6 +4856,7 @@ body > .floating-popover {
 .instruction-modal-layer,
 .app-settings-modal-layer {
   z-index: 5550;
+  overscroll-behavior: contain;
 }
 
 .instruction-modal-panel,
@@ -5197,6 +5198,18 @@ body > .floating-popover {
   min-height: 0;
   overflow: auto;
   padding-right: 4px;
+  overscroll-behavior: contain;
+}
+
+.app-settings-employee-fields {
+  display: grid;
+  gap: 12px;
+}
+
+.app-settings-divider {
+  height: 1px;
+  margin: 6px 0 2px;
+  background: #e6e9ee;
 }
 
 .app-settings-pro-section {
@@ -5323,6 +5336,46 @@ body > .floating-popover {
   font-size: 12px;
 }
 
+.app-settings-mini-select {
+  width: 100%;
+}
+
+.app-settings-mini-select .select-trigger {
+  min-height: 34px;
+  border-radius: 10px;
+  border-color: #d6e0ee;
+  padding: 0 18px 0 12px;
+  font-size: 13px;
+}
+
+.app-settings-mini-select .select-trigger svg {
+  flex: 0 0 auto;
+  margin-right: 2px;
+}
+
+.app-settings-mini-select .select-trigger:disabled {
+  color: #8a94a3;
+  cursor: default;
+  background: #ffffff;
+}
+
+.app-settings-mini-menu {
+  padding: 6px;
+  overscroll-behavior: contain;
+}
+
+.app-settings-mini-menu .select-option {
+  min-height: 32px;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.app-settings-mini-menu .select-option[aria-selected='true'] {
+  background: #eef6ff;
+  color: #185ec8;
+}
+
 .app-settings-share-form select,
 .app-settings-share-url input {
   min-height: 34px;
@@ -5391,20 +5444,25 @@ body > .floating-popover {
   font-size: 13px;
   font-weight: 700;
   line-height: 1;
+  text-decoration: none;
+  box-sizing: border-box;
+  cursor: pointer;
 }
 
-.app-settings-card-button:not(:disabled):hover {
+.app-settings-card-button:not(:disabled):not([aria-disabled='true']):hover {
   border-color: #1b63db;
   background: linear-gradient(180deg, #2a72ea 0%, #1b63db 100%);
   color: #ffffff;
 }
 
-.app-settings-card-button:disabled {
+.app-settings-card-button:disabled,
+.app-settings-card-button[aria-disabled='true'] {
   border-color: #d6e0ee;
   background: #ffffff;
   color: #8a94a3;
   cursor: default;
   box-shadow: none;
+  pointer-events: none;
 }
 
 .app-settings-dashboard-card .app-settings-soon-badge {

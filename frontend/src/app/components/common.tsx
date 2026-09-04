@@ -661,6 +661,7 @@ export function CustomSelect<T extends string>({
   popoverUpdateOnScroll = true,
   popoverContainer,
   popoverAllowVerticalOverflow = false,
+  disabled = false,
 }: {
   options: SelectOption<T>[];
   value: T;
@@ -680,6 +681,7 @@ export function CustomSelect<T extends string>({
   popoverUpdateOnScroll?: boolean;
   popoverContainer?: HTMLElement | null;
   popoverAllowVerticalOverflow?: boolean;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [frozenAnchorRect, setFrozenAnchorRect] = useState<Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'> | null>(null);
@@ -735,6 +737,9 @@ export function CustomSelect<T extends string>({
   };
 
   const toggleOpen = () => {
+    if (disabled) {
+      return;
+    }
     setOpen((current) => {
       const nextOpen = !current;
 
@@ -763,6 +768,7 @@ export function CustomSelect<T extends string>({
         type="button"
         aria-label={ariaLabel}
         aria-expanded={open}
+        disabled={disabled}
         onClick={toggleOpen}
       >
         <span>{selected.label}</span>

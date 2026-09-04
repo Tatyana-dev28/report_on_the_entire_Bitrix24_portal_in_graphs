@@ -2367,8 +2367,9 @@ function App() {
         proSettingsLoadSucceededRef.current = true;
         proSettingsLoadAttemptRef.current = 0;
         if (isDashboardMode) {
-          const hasPreparedData = Boolean(response.hasPreparedData)
-            || (getDashboardViewerMode() === 'share' && savedViewsData.length > 0);
+          const hasPreparedData = (
+            'hasPreparedData' in response && Boolean(response.hasPreparedData)
+          ) || (getDashboardViewerMode() === 'share' && savedViewsData.length > 0);
           if (hasPreparedData) {
             setHasBuiltReport(true);
             setReportBuildRequest((current) => current + 1);

@@ -150,6 +150,7 @@ import {
   openBitrixEntity,
   openBitrixUser,
 } from './app/utils/bitrixNavigation';
+import { openExternalBrowserUrl } from './app/utils/openExternalBrowser';
 import { AUTOMATIC_REPORT_PRESET } from './app/config/automaticReportPreset';
 import {
   MAIN_INDICATOR_DIRECTION_KEY,
@@ -562,6 +563,39 @@ const buildBackendDetailRows = (
 
 const areStringArraysEqual = (first: string[], second: string[]) =>
   first.length === second.length && first.every((value, index) => value === second[index]);
+
+const asSavedSourceIds = (value: unknown): string[] | null => {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  return value.map((item) => String(item));
+};
+
+const resolveSavedChartSourceIds = (settings: Record<string, unknown>): string[] | null => {
+  const fromChartKey = asSavedSourceIds(settings.chartSelectedSources);
+  if (fromChartKey) {
+    return fromChartKey;
+  }
+
+  const applied = settings.appliedFilters;
+  if (applied && typeof applied === 'object') {
+    const fromApplied = asSavedSourceIds((applied as { selectedSources?: unknown }).selectedSources);
+    if (fromApplied) {
+      return fromApplied;
+    }
+  }
+
+  const draft = settings.draftFilters;
+  if (draft && typeof draft === 'object') {
+    const fromDraft = asSavedSourceIds((draft as { selectedSources?: unknown }).selectedSources);
+    if (fromDraft) {
+      return fromDraft;
+    }
+  }
+
+  return asSavedSourceIds(settings.selectedSources);
+};
 
 const readValuesByPeriod = (
   valuesByPeriod: Record<string, number> | undefined,
@@ -1510,6 +1544,9 @@ function App() {
     lastErrorMessage: string;
   } | null>(null);
   const [dashboardOpening, setDashboardOpening] = useState(false);
+  const [dashboardLaunchUrl, setDashboardLaunchUrl] = useState('');
+  const dashboardLaunchExpiresAtRef = useRef(0);
+  const dashboardLaunchPrefetchRef = useRef<Promise<string> | null>(null);
   const [dashboardSnapshotEpoch, setDashboardSnapshotEpoch] = useState(0);
   const dashboardLastSuccessAtRef = useRef<string | null>(null);
   const dashboardRebuildInFlightRef = useRef(false);
@@ -2068,14 +2105,12 @@ function App() {
             }
           }
 
-          // Do not restore chart sources over an in-flight "Построить автоматически" preset.
-          if (
-            settings.selectedSources
-            && Array.isArray(settings.selectedSources)
-            && !protectAutoBuildResults
-          ) {
-            setDraftFilters((current) => ({ ...current, selectedSources: settings.selectedSources as string[] }));
-            setAppliedFilters((current) => ({ ...current, selectedSources: settings.selectedSources as string[] }));
+          // Chart sources live in chartSelectedSources / appliedFilters.
+          // Top-level selectedSources is often the table (dashboard rebuild payload).
+          const savedChartSources = resolveSavedChartSourceIds(settings);
+          if (savedChartSources && !protectAutoBuildResults) {
+            setDraftFilters((current) => ({ ...current, selectedSources: savedChartSources }));
+            setAppliedFilters((current) => ({ ...current, selectedSources: savedChartSources }));
           }
 
           let restoredSectionIds = new Set<string>();
@@ -4802,9 +4837,9 @@ function App() {
         settings: {
           period,
           dateRange,
-          selectedSources: [...entitySourceIds, ...pipelineSourceIds],
+          selectedSources: chartSources,
           chartSelectedSources: chartSources,
-          tableSelectedSources: pipelineSourceIds,
+          tableSelectedSources: [...entitySourceIds, ...pipelineSourceIds],
           enabledSectionIds: [...nextEnabledSectionIds],
           enabledMetricIdsBySection: Object.fromEntries(
             Object.entries(nextEnabledMetricIdsBySection).map(([sectionId, metricIds]) => [
@@ -6478,33 +6513,94 @@ function App() {
       });
   }, [billingHasPro, isDashboardShareViewer, isProUser, refreshPortalEmployees]);
 
+  const prefetchOwnerDashboardLaunchUrl = useCallback(() => {
+    if (isDashboardMode || !dashboardBaseUrl || !billingHasPro) {
+      setDashboardLaunchUrl('');
+      dashboardLaunchExpiresAtRef.current = 0;
+      return Promise.resolve('');
+    }
+
+    if (dashboardLaunchPrefetchRef.current) {
+      return dashboardLaunchPrefetchRef.current;
+    }
+
+    const request = createDashboardLaunchLink()
+      .then((response) => {
+        const url = `${dashboardBaseUrl}?launch=${encodeURIComponent(response.launchToken)}`;
+        setDashboardLaunchUrl(url);
+        dashboardLaunchExpiresAtRef.current = Date.now() + 4 * 60 * 1000;
+        return url;
+      })
+      .catch((error) => {
+        console.warn('[Dashboard] launch link was not prepared', error);
+        setDashboardLaunchUrl('');
+        dashboardLaunchExpiresAtRef.current = 0;
+        throw error;
+      })
+      .finally(() => {
+        if (dashboardLaunchPrefetchRef.current === request) {
+          dashboardLaunchPrefetchRef.current = null;
+        }
+      });
+
+    dashboardLaunchPrefetchRef.current = request;
+    return request;
+  }, [billingHasPro, dashboardBaseUrl]);
+
+  useEffect(() => {
+    if (!isAppSettingsOpen || isDashboardMode || !billingHasPro || !dashboardBaseUrl) {
+      return undefined;
+    }
+
+    void prefetchOwnerDashboardLaunchUrl().catch(() => undefined);
+    const intervalId = window.setInterval(() => {
+      void prefetchOwnerDashboardLaunchUrl().catch(() => undefined);
+    }, 90_000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [billingHasPro, dashboardBaseUrl, isAppSettingsOpen, prefetchOwnerDashboardLaunchUrl]);
+
+  const consumeOwnerDashboardLaunchUrl = useCallback(() => {
+    setDashboardLaunchUrl('');
+    dashboardLaunchExpiresAtRef.current = 0;
+    void prefetchOwnerDashboardLaunchUrl().catch(() => undefined);
+  }, [prefetchOwnerDashboardLaunchUrl]);
+
   const openOwnerDashboard = useCallback(() => {
     if (!dashboardBaseUrl) {
       setNotification('Адрес WEB-дашборда не настроен.');
       return;
     }
 
-    const popup = window.open('', '_blank');
-    setDashboardOpening(true);
-    createDashboardLaunchLink()
-      .then((response) => {
-        const url = `${dashboardBaseUrl}?launch=${encodeURIComponent(response.launchToken)}`;
-        if (popup) {
-          popup.location.href = url;
-          return;
-        }
+    const readyUrl =
+      dashboardLaunchUrl && Date.now() < dashboardLaunchExpiresAtRef.current
+        ? dashboardLaunchUrl
+        : '';
 
-        window.location.assign(url);
+    if (readyUrl) {
+      openExternalBrowserUrl(readyUrl);
+      setDashboardLaunchUrl('');
+      dashboardLaunchExpiresAtRef.current = 0;
+      void prefetchOwnerDashboardLaunchUrl().catch(() => undefined);
+      return;
+    }
+
+    setDashboardOpening(true);
+    prefetchOwnerDashboardLaunchUrl()
+      .then((url) => {
+        openExternalBrowserUrl(url);
+        setDashboardLaunchUrl('');
+        dashboardLaunchExpiresAtRef.current = 0;
       })
       .catch((error) => {
-        popup?.close();
-        console.warn('[Dashboard] launch link was not created', error);
         setNotification(error instanceof Error ? error.message : 'Не удалось открыть WEB-дашборд.');
       })
       .finally(() => {
         setDashboardOpening(false);
       });
-  }, [dashboardBaseUrl]);
+  }, [dashboardBaseUrl, dashboardLaunchUrl, prefetchOwnerDashboardLaunchUrl]);
 
   const revokeOwnerDashboardAccess = useCallback(() => {
     revokeDashboardAccessSessions()
@@ -6615,9 +6711,9 @@ function App() {
     requestDashboardOwnerRefresh({
       settings: {
         ...currentState,
-        selectedSources: [...tableSelectedSources, ...tableEntitySourceIds],
-        chartSelectedSources: appliedFilters.selectedSources,
-        tableSelectedSources: [...tableSelectedSources],
+        selectedSources: [...appliedFilters.selectedSources],
+        chartSelectedSources: [...appliedFilters.selectedSources],
+        tableSelectedSources: [...tableSelectedSources, ...tableEntitySourceIds],
       },
       savedViews: savedViews.map((view) => ({
         value: view.value,
@@ -8215,9 +8311,11 @@ function App() {
           onClose={() => setIsAppSettingsOpen(false)}
           onOpenPro={() => setIsProOpen(true)}
           dashboardUrl={dashboardBaseUrl}
+          dashboardLaunchUrl={dashboardLaunchUrl}
           canOpenDashboard={!isDashboardMode && isProUser && Boolean(dashboardBaseUrl)}
           isOpeningDashboard={dashboardOpening}
           onOpenDashboard={openOwnerDashboard}
+          onDashboardLaunchUsed={consumeOwnerDashboardLaunchUrl}
           canRevokeDashboardAccess={!isDashboardMode && isProUser}
           onRevokeDashboardAccess={revokeOwnerDashboardAccess}
           onEndDashboardSession={isDashboardMode && !isDashboardShareViewer ? endOwnerDashboardSession : undefined}

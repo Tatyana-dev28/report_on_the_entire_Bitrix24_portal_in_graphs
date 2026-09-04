@@ -724,7 +724,7 @@ class DashboardRefreshTests(TestCase):
             next_planned_at=timezone.now() - timedelta(minutes=20),
         )
         DashboardRefreshRun.objects.filter(pk=stale.pk).update(
-            created_at=timezone.now() - timedelta(minutes=50),
+            created_at=timezone.now() - timedelta(minutes=3),
         )
 
         recovered = recover_stale_refresh_runs()
@@ -733,6 +733,17 @@ class DashboardRefreshTests(TestCase):
         self.assertEqual(recovered, 1)
         self.assertEqual(stale.status, DashboardRefreshRun.Status.FAILED)
         self.assertLessEqual(stale.next_planned_at, timezone.now())
+
+        with patch("apps.dashboard.services.refresh.enqueue_dashboard_refresh", return_value="test-job"):
+            result = refresh_due_portals()
+
+        self.assertEqual(result["started"], 1)
+
+    def test_snapshot_without_refresh_run_becomes_due(self):
+        DashboardRefreshRun.objects.all().delete()
+        DashboardPreparedSnapshot.objects.filter(pk=self.snapshot.pk).update(
+            prepared_at=timezone.now() - timedelta(minutes=20),
+        )
 
         with patch("apps.dashboard.services.refresh.enqueue_dashboard_refresh", return_value="test-job"):
             result = refresh_due_portals()

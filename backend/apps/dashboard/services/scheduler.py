@@ -6,7 +6,7 @@ import threading
 import time
 
 from django.core.cache import cache
-from django.db import close_old_connections
+from django.db import close_old_connections, connection
 
 from apps.dashboard.constants import DASHBOARD_REFRESH_TICK_SECONDS
 
@@ -47,12 +47,13 @@ def _run_scheduler_loop() -> None:
 
 
 def _tick(interval: int) -> None:
-    if not cache.add(_LOCK_KEY, "1", timeout=max(20, interval - 5)):
-        return
-
     from apps.dashboard.services.refresh import refresh_due_portals
 
     close_old_connections()
+    if not _acquire_tick_lock(interval):
+        close_old_connections()
+        return
+
     try:
         result = refresh_due_portals()
         logger.info(
@@ -62,4 +63,27 @@ def _tick(interval: int) -> None:
             result.get("recovered", 0),
         )
     finally:
+        _release_tick_lock()
         close_old_connections()
+
+
+def _acquire_tick_lock(interval: int) -> bool:
+    timeout = max(20, int(interval) - 5)
+    if connection.vendor == "mysql":
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT GET_LOCK(%s, 0)", [_LOCK_KEY])
+            row = cursor.fetchone()
+        return bool(row and row[0] == 1)
+
+    return bool(cache.add(_LOCK_KEY, str(os.getpid()), timeout=timeout))
+
+
+def _release_tick_lock() -> None:
+    try:
+        if connection.vendor == "mysql":
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT RELEASE_LOCK(%s)", [_LOCK_KEY])
+            return
+        cache.delete(_LOCK_KEY)
+    except Exception:
+        logger.exception("Dashboard refresh scheduler failed to release tick lock")

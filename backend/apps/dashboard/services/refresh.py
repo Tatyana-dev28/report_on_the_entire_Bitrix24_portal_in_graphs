@@ -16,6 +16,7 @@ from apps.dashboard.constants import (
     ALLOWED_REFRESH_INTERVAL_MINUTES,
     DEFAULT_REFRESH_INTERVAL_MINUTES,
     STALE_ACTIVE_REFRESH_MINUTES,
+    STALE_PENDING_REFRESH_MINUTES,
 )
 from apps.dashboard.models import DashboardPreparedSnapshot, DashboardRefreshRun
 from apps.dashboard.services.retention import prune_dashboard_history
@@ -317,20 +318,19 @@ def run_portal_refresh(run_id: int) -> DashboardRefreshRun:
 def refresh_due_portals() -> dict:
     recovered = recover_stale_refresh_runs()
     now = timezone.now()
-    portal_ids = (
-        DashboardPreparedSnapshot.objects.filter(is_current=True)
-        .values_list("portal_id", flat=True)
-        .distinct()
-    )
+    snapshots = {
+        snapshot.portal_id: snapshot
+        for snapshot in DashboardPreparedSnapshot.objects.filter(is_current=True).defer("data")
+    }
     started = 0
     skipped = 0
 
-    for portal in BitrixPortal.objects.filter(id__in=portal_ids, status=BitrixPortal.Status.ACTIVE):
+    for portal in BitrixPortal.objects.filter(id__in=snapshots.keys(), status=BitrixPortal.Status.ACTIVE):
         last_run = _latest_refresh_run(portal)
         if last_run and last_run.status in ACTIVE_REFRESH_STATUSES:
             skipped += 1
             continue
-        if not last_run or not last_run.next_planned_at or last_run.next_planned_at > now:
+        if not _portal_refresh_is_due(portal, last_run, snapshots.get(portal.id), now):
             skipped += 1
             continue
 
@@ -351,17 +351,45 @@ def refresh_due_portals() -> dict:
     return {"started": started, "skipped": skipped, "recovered": recovered}
 
 
+def _portal_refresh_is_due(
+    portal: BitrixPortal,
+    last_run: DashboardRefreshRun | None,
+    snapshot: DashboardPreparedSnapshot | None,
+    now,
+) -> bool:
+    if last_run and last_run.next_planned_at:
+        return last_run.next_planned_at <= now
+
+    if snapshot is None:
+        return False
+
+    interval = resolve_portal_refresh_interval(portal, snapshot)
+    prepared_at = snapshot.prepared_at or now
+    return prepared_at + timedelta(minutes=interval) <= now
+
+
 def recover_stale_refresh_runs() -> int:
-    cutoff = timezone.now() - timedelta(minutes=STALE_ACTIVE_REFRESH_MINUTES)
-    stale_runs = list(
+    now = timezone.now()
+    pending_cutoff = now - timedelta(minutes=STALE_PENDING_REFRESH_MINUTES)
+    running_cutoff = now - timedelta(minutes=STALE_ACTIVE_REFRESH_MINUTES)
+    stale_ids = list(
+        DashboardRefreshRun.objects.filter(
+            status=DashboardRefreshRun.Status.PENDING,
+            started_at__isnull=True,
+            created_at__lt=pending_cutoff,
+        ).values_list("pk", flat=True)
+    ) + list(
         DashboardRefreshRun.objects.filter(
             status__in=ACTIVE_REFRESH_STATUSES,
-            created_at__lt=cutoff,
-        )
+            created_at__lt=running_cutoff,
+        ).values_list("pk", flat=True)
+    )
+    stale_runs = list(
+        DashboardRefreshRun.objects.filter(pk__in=set(stale_ids)).select_related("portal")
     )
     for run in stale_runs:
         _fail_run(run, "Обновление зависло и было остановлено. Следующее запустится по расписанию.")
-        run.next_planned_at = timezone.now()
+        run.next_planned_at = now
         run.save(update_fields=["next_planned_at", "updated_at"])
     return len(stale_runs)
 

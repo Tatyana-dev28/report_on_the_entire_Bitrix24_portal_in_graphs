@@ -195,7 +195,15 @@ def _flatten_settings_snapshot(settings) -> dict:
         return {}
 
     if isinstance(settings.get("period"), str):
-        return settings
+        flattened = dict(settings)
+        chart_sources = flattened.get("chartSelectedSources")
+        if not isinstance(chart_sources, list):
+            applied_inline = flattened.get("appliedFilters") if isinstance(flattened.get("appliedFilters"), dict) else {}
+            chart_sources = applied_inline.get("selectedSources")
+        if isinstance(chart_sources, list):
+            flattened["chartSelectedSources"] = chart_sources
+            flattened["selectedSources"] = chart_sources
+        return flattened
 
     applied = settings.get("appliedFilters") if isinstance(settings.get("appliedFilters"), dict) else {}
     draft = settings.get("draftFilters") if isinstance(settings.get("draftFilters"), dict) else {}
@@ -208,8 +216,12 @@ def _flatten_settings_snapshot(settings) -> dict:
 
     if isinstance(applied.get("selectedSources"), list):
         flattened["selectedSources"] = applied["selectedSources"]
-    if isinstance(filters.get("chartSelectedSources"), list):
+    if isinstance(settings.get("chartSelectedSources"), list):
+        flattened["chartSelectedSources"] = settings["chartSelectedSources"]
+        flattened["selectedSources"] = settings["chartSelectedSources"]
+    elif isinstance(filters.get("chartSelectedSources"), list):
         flattened["chartSelectedSources"] = filters["chartSelectedSources"]
+        flattened["selectedSources"] = filters["chartSelectedSources"]
     elif isinstance(applied.get("selectedSources"), list):
         flattened["chartSelectedSources"] = applied["selectedSources"]
 

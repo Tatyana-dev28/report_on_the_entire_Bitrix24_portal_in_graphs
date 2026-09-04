@@ -5,3 +5,4 @@ def post_fork(server, worker):
     from apps.dashboard.services.scheduler import start_dashboard_refresh_scheduler
 
     start_dashboard_refresh_scheduler()
+    server.log.info("Dashboard refresh scheduler hooked in worker pid=%s", worker.pid)

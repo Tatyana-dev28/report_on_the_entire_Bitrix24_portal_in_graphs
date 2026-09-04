@@ -43,6 +43,7 @@ from apps.dashboard.services.share_links import (
     get_dashboard_share_link,
     serialize_share_link,
 )
+from apps.reports.models import PortalReportSettings
 from apps.reports.services.exceptions import ReportPreviewSessionError
 from apps.reports.services.report_catalog import build_report_catalog
 from apps.reports.services.report_context import resolve_portal, resolve_user
@@ -50,6 +51,7 @@ from apps.dashboard.services.refresh import (
     DashboardRefreshError,
     build_refresh_status,
     get_current_snapshot,
+    persist_refresh_settings,
     request_portal_refresh,
     sync_portal_refresh_interval,
 )
@@ -305,19 +307,65 @@ def _bootstrap_payload(*, access: str, portal=None, snapshot: DashboardPreparedS
     }
 
 
-def _saved_view_by_id(snapshot: DashboardPreparedSnapshot | None, report_id: str) -> dict | None:
-    if not snapshot or not isinstance(snapshot.saved_views_snapshot, list):
+def _view_id(view: dict) -> str:
+    return str(view.get("value") or view.get("id") or view.get("stateKey") or "").strip()
+
+
+def _find_view_in_list(views, report_id: str) -> dict | None:
+    if not isinstance(views, list):
         return None
 
-    for view in snapshot.saved_views_snapshot:
-        if not isinstance(view, dict):
-            continue
+    report_id = str(report_id or "").strip()
+    if not report_id:
+        return None
 
-        view_id = str(view.get("value") or view.get("id") or view.get("stateKey") or "")
-        if view_id == str(report_id):
+    for view in views:
+        if isinstance(view, dict) and _view_id(view) == report_id:
             return view
 
     return None
+
+
+def _saved_view_by_id(snapshot: DashboardPreparedSnapshot | None, report_id: str) -> dict | None:
+    return _find_view_in_list(
+        snapshot.saved_views_snapshot if snapshot else None,
+        report_id,
+    )
+
+
+def _resolve_share_report_view(
+    *,
+    portal,
+    snapshot: DashboardPreparedSnapshot | None,
+    report_id: str,
+    payload: dict | None = None,
+) -> dict | None:
+    view = _saved_view_by_id(snapshot, report_id)
+    if view:
+        return view
+
+    payload = payload or {}
+    view = _find_view_in_list(payload.get("savedViews"), report_id)
+    if view:
+        return view
+
+    report_settings = PortalReportSettings.objects.filter(portal=portal).first()
+    if report_settings:
+        return _find_view_in_list(report_settings.saved_views, report_id)
+
+    return None
+
+
+def _ensure_snapshot_has_view(portal, snapshot: DashboardPreparedSnapshot | None, view: dict) -> None:
+    report_id = _view_id(view)
+    if not report_id:
+        return
+
+    current_views = list(snapshot.saved_views_snapshot) if snapshot and isinstance(snapshot.saved_views_snapshot, list) else []
+    if _find_view_in_list(current_views, report_id):
+        return
+
+    persist_refresh_settings(portal, saved_views=[*current_views, view])
 
 
 def _share_bootstrap_payload(link: DashboardShareLink, snapshot: DashboardPreparedSnapshot | None) -> dict:
@@ -983,7 +1031,12 @@ def _owner_share_links_create(request):
 
     snapshot = _get_current_snapshot(portal)
     report_id = str(payload.get("reportId") or payload.get("report_id") or "").strip()
-    view = _saved_view_by_id(snapshot, report_id)
+    view = _resolve_share_report_view(
+        portal=portal,
+        snapshot=snapshot,
+        report_id=report_id,
+        payload=payload,
+    )
     report_name = str(
         (view or {}).get("label")
         or (view or {}).get("name")
@@ -994,6 +1047,8 @@ def _owner_share_links_create(request):
 
     if not view:
         return _json_error("Сохранённый отчёт не найден. Сначала сохраните отображение отчёта.")
+
+    _ensure_snapshot_has_view(portal, snapshot, view)
 
     try:
         link, raw_token = create_dashboard_share_link(

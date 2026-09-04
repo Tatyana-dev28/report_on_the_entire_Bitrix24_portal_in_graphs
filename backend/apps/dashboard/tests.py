@@ -940,6 +940,60 @@ class DashboardShareLinkTests(TestCase):
         self.assertEqual(DashboardShareLink.objects.count(), 1)
         self.assertNotEqual(DashboardShareLink.objects.get().token_hash, payload["token"])
 
+    def test_create_share_link_accepts_report_saved_in_app_settings(self):
+        from apps.reports.models import PortalReportSettings
+
+        self.snapshot.saved_views_snapshot = []
+        self.snapshot.save(update_fields=["saved_views_snapshot", "updated_at"])
+        PortalReportSettings.objects.create(
+            portal=self.portal,
+            saved_views=[
+                {
+                    "value": "sales-local",
+                    "label": "Продажи локально",
+                    "state": {"appliedFilters": {"period": "days"}},
+                }
+            ],
+        )
+
+        response = self._create_link("sales-local")
+
+        self.assertEqual(response.status_code, 200)
+        self.snapshot.refresh_from_db()
+        self.assertTrue(
+            any(view.get("value") == "sales-local" for view in self.snapshot.saved_views_snapshot)
+        )
+
+    def test_create_share_link_accepts_report_sent_from_client(self):
+        self.snapshot.saved_views_snapshot = []
+        self.snapshot.save(update_fields=["saved_views_snapshot", "updated_at"])
+
+        response = self.client.post(
+            reverse("dashboard:owner-share-links"),
+            data=json.dumps(
+                {
+                    "portalToken": self.portal_token,
+                    "bitrixUserId": "42",
+                    "reportId": "from-ui",
+                    "reportName": "Отчёт из интерфейса",
+                    "expiresInDays": 7,
+                    "savedViews": [
+                        {
+                            "value": "from-ui",
+                            "label": "Отчёт из интерфейса",
+                            "state": {"appliedFilters": {"period": "weeks"}},
+                        }
+                    ],
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["shareLink"]["reportId"], "from-ui")
+        self.snapshot.refresh_from_db()
+        self.assertTrue(any(view.get("value") == "from-ui" for view in self.snapshot.saved_views_snapshot))
+
     def test_share_open_returns_only_selected_report(self):
         token = self._create_link().json()["shareLink"]["token"]
 

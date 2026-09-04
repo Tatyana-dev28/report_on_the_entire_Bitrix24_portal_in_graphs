@@ -15,6 +15,7 @@ from apps.bitrix.models import BitrixPortal
 from apps.dashboard.constants import (
     ALLOWED_REFRESH_INTERVAL_MINUTES,
     DEFAULT_REFRESH_INTERVAL_MINUTES,
+    STALE_ACTIVE_REFRESH_MINUTES,
 )
 from apps.dashboard.models import DashboardPreparedSnapshot, DashboardRefreshRun
 from apps.dashboard.services.retention import prune_dashboard_history
@@ -202,7 +203,7 @@ def request_portal_refresh(
         try:
             job_id = enqueue_dashboard_refresh(
                 run.id,
-                prefer_thread=trigger_type == DashboardRefreshRun.TriggerType.MANUAL,
+                prefer_thread=True,
             )
         except Exception as error:
             logger.exception("Failed to enqueue dashboard refresh %s", run.id)
@@ -314,6 +315,7 @@ def run_portal_refresh(run_id: int) -> DashboardRefreshRun:
 
 
 def refresh_due_portals() -> dict:
+    recovered = recover_stale_refresh_runs()
     now = timezone.now()
     portal_ids = (
         DashboardPreparedSnapshot.objects.filter(is_current=True)
@@ -346,7 +348,22 @@ def refresh_due_portals() -> dict:
         else:
             skipped += 1
 
-    return {"started": started, "skipped": skipped}
+    return {"started": started, "skipped": skipped, "recovered": recovered}
+
+
+def recover_stale_refresh_runs() -> int:
+    cutoff = timezone.now() - timedelta(minutes=STALE_ACTIVE_REFRESH_MINUTES)
+    stale_runs = list(
+        DashboardRefreshRun.objects.filter(
+            status__in=ACTIVE_REFRESH_STATUSES,
+            created_at__lt=cutoff,
+        )
+    )
+    for run in stale_runs:
+        _fail_run(run, "Обновление зависло и было остановлено. Следующее запустится по расписанию.")
+        run.next_planned_at = timezone.now()
+        run.save(update_fields=["next_planned_at", "updated_at"])
+    return len(stale_runs)
 
 
 def enqueue_dashboard_refresh(run_id: int, *, prefer_thread: bool = False) -> str:

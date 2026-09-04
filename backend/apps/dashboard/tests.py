@@ -29,6 +29,7 @@ from apps.dashboard.services.refresh import (
     request_portal_refresh,
     run_portal_refresh,
     refresh_due_portals,
+    recover_stale_refresh_runs,
     sync_portal_refresh_interval,
 )
 from apps.dashboard.services.retention import prune_dashboard_history
@@ -714,6 +715,29 @@ class DashboardRefreshTests(TestCase):
                 status=DashboardRefreshRun.Status.PENDING,
             ).exists()
         )
+
+    def test_stale_pending_run_is_recovered_so_schedule_can_continue(self):
+        stale = DashboardRefreshRun.objects.create(
+            portal=self.portal,
+            snapshot=self.snapshot,
+            status=DashboardRefreshRun.Status.PENDING,
+            next_planned_at=timezone.now() - timedelta(minutes=20),
+        )
+        DashboardRefreshRun.objects.filter(pk=stale.pk).update(
+            created_at=timezone.now() - timedelta(minutes=50),
+        )
+
+        recovered = recover_stale_refresh_runs()
+        stale.refresh_from_db()
+
+        self.assertEqual(recovered, 1)
+        self.assertEqual(stale.status, DashboardRefreshRun.Status.FAILED)
+        self.assertLessEqual(stale.next_planned_at, timezone.now())
+
+        with patch("apps.dashboard.services.refresh.enqueue_dashboard_refresh", return_value="test-job"):
+            result = refresh_due_portals()
+
+        self.assertEqual(result["started"], 1)
 
     def test_owner_refresh_endpoint_requires_session_and_starts_run(self):
         _session, raw_token = create_dashboard_access_session(

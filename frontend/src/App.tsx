@@ -6395,13 +6395,20 @@ function App() {
       return;
     }
 
+    const popup = window.open('', '_blank');
     setDashboardOpening(true);
     createDashboardLaunchLink()
       .then((response) => {
         const url = `${dashboardBaseUrl}?launch=${encodeURIComponent(response.launchToken)}`;
-        window.open(url, '_blank', 'noopener,noreferrer');
+        if (popup) {
+          popup.location.href = url;
+          return;
+        }
+
+        window.location.assign(url);
       })
       .catch((error) => {
+        popup?.close();
         console.warn('[Dashboard] launch link was not created', error);
         setNotification(error instanceof Error ? error.message : 'Не удалось открыть WEB-дашборд.');
       })

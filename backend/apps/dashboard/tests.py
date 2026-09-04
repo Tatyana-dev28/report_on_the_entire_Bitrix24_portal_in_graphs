@@ -1060,3 +1060,17 @@ class DashboardShareLinkTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 401)
+
+
+class DashboardSchedulerGuardTests(TestCase):
+    def test_gunicorn_workers_flag_does_not_disable_scheduler(self):
+        from apps.dashboard.apps import _should_start_refresh_scheduler
+
+        with patch("apps.dashboard.apps.sys.argv", ["/usr/bin/gunicorn", "--workers", "3", "config.wsgi:application"]):
+            self.assertTrue(_should_start_refresh_scheduler())
+
+    def test_manage_py_test_does_not_start_scheduler(self):
+        from apps.dashboard.apps import _should_start_refresh_scheduler
+
+        with patch("apps.dashboard.apps.sys.argv", ["manage.py", "test", "apps.dashboard"]):
+            self.assertFalse(_should_start_refresh_scheduler())

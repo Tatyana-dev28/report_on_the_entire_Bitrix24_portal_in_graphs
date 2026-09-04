@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 
@@ -12,30 +13,30 @@ from apps.dashboard.constants import DASHBOARD_REFRESH_TICK_SECONDS
 
 logger = logging.getLogger(__name__)
 _LOCK_KEY = "dashboard:refresh-due-lock"
-_started = False
+_started_for_pid: int | None = None
 _start_guard = threading.Lock()
 
 
 def start_dashboard_refresh_scheduler() -> None:
-    global _started
+    global _started_for_pid
 
+    pid = os.getpid()
     with _start_guard:
-        if _started:
+        if _started_for_pid == pid:
             return
-        _started = True
+        _started_for_pid = pid
 
     thread = threading.Thread(
         target=_run_scheduler_loop,
-        name="dashboard-refresh-scheduler",
+        name=f"dashboard-refresh-scheduler-{pid}",
         daemon=True,
     )
     thread.start()
-    logger.info("Dashboard refresh scheduler started")
+    logger.info("Dashboard refresh scheduler started pid=%s", pid)
 
 
 def _run_scheduler_loop() -> None:
     interval = max(30, int(DASHBOARD_REFRESH_TICK_SECONDS))
-    time.sleep(min(15, interval))
 
     while True:
         try:
@@ -54,12 +55,11 @@ def _tick(interval: int) -> None:
     close_old_connections()
     try:
         result = refresh_due_portals()
-        if result.get("started") or result.get("recovered"):
-            logger.info(
-                "Dashboard scheduled refresh started=%s skipped=%s recovered=%s",
-                result.get("started", 0),
-                result.get("skipped", 0),
-                result.get("recovered", 0),
-            )
+        logger.info(
+            "Dashboard scheduled refresh tick started=%s skipped=%s recovered=%s",
+            result.get("started", 0),
+            result.get("skipped", 0),
+            result.get("recovered", 0),
+        )
     finally:
         close_old_connections()

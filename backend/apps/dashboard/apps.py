@@ -18,19 +18,14 @@ class DashboardConfig(AppConfig):
 
 
 def _should_start_refresh_scheduler() -> bool:
-    argv = " ".join(sys.argv).lower()
-    skipped_commands = (
-        "test",
-        "migrate",
-        "makemigrations",
-        "shell",
-        "collectstatic",
-        "check",
-        "celery",
-        "worker",
-        "beat",
-    )
-    if any(command in argv for command in skipped_commands):
+    argv = [str(item).lower() for item in sys.argv]
+    joined = " ".join(argv)
+
+    if any(item.endswith("celery") or item == "celery" for item in argv):
+        return False
+    if "beat" in argv:
+        return False
+    if "manage.py" in joined and "runserver" not in joined:
         return False
 
     return True

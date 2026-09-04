@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import timedelta
 
 from django.http import JsonResponse
@@ -49,6 +50,9 @@ from apps.dashboard.services.refresh import (
     sync_portal_refresh_interval,
 )
 from apps.dashboard.services.retention import prune_dashboard_history
+
+
+logger = logging.getLogger(__name__)
 
 
 def _json_error(message: str, status: int = 400, details: dict | None = None) -> JsonResponse:
@@ -124,6 +128,13 @@ def _flatten_settings_snapshot(settings) -> dict:
         **filters,
     }
 
+    if isinstance(applied.get("selectedSources"), list):
+        flattened["selectedSources"] = applied["selectedSources"]
+    if isinstance(filters.get("chartSelectedSources"), list):
+        flattened["chartSelectedSources"] = filters["chartSelectedSources"]
+    elif isinstance(applied.get("selectedSources"), list):
+        flattened["chartSelectedSources"] = applied["selectedSources"]
+
     for key in (
         "tableSelectedSources",
         "enabledMetricIdsBySection",
@@ -180,6 +191,7 @@ def _bootstrap_payload(*, access: str, portal=None, snapshot: DashboardPreparedS
             ),
         },
         "refreshStatus": build_refresh_status(portal) if portal else None,
+        "hasPreparedData": _snapshot_has_prepared_data(snapshot),
         "refreshPolicy": {
             "defaultIntervalMinutes": DEFAULT_REFRESH_INTERVAL_MINUTES,
             "allowedIntervalMinutes": list(ALLOWED_REFRESH_INTERVAL_MINUTES),
@@ -396,6 +408,11 @@ def _snapshot_preview(snapshot: DashboardPreparedSnapshot | None) -> dict:
     }
 
 
+def _snapshot_has_prepared_data(snapshot: DashboardPreparedSnapshot | None) -> bool:
+    preview = _snapshot_preview(snapshot)
+    return bool(preview["data"] or preview["source_metrics"] or preview["employees"])
+
+
 def _safe_refresh_interval(value) -> int:
     try:
         interval = int(value)
@@ -525,10 +542,16 @@ def owner_catalog_view(request):
 
     snapshot = _get_current_snapshot(session.portal)
 
+    try:
+        catalog = _snapshot_catalog(snapshot, session.portal)
+    except Exception:
+        logger.exception("Dashboard catalog failed for portal %s", session.portal_id)
+        catalog = _snapshot_catalog(snapshot, None)
+
     return JsonResponse(
         {
             "ok": True,
-            **_snapshot_catalog(snapshot, session.portal),
+            **catalog,
         },
         json_dumps_params={"ensure_ascii": False},
     )
@@ -544,10 +567,25 @@ def owner_preview_view(request):
 
     snapshot = _get_current_snapshot(session.portal)
 
+    try:
+        preview = _snapshot_preview(snapshot)
+    except Exception:
+        logger.exception("Dashboard preview failed for portal %s", session.portal_id)
+        preview = {
+            "status": "empty",
+            "data": [],
+            "chart_data": [],
+            "employees": [],
+            "details": [],
+            "source_metrics": {},
+            "chart_source_metrics": {},
+            "metadata": {},
+        }
+
     return JsonResponse(
         {
             "ok": True,
-            **_snapshot_preview(snapshot),
+            **preview,
         },
         json_dumps_params={"ensure_ascii": False},
     )
@@ -667,14 +705,27 @@ def owner_refresh_view(request):
     if error_response:
         return error_response
 
+    payload, payload_error = _parse_json_body(request)
+
+    if payload_error:
+        return payload_error
+
+    settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else None
+    saved_views = payload.get("savedViews") if isinstance(payload.get("savedViews"), list) else None
+
     try:
         run, accepted = request_portal_refresh(
             portal=session.portal,
             trigger_type=DashboardRefreshRun.TriggerType.MANUAL,
             bitrix_user_id=session.bitrix_user_id,
+            settings=settings,
+            saved_views=saved_views,
         )
     except DashboardRefreshError as error:
         return _json_error(str(error), status=error.status)
+    except Exception:
+        logger.exception("Dashboard owner refresh failed for portal %s", session.portal_id)
+        return _json_error("Не удалось запустить обновление данных.", status=503)
 
     return JsonResponse(
         {

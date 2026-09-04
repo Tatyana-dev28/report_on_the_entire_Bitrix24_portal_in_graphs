@@ -1512,6 +1512,7 @@ function App() {
   const [dashboardOpening, setDashboardOpening] = useState(false);
   const [dashboardSnapshotEpoch, setDashboardSnapshotEpoch] = useState(0);
   const dashboardLastSuccessAtRef = useRef<string | null>(null);
+  const dashboardRebuildInFlightRef = useRef(false);
   const isDashboardShareViewer = isDashboardMode && getDashboardViewerMode() === 'share';
   const [dashboardShareBlocked, setDashboardShareBlocked] = useState(false);
   const [shareLinks, setShareLinks] = useState<DashboardShareLinkItem[]>([]);
@@ -2331,7 +2332,12 @@ function App() {
         proSettingsLoadSucceededRef.current = true;
         proSettingsLoadAttemptRef.current = 0;
         if (isDashboardMode) {
-          setHasBuiltReport(true);
+          const hasPreparedData = 'hasPreparedData' in response
+            ? Boolean(response.hasPreparedData)
+            : true;
+          if (hasPreparedData) {
+            setHasBuiltReport(true);
+          }
         }
       })
       .catch((error) => {
@@ -2526,6 +2532,13 @@ function App() {
 
   useEffect(() => {
     if (!hasBuiltReport) {
+      return undefined;
+    }
+
+    if (
+      isDashboardMode
+      && (dashboardRefreshStatus?.isRefreshing || dashboardRebuildInFlightRef.current)
+    ) {
       return undefined;
     }
 
@@ -4774,6 +4787,81 @@ function App() {
     setEmployeeThresholdsByMetricId({});
     immediateAutoSaveRef.current = true;
     setAutoSaveRequest((current) => current + 1);
+
+    if (isDashboardMode && !isDashboardShareViewer) {
+      if (dashboardRefreshStatus?.isRefreshing || dashboardRebuildInFlightRef.current) {
+        setNotification('Обновление уже выполняется.');
+        return;
+      }
+
+      const period = restoredManualDateFilters?.period ?? draftFilters.period;
+      const dateRange = restoredManualDateFilters?.dateRange ?? draftFilters.dateRange;
+      dashboardRebuildInFlightRef.current = true;
+      setNotification('Строим отчёт по текущим настройкам...');
+      requestDashboardOwnerRefresh({
+        settings: {
+          period,
+          dateRange,
+          selectedSources: [...entitySourceIds, ...pipelineSourceIds],
+          chartSelectedSources: chartSources,
+          tableSelectedSources: pipelineSourceIds,
+          enabledSectionIds: [...nextEnabledSectionIds],
+          enabledMetricIdsBySection: Object.fromEntries(
+            Object.entries(nextEnabledMetricIdsBySection).map(([sectionId, metricIds]) => [
+              sectionId,
+              [...metricIds],
+            ]),
+          ),
+          metricMode: chartMetricMode,
+          chartDisplayMode: 'sum',
+          schedule: {
+            ...chartSchedule,
+            weekendDayIds: [...chartSchedule.weekendDayIds],
+          },
+          draftFilters: serializeFilters({
+            ...draftFilters,
+            period,
+            dateRange,
+            selectedSources: chartSources,
+            enabledSectionIds: nextEnabledSectionIds,
+            metricMode: chartMetricMode,
+            chartDisplayMode: 'sum',
+            schedule: chartSchedule,
+          }),
+          appliedFilters: serializeFilters({
+            ...appliedFilters,
+            period,
+            dateRange,
+            selectedSources: chartSources,
+            enabledSectionIds: nextEnabledSectionIds,
+            metricMode: chartMetricMode,
+            chartDisplayMode: 'sum',
+            schedule: chartSchedule,
+          }),
+        },
+        savedViews: savedViews.map((view) => ({
+          value: view.value,
+          label: view.label,
+          isSystem: view.isSystem,
+          isDefault: view.value === selectedView,
+          state: view.state,
+        })),
+      })
+        .then((response) => {
+          setDashboardRefreshStatus(response.refreshStatus);
+          if (response.accepted) {
+            setNotification('Обновляем данные всего аккаунта...');
+          } else {
+            setNotification('Обновление уже выполняется.');
+          }
+        })
+        .catch((error) => {
+          dashboardRebuildInFlightRef.current = false;
+          setNotification(error instanceof Error ? error.message : 'Не удалось построить отчёт.');
+        });
+      return;
+    }
+
     // Empty chart selection stays empty — never expand to all/default sources.
     applyReportBuild(chartSources, {
       ...(restoredManualDateFilters ?? {}),
@@ -4783,17 +4871,18 @@ function App() {
     });
   }, [
     applyReportBuild,
+    appliedFilters,
     crmSources,
-    draftFilters.enabledSectionIds,
-    draftFilters.metricMode,
-    draftFilters.schedule,
-    draftFilters.selectedSources,
+    dashboardRefreshStatus?.isRefreshing,
+    draftFilters,
     draftTableSelectedSources,
     enabledMetricIdsBySection,
     endTemporaryAutoReportMode,
     metricSections,
     resetTemporaryReportUiState,
     sanitizeChartSources,
+    savedViews,
+    selectedView,
     tableRowChartsMode,
   ]);
 
@@ -6504,7 +6593,10 @@ function App() {
     const previousSuccess = dashboardLastSuccessAtRef.current;
     const nextSuccess = status?.lastSuccessfulUpdateAt ?? null;
     setDashboardRefreshStatus(status);
-    if (nextSuccess && previousSuccess && nextSuccess !== previousSuccess) {
+    if (!status?.isRefreshing) {
+      dashboardRebuildInFlightRef.current = false;
+    }
+    if (nextSuccess && nextSuccess !== previousSuccess) {
       invalidateDashboardReportCache();
       setDashboardSnapshotEpoch((current) => current + 1);
     }
@@ -6518,7 +6610,23 @@ function App() {
       return;
     }
 
-    requestDashboardOwnerRefresh()
+    dashboardRebuildInFlightRef.current = true;
+    const currentState = captureCurrentViewState();
+    requestDashboardOwnerRefresh({
+      settings: {
+        ...currentState,
+        selectedSources: [...tableSelectedSources, ...tableEntitySourceIds],
+        chartSelectedSources: appliedFilters.selectedSources,
+        tableSelectedSources: [...tableSelectedSources],
+      },
+      savedViews: savedViews.map((view) => ({
+        value: view.value,
+        label: view.label,
+        isSystem: view.isSystem,
+        isDefault: view.value === selectedView,
+        state: view.state,
+      })),
+    })
       .then((response) => {
         applyDashboardRefreshStatus(response.refreshStatus);
         if (response.accepted) {
@@ -6528,9 +6636,19 @@ function App() {
         }
       })
       .catch((error) => {
+        dashboardRebuildInFlightRef.current = false;
         setNotification(error instanceof Error ? error.message : 'Не удалось запустить обновление.');
       });
-  }, [applyDashboardRefreshStatus, dashboardRefreshStatus?.isRefreshing]);
+  }, [
+    applyDashboardRefreshStatus,
+    appliedFilters.selectedSources,
+    captureCurrentViewState,
+    dashboardRefreshStatus?.isRefreshing,
+    savedViews,
+    selectedView,
+    tableEntitySourceIds,
+    tableSelectedSources,
+  ]);
 
   useEffect(() => {
     if (!isDashboardMode) {

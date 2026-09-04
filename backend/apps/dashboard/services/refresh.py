@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from datetime import timedelta
 
@@ -24,6 +25,8 @@ from apps.reports.services.exceptions import ReportPreviewSessionError
 from apps.reports.services.filters import normalize_report_filters
 from apps.reports.services.report_catalog import build_report_catalog
 
+
+logger = logging.getLogger(__name__)
 
 ACTIVE_REFRESH_STATUSES = {
     DashboardRefreshRun.Status.PENDING,
@@ -95,21 +98,57 @@ def get_current_snapshot(portal: BitrixPortal) -> DashboardPreparedSnapshot | No
     )
 
 
+def persist_refresh_settings(
+    portal: BitrixPortal,
+    *,
+    settings: dict | None = None,
+    saved_views: list | None = None,
+) -> DashboardPreparedSnapshot:
+    snapshot = get_current_snapshot(portal)
+    interval = resolve_portal_refresh_interval(portal, snapshot)
+    settings_payload = settings if isinstance(settings, dict) else {}
+    views_payload = saved_views if isinstance(saved_views, list) else []
+
+    if snapshot is None:
+        return DashboardPreparedSnapshot.objects.create(
+            portal=portal,
+            prepared_at=timezone.now(),
+            is_current=True,
+            refresh_interval_minutes=interval,
+            settings_snapshot=settings_payload,
+            saved_views_snapshot=views_payload,
+            data={},
+            metadata={"source": "dashboard_settings_seed"},
+        )
+
+    if settings is not None:
+        snapshot.settings_snapshot = settings_payload
+    if saved_views is not None:
+        snapshot.saved_views_snapshot = views_payload
+    snapshot.save()
+    return snapshot
+
+
 def request_portal_refresh(
     *,
     portal: BitrixPortal,
     trigger_type: str = DashboardRefreshRun.TriggerType.MANUAL,
     bitrix_user_id: str = "",
     enqueue: bool = True,
+    settings: dict | None = None,
+    saved_views: list | None = None,
 ) -> tuple[DashboardRefreshRun, bool]:
     has_pro, error_message = _check_pro_access(portal)
     if not has_pro:
         raise DashboardRefreshError(error_message or "PRO-доступ не найден.", status=403)
 
+    if settings is not None or saved_views is not None:
+        persist_refresh_settings(portal, settings=settings, saved_views=saved_views)
+
     snapshot = get_current_snapshot(portal)
     if snapshot is None:
         raise DashboardRefreshError(
-            "Нет подготовленного снимка. Сначала постройте отчёт в приложении Битрикс24.",
+            "Нет настроек отчёта. Выберите показатели и нажмите «Построить».",
             status=400,
         )
 
@@ -137,8 +176,20 @@ def request_portal_refresh(
         )
 
     if enqueue:
-        job_id = enqueue_dashboard_refresh(run.id)
-        run.metadata = {**run.metadata, "jobId": job_id}
+        try:
+            job_id = enqueue_dashboard_refresh(
+                run.id,
+                prefer_thread=trigger_type == DashboardRefreshRun.TriggerType.MANUAL,
+            )
+        except Exception as error:
+            logger.exception("Failed to enqueue dashboard refresh %s", run.id)
+            _fail_run(run, "Не удалось запустить обновление. Попробуйте ещё раз.")
+            raise DashboardRefreshError(
+                "Не удалось запустить обновление данных.",
+                status=503,
+            ) from error
+
+        run.metadata = {**(run.metadata or {}), "jobId": job_id}
         run.save(update_fields=["metadata", "updated_at"])
 
     return run, True
@@ -233,7 +284,8 @@ def run_portal_refresh(run_id: int) -> DashboardRefreshRun:
 
         prune_dashboard_history(portal=portal)
     except Exception as error:
-        return _fail_run(run, str(error) or "Не удалось обновить данные Битрикс24.")
+        logger.exception("Dashboard refresh run %s failed", run.id)
+        return _fail_run(run, _friendly_refresh_error(error))
 
     return run
 
@@ -274,32 +326,25 @@ def refresh_due_portals() -> dict:
     return {"started": started, "skipped": skipped}
 
 
-def enqueue_dashboard_refresh(run_id: int) -> str:
+def enqueue_dashboard_refresh(run_id: int, *, prefer_thread: bool = False) -> str:
     backend = getattr(settings, "REPORT_BACKGROUND_BACKEND", "thread").lower()
 
-    if backend == "celery":
+    if not prefer_thread and backend == "celery":
         try:
             from apps.dashboard.tasks import run_dashboard_refresh_task
-        except ImportError as error:
-            raise ImproperlyConfigured(
-                "Celery is not installed. Install backend requirements or use REPORT_BACKGROUND_BACKEND=thread."
-            ) from error
 
-        async_result = run_dashboard_refresh_task.delay(run_id)
-        return f"celery:{async_result.id}"
+            async_result = run_dashboard_refresh_task.delay(run_id)
+            return f"celery:{async_result.id}"
+        except Exception:
+            logger.exception(
+                "Celery enqueue failed for dashboard refresh %s, falling back to a local thread",
+                run_id,
+            )
 
-    if backend != "thread":
+    if backend not in {"thread", "celery"}:
         raise ImproperlyConfigured("REPORT_BACKGROUND_BACKEND must be one of: thread, celery.")
 
-    job_id = f"local-thread:dashboard-refresh:{run_id}"
-    thread = threading.Thread(
-        target=_run_refresh_in_thread,
-        args=(run_id,),
-        name=f"dashboard-refresh-{run_id}",
-        daemon=True,
-    )
-    thread.start()
-    return job_id
+    return _start_refresh_thread(run_id)
 
 
 def build_refresh_filters(snapshot: DashboardPreparedSnapshot) -> dict:
@@ -364,12 +409,46 @@ def build_refresh_filters(snapshot: DashboardPreparedSnapshot) -> dict:
     return normalize_report_filters(payload)
 
 
+def _start_refresh_thread(run_id: int) -> str:
+    job_id = f"local-thread:dashboard-refresh:{run_id}"
+    thread = threading.Thread(
+        target=_run_refresh_in_thread,
+        args=(run_id,),
+        name=f"dashboard-refresh-{run_id}",
+        daemon=True,
+    )
+    thread.start()
+    return job_id
+
+
 def _run_refresh_in_thread(run_id: int) -> None:
     close_old_connections()
     try:
         run_portal_refresh(run_id)
     finally:
         close_old_connections()
+
+
+def _friendly_refresh_error(error: BaseException) -> str:
+    if isinstance(error, ReportPreviewSessionError):
+        return str(error)[:4000]
+
+    try:
+        from apps.bitrix.services.rest_client import BitrixRestError
+    except ImportError:
+        BitrixRestError = tuple()  # type: ignore[assignment]
+
+    if BitrixRestError and isinstance(error, BitrixRestError):
+        return "Битрикс24 не отдал данные для обновления. Попробуйте ещё раз через минуту."
+
+    text = str(error or "").strip()
+    lowered = text.lower()
+    if any(token in lowered for token in ("500", "502", "503", "timeout", "timed out")):
+        return (
+            "Битрикс24 временно не ответил. Предыдущий отчёт сохранён, попробуйте обновить ещё раз."
+        )
+
+    return (text or "Не удалось обновить данные Битрикс24.")[:4000]
 
 
 def _fail_run(run: DashboardRefreshRun, message: str) -> DashboardRefreshRun:
@@ -466,9 +545,9 @@ def _settings_for_new_snapshot(portal: BitrixPortal, snapshot: DashboardPrepared
 
     report_settings = PortalReportSettings.objects.filter(portal=portal).first()
     if report_settings:
-        if isinstance(report_settings.settings, dict) and report_settings.settings:
+        if not settings and isinstance(report_settings.settings, dict) and report_settings.settings:
             settings = report_settings.settings
-        if isinstance(report_settings.saved_views, list) and report_settings.saved_views:
+        if not saved_views and isinstance(report_settings.saved_views, list) and report_settings.saved_views:
             saved_views = report_settings.saved_views
 
     return settings, saved_views
@@ -489,6 +568,14 @@ def _flatten_settings(settings) -> dict:
         **applied,
         **filters,
     }
+
+    # ReportLoadFilters.selectedSources is the table; chart sources live in appliedFilters.
+    if isinstance(applied.get("selectedSources"), list):
+        flattened["selectedSources"] = applied["selectedSources"]
+    if isinstance(filters.get("chartSelectedSources"), list):
+        flattened["chartSelectedSources"] = filters["chartSelectedSources"]
+    elif isinstance(applied.get("selectedSources"), list):
+        flattened["chartSelectedSources"] = applied["selectedSources"]
 
     for key in ("tableSelectedSources", "enabledMetricIdsBySection", "selectedSources", "chartSelectedSources"):
         if key in settings and settings.get(key) is not None:

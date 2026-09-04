@@ -108,6 +108,7 @@ export type DashboardOwnerBootstrapResponse = ReportSettingsResponse & {
   viewerMode?: 'owner' | 'share' | 'none';
   portal: { domain: string; memberId: string } | null;
   selectedReportId: string | null;
+  hasPreparedData?: boolean;
   refreshStatus: {
     lastSuccessfulUpdateAt: string | null;
     nextUpdateAt: string | null;
@@ -129,6 +130,7 @@ export const loadDashboardOwnerSettings = () =>
     appSettings: response.appSettings ?? {},
     detailColumnWidths: {},
     selectedReportId: response.selectedReportId,
+    hasPreparedData: Boolean(response.hasPreparedData),
     refreshStatus: response.refreshStatus,
     portal: response.portal,
   }));
@@ -139,14 +141,17 @@ export const endDashboardOwnerAccess = () =>
     body: JSON.stringify({}),
   });
 
-export const requestDashboardOwnerRefresh = () =>
+export const requestDashboardOwnerRefresh = (payload: {
+  settings?: Record<string, unknown>;
+  savedViews?: Array<Record<string, unknown>>;
+} = {}) =>
   requestJson<{
     ok: boolean;
     accepted: boolean;
     refreshStatus: DashboardOwnerBootstrapResponse['refreshStatus'];
   }>('/api/dashboard/owner/refresh/', {
     method: 'POST',
-    body: JSON.stringify({}),
+    body: JSON.stringify(payload),
   });
 
 export const updateDashboardRefreshInterval = (refreshIntervalMinutes: 10 | 30 | 60) =>

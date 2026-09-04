@@ -698,6 +698,56 @@ class DashboardRefreshTests(TestCase):
         self.assertTrue(payload["accepted"])
         self.assertTrue(payload["refreshStatus"]["isRefreshing"])
 
+    def test_refresh_with_settings_creates_snapshot_when_missing(self):
+        DashboardPreparedSnapshot.objects.all().delete()
+
+        run, accepted = request_portal_refresh(
+            portal=self.portal,
+            enqueue=False,
+            settings={
+                "period": "days",
+                "dateRange": {"start": "2026-09-01", "end": "2026-09-03"},
+                "selectedSources": ["lead-default"],
+                "chartSelectedSources": ["lead-default"],
+                "enabledMetricIdsBySection": {"leads": ["leads_created"]},
+            },
+        )
+
+        self.assertTrue(accepted)
+        self.assertTrue(DashboardPreparedSnapshot.objects.filter(portal=self.portal, is_current=True).exists())
+        self.assertEqual(run.status, DashboardRefreshRun.Status.PENDING)
+
+    def test_owner_refresh_saves_settings_and_does_not_500_when_enqueue_fails(self):
+        _session, raw_token = create_dashboard_access_session(
+            portal=self.portal,
+            user=None,
+            bitrix_user_id="42",
+            user_name="",
+            is_trusted_device=True,
+        )
+        self.client.cookies[DASHBOARD_ACCESS_COOKIE_NAME] = raw_token
+
+        with patch(
+            "apps.dashboard.services.refresh.enqueue_dashboard_refresh",
+            side_effect=RuntimeError("redis down"),
+        ):
+            response = self.client.post(
+                reverse("dashboard:owner-refresh"),
+                data=json.dumps({
+                    "settings": {
+                        "period": "weeks",
+                        "selectedSources": ["deal-default"],
+                        "chartSelectedSources": ["deal-default"],
+                    }
+                }),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(response.json()["ok"])
+        self.snapshot.refresh_from_db()
+        self.assertEqual(self.snapshot.settings_snapshot["period"], "weeks")
+
     def test_app_settings_interval_is_used_for_next_refresh(self):
         from apps.reports.models import PortalReportSettings
 

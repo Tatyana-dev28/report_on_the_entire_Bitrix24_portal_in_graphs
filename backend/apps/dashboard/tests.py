@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as datetime_timezone
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
@@ -26,6 +26,8 @@ from apps.dashboard.models import (
 from apps.dashboard.services.access_sessions import create_dashboard_access_session
 from apps.dashboard.services.refresh import (
     DashboardRefreshError,
+    build_refresh_status,
+    enqueue_dashboard_refresh,
     request_portal_refresh,
     run_portal_refresh,
     refresh_due_portals,
@@ -532,8 +534,13 @@ class DashboardAccessSessionApiTests(TestCase):
 
         refresh_status = response.json()["refreshStatus"]
 
-        self.assertEqual(refresh_status["lastSuccessfulUpdateAt"], finished_at.isoformat())
-        self.assertEqual(refresh_status["nextUpdateAt"], next_planned_at.isoformat())
+        self.assertTrue(refresh_status["lastSuccessfulUpdateAt"].endswith("Z"))
+        self.assertTrue(refresh_status["nextUpdateAt"].endswith("Z"))
+        self.assertEqual(
+            refresh_status["lastSuccessfulUpdateAt"],
+            snapshot.prepared_at.astimezone(datetime_timezone.utc).isoformat().replace("+00:00", "Z"),
+        )
+        self.assertGreater(refresh_status["nextUpdateAt"], refresh_status["lastSuccessfulUpdateAt"])
         self.assertFalse(refresh_status["isRefreshing"])
 
 
@@ -772,6 +779,42 @@ class DashboardRefreshTests(TestCase):
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["accepted"])
         self.assertTrue(payload["refreshStatus"]["isRefreshing"])
+
+    def test_refresh_status_includes_current_snapshot_time(self):
+        status = build_refresh_status(self.portal)
+
+        self.assertTrue(status["snapshotPreparedAt"].endswith("Z"))
+        self.assertEqual(
+            status["snapshotPreparedAt"],
+            self.snapshot.prepared_at.astimezone(datetime_timezone.utc).isoformat().replace("+00:00", "Z"),
+        )
+
+    def test_past_next_update_is_rolled_forward(self):
+        past = timezone.now() - timedelta(hours=5)
+        self.snapshot.prepared_at = past
+        self.snapshot.save(update_fields=["prepared_at"])
+        DashboardRefreshRun.objects.create(
+            portal=self.portal,
+            snapshot=self.snapshot,
+            status=DashboardRefreshRun.Status.SUCCESS,
+            finished_at=past,
+            next_planned_at=past + timedelta(minutes=10),
+        )
+
+        status = build_refresh_status(self.portal)
+        next_at = datetime.fromisoformat(status["nextUpdateAt"].replace("Z", "+00:00"))
+
+        self.assertGreater(next_at, timezone.now() - timedelta(seconds=2))
+
+    @override_settings(REPORT_BACKGROUND_BACKEND="celery")
+    def test_enqueue_uses_celery_when_configured(self):
+        celery_result = MagicMock(id="celery-job")
+        with patch("apps.dashboard.tasks.run_dashboard_refresh_task") as task:
+            task.delay.return_value = celery_result
+            job_id = enqueue_dashboard_refresh(91)
+
+        self.assertEqual(job_id, "celery:celery-job")
+        task.delay.assert_called_once_with(91)
 
     def test_refresh_with_settings_creates_snapshot_when_missing(self):
         DashboardPreparedSnapshot.objects.all().delete()

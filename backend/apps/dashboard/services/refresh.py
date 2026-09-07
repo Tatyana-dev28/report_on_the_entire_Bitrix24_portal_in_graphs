@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from datetime import timedelta
+from datetime import timedelta, timezone as datetime_timezone
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -42,6 +42,43 @@ class DashboardRefreshError(Exception):
         self.status = status
 
 
+def _aware_datetime(value):
+    if value is None:
+        return None
+    if timezone.is_naive(value):
+        return timezone.make_aware(value, timezone.get_current_timezone())
+    return value
+
+
+def _iso_utc(value) -> str | None:
+    aware = _aware_datetime(value)
+    if aware is None:
+        return None
+    return aware.astimezone(datetime_timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _next_planned_update_at(portal: BitrixPortal, snapshot: DashboardPreparedSnapshot | None, latest_success):
+    interval = resolve_portal_refresh_interval(portal, snapshot)
+    now = timezone.now()
+    planned = _aware_datetime(latest_success.next_planned_at) if latest_success else None
+    if planned and planned > now:
+        return planned
+
+    base = _aware_datetime(snapshot.prepared_at if snapshot else None) or (
+        _aware_datetime(latest_success.finished_at) if latest_success else None
+    )
+    if base is None:
+        return now + timedelta(minutes=interval)
+
+    step = timedelta(minutes=interval)
+    elapsed = (now - base).total_seconds()
+    if elapsed <= 0:
+        return base + step
+
+    steps = int(elapsed // step.total_seconds()) + 1
+    return base + (step * steps)
+
+
 def build_refresh_status(portal: BitrixPortal | None) -> dict | None:
     if portal is None:
         return None
@@ -55,26 +92,31 @@ def build_refresh_status(portal: BitrixPortal | None) -> dict | None:
         },
         order_by="-finished_at",
     )
+    snapshot = get_current_snapshot(portal, load_data=False)
 
-    if not latest_run and not latest_success:
+    if not latest_run and not latest_success and not snapshot:
         return None
 
+    updated_at = None
+    if snapshot and snapshot.prepared_at:
+        updated_at = snapshot.prepared_at
+    elif latest_success:
+        updated_at = latest_success.finished_at
+
+    if latest_run and latest_run.status == DashboardRefreshRun.Status.FAILED and latest_run.next_planned_at:
+        next_update_at = _aware_datetime(latest_run.next_planned_at)
+        if next_update_at and next_update_at <= timezone.now():
+            next_update_at = _next_planned_update_at(portal, snapshot, latest_success)
+    else:
+        next_update_at = _next_planned_update_at(portal, snapshot, latest_success)
+
     return {
-        "lastSuccessfulUpdateAt": latest_success.finished_at.isoformat() if latest_success else None,
-        "nextUpdateAt": (
-            latest_run.next_planned_at.isoformat()
-            if latest_run
-            and latest_run.status == DashboardRefreshRun.Status.FAILED
-            and latest_run.next_planned_at
-            else (
-                latest_success.next_planned_at.isoformat()
-                if latest_success and latest_success.next_planned_at
-                else None
-            )
-        ),
+        "lastSuccessfulUpdateAt": _iso_utc(updated_at),
+        "snapshotPreparedAt": _iso_utc(snapshot.prepared_at if snapshot else None),
+        "nextUpdateAt": _iso_utc(next_update_at),
         "isRefreshing": bool(latest_run and latest_run.status in ACTIVE_REFRESH_STATUSES),
-        "lastAttemptFailedAt": (
-            latest_run.finished_at.isoformat()
+        "lastAttemptFailedAt": _iso_utc(
+            latest_run.finished_at
             if latest_run
             and latest_run.status == DashboardRefreshRun.Status.FAILED
             and latest_run.finished_at
@@ -202,10 +244,7 @@ def request_portal_refresh(
 
     if enqueue:
         try:
-            job_id = enqueue_dashboard_refresh(
-                run.id,
-                prefer_thread=True,
-            )
+            job_id = enqueue_dashboard_refresh(run.id)
         except Exception as error:
             logger.exception("Failed to enqueue dashboard refresh %s", run.id)
             _fail_run(run, "Не удалось запустить обновление. Попробуйте ещё раз.")

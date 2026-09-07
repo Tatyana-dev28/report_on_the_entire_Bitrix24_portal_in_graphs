@@ -970,15 +970,14 @@ export function AppSettingsModal({
       return;
     }
 
-    const copied = await copyTextToClipboard(text, shareUrlInputRef.current);
+    const copied = await copyTextToClipboard(text);
     if (!copied) {
-      shareUrlInputRef.current?.select();
       return;
     }
 
     setShareCopied(true);
     window.clearTimeout(shareCopiedTimerRef.current);
-    shareCopiedTimerRef.current = window.setTimeout(() => setShareCopied(false), 1800);
+    shareCopiedTimerRef.current = window.setTimeout(() => setShareCopied(false), 2200);
   };
 
   const activeShareLinks = shareLinks.filter((link) => link.isAvailable);
@@ -1239,6 +1238,11 @@ export function AppSettingsModal({
           </button>
         </div>
       </div>
+      {shareCopied ? (
+        <div className="toast-message" role="status">
+          Ссылка скопирована
+        </div>
+      ) : null}
     </div>
   );
 }

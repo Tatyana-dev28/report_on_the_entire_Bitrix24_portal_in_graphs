@@ -115,6 +115,7 @@ export type DashboardOwnerBootstrapResponse = ReportSettingsResponse & {
     isRefreshing: boolean;
     lastAttemptFailedAt: string | null;
     lastErrorMessage: string;
+    snapshotPreparedAt?: string | null;
   } | null;
   share?: DashboardShareLinkItem;
 };

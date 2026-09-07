@@ -1542,6 +1542,7 @@ function App() {
     isRefreshing: boolean;
     lastAttemptFailedAt: string | null;
     lastErrorMessage: string;
+    snapshotPreparedAt?: string | null;
   } | null>(null);
   const [dashboardOpening, setDashboardOpening] = useState(false);
   const [dashboardLaunchUrl, setDashboardLaunchUrl] = useState('');
@@ -1549,6 +1550,8 @@ function App() {
   const dashboardLaunchPrefetchRef = useRef<Promise<string> | null>(null);
   const [dashboardSnapshotEpoch, setDashboardSnapshotEpoch] = useState(0);
   const dashboardLastSuccessAtRef = useRef<string | null>(null);
+  const dashboardSnapshotPreparedAtRef = useRef<string | null>(null);
+  const dashboardWasRefreshingRef = useRef(false);
   const dashboardRebuildInFlightRef = useRef(false);
   const isDashboardShareViewer = isDashboardMode && getDashboardViewerMode() === 'share';
   const [dashboardShareBlocked, setDashboardShareBlocked] = useState(false);
@@ -2058,6 +2061,9 @@ function App() {
           setDashboardRefreshStatus(nextStatus);
           if (nextStatus?.lastSuccessfulUpdateAt) {
             dashboardLastSuccessAtRef.current = nextStatus.lastSuccessfulUpdateAt;
+          }
+          if (nextStatus?.snapshotPreparedAt) {
+            dashboardSnapshotPreparedAtRef.current = nextStatus.snapshotPreparedAt;
           }
         }
 
@@ -3007,6 +3013,7 @@ function App() {
     hasBuiltReport,
     reportBuildRequest,
     dashboardSnapshotEpoch,
+    dashboardRefreshStatus?.isRefreshing,
   ]);
 
   const canStartReportBuild = useCallback(() => (
@@ -6725,17 +6732,28 @@ function App() {
 
   const applyDashboardRefreshStatus = useCallback((status: typeof dashboardRefreshStatus) => {
     const previousSuccess = dashboardLastSuccessAtRef.current;
+    const previousSnapshotAt = dashboardSnapshotPreparedAtRef.current;
+    const wasRefreshing = dashboardWasRefreshingRef.current;
     const nextSuccess = status?.lastSuccessfulUpdateAt ?? null;
+    const nextSnapshotAt = status?.snapshotPreparedAt ?? null;
+    const isRefreshing = Boolean(status?.isRefreshing);
     setDashboardRefreshStatus(status);
-    if (!status?.isRefreshing) {
+    dashboardWasRefreshingRef.current = isRefreshing;
+    if (!isRefreshing) {
       dashboardRebuildInFlightRef.current = false;
     }
-    if (nextSuccess && nextSuccess !== previousSuccess) {
+    const successChanged = Boolean(nextSuccess && nextSuccess !== previousSuccess);
+    const snapshotChanged = Boolean(nextSnapshotAt && nextSnapshotAt !== previousSnapshotAt);
+    const refreshFinished = wasRefreshing && !isRefreshing;
+    if (successChanged || snapshotChanged || refreshFinished) {
       invalidateDashboardReportCache();
       setDashboardSnapshotEpoch((current) => current + 1);
     }
     if (nextSuccess) {
       dashboardLastSuccessAtRef.current = nextSuccess;
+    }
+    if (nextSnapshotAt) {
+      dashboardSnapshotPreparedAtRef.current = nextSnapshotAt;
     }
   }, []);
 

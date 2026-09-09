@@ -3029,3 +3029,36 @@ class CrmWarehouseTests(TestCase):
 
         self.assertTrue(PortalCrmRow.objects.filter(pk=kept.pk).exists())
 
+    def test_mysql_upsert_omits_unique_fields_target(self):
+        from django.db import connection
+
+        from apps.reports.services.crm_warehouse import bulk_upsert_kwargs
+
+        with patch.object(connection.features, "supports_update_conflicts_with_target", False):
+            kwargs = bulk_upsert_kwargs()
+
+        self.assertTrue(kwargs["update_conflicts"])
+        self.assertNotIn("unique_fields", kwargs)
+
+    def test_upsert_source_rows_updates_existing_entity(self):
+        from apps.reports.models import PortalCrmRow
+        from apps.reports.services.crm_warehouse import upsert_source_rows
+
+        self._grant_pro()
+        row = {
+            "ID": "1",
+            "TITLE": "Deal",
+            "DATE_CREATE": "2026-05-01T10:15:00+03:00",
+            "STAGE_ID": "C0:WON",
+            "OPPORTUNITY": "1500",
+        }
+        upsert_source_rows(portal=self.portal, source_id="deal-default", rows=[row])
+        upsert_source_rows(
+            portal=self.portal,
+            source_id="deal-default",
+            rows=[{**row, "TITLE": "Updated deal"}],
+        )
+
+        stored = PortalCrmRow.objects.get(portal=self.portal, source_id="deal-default", entity_id="1")
+        self.assertEqual(stored.payload.get("TITLE"), "Updated deal")
+

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -11,6 +12,8 @@ from apps.billing.models import PortalAccess
 from apps.reports.catalog import REPORT_SOURCES
 from apps.reports.models import CrmSource, PortalCrmRow, PortalCrmSyncState
 
+
+logger = logging.getLogger(__name__)
 
 WAREHOUSE_WINDOW_DAYS = 180
 WAREHOUSE_CHUNK_DAYS = 30
@@ -156,14 +159,19 @@ def upsert_source_rows(*, portal, source_id: str, rows: list[dict]) -> int:
     if not objects:
         return 0
 
-    PortalCrmRow.objects.bulk_create(
-        objects,
-        batch_size=500,
-        update_conflicts=True,
-        unique_fields=["portal", "source_id", "entity_id"],
-        update_fields=["occurred_at", "payload"],
-    )
+    PortalCrmRow.objects.bulk_create(objects, **bulk_upsert_kwargs())
     return len(objects)
+
+
+def bulk_upsert_kwargs() -> dict:
+    kwargs = {
+        "batch_size": 500,
+        "update_conflicts": True,
+        "update_fields": ["occurred_at", "payload"],
+    }
+    if connection.features.supports_update_conflicts_with_target:
+        kwargs["unique_fields"] = ["portal", "source_id", "entity_id"]
+    return kwargs
 
 
 def load_warehouse_source_rows(
@@ -210,8 +218,15 @@ def persist_live_report_rows(
     for source_id, rows in rows_by_source.items():
         if not source_id or source_id in skipped:
             continue
-        upsert_source_rows(portal=portal, source_id=source_id, rows=rows)
-        extend_source_coverage(portal, source_id, date_from, date_to)
+        try:
+            upsert_source_rows(portal=portal, source_id=source_id, rows=rows)
+            extend_source_coverage(portal, source_id, date_from, date_to)
+        except Exception:
+            logger.exception(
+                "Failed to persist live PRO report rows for portal=%s source=%s",
+                getattr(portal, "id", None),
+                source_id,
+            )
 
 
 def extend_source_coverage(portal, source_id: str, date_from: datetime, date_to: datetime) -> None:

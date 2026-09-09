@@ -11,6 +11,7 @@ from apps.reports.services.bitrix_report_data_provider import BitrixReportDataPr
 from apps.reports.services.crm_warehouse import (
     DATE_MODIFY_SOURCE_TYPES,
     WAREHOUSE_CHUNK_DAYS,
+    WAREHOUSE_WINDOW_DAYS,
     WAREHOUSE_INCREMENTAL_LOOKBACK_DAYS,
     WAREHOUSE_INCREMENTAL_MIN_INTERVAL,
     WAREHOUSE_STALE_RUNNING,

@@ -1533,6 +1533,8 @@ function App() {
   const [isFreeLimitOpen, setIsFreeLimitOpen] = useState(false);
   const [billingHasPro, setBillingHasPro] = useState(false);
   const [fastReportsStatus, setFastReportsStatus] = useState<'preparing' | 'ready' | null>(null);
+  const [fastReportsBannerVisible, setFastReportsBannerVisible] = useState(false);
+  const sawFastReportsPreparingRef = useRef(false);
   const [billingValidUntil, setBillingValidUntil] = useState<string | null>(null);
   const [billingIsLifetime, setBillingIsLifetime] = useState(false);
   const [billingPlans, setBillingPlans] = useState<BillingPlan[]>([]);
@@ -1867,6 +1869,26 @@ function App() {
 
     return () => window.clearInterval(intervalId);
   }, [billingHasPro, fastReportsStatus, isDashboardMode, refreshBillingState]);
+
+  useEffect(() => {
+    if (fastReportsStatus === 'preparing') {
+      sawFastReportsPreparingRef.current = true;
+      setFastReportsBannerVisible(true);
+      return undefined;
+    }
+
+    if (fastReportsStatus !== 'ready' || !sawFastReportsPreparingRef.current) {
+      setFastReportsBannerVisible(false);
+      return undefined;
+    }
+
+    setFastReportsBannerVisible(true);
+    const timeoutId = window.setTimeout(() => {
+      setFastReportsBannerVisible(false);
+    }, 10000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [fastReportsStatus]);
 
   useEffect(() => {
     if (isProOpen) {
@@ -7227,7 +7249,7 @@ function App() {
           />
         ) : null}
 
-        {billingHasPro && fastReportsStatus ? (
+        {billingHasPro && fastReportsBannerVisible && fastReportsStatus ? (
           <div className={`report-status-bar ${fastReportsStatus === 'ready' ? 'is-ready' : 'is-info'}`}>
             {fastReportsStatus === 'ready' ? (
               <span>

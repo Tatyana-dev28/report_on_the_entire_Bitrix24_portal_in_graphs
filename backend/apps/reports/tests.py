@@ -2947,6 +2947,78 @@ class CrmWarehouseTests(TestCase):
         self.assertEqual(result.data[0]["values"]["leads_created"], 1)
         self.assertTrue(PortalCrmRow.objects.filter(portal=self.portal).exists())
 
+    def test_pro_ready_coverage_uses_warehouse_when_report_ends_today(self):
+        from datetime import timedelta
+
+        from apps.reports.models import PortalCrmRow, PortalCrmSyncState
+        from apps.reports.services.crm_warehouse import upsert_source_rows
+
+        self._grant_pro()
+        now = timezone.now()
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.READY,
+            coverage_from=now - timedelta(days=180),
+            coverage_to=now - timedelta(hours=4),
+            next_chunk_to=now - timedelta(days=180),
+            progress_percent=100,
+            last_incremental_at=now - timedelta(hours=4),
+        )
+        upsert_source_rows(
+            portal=self.portal,
+            source_id="deal-default",
+            rows=[
+                {
+                    "ID": "1",
+                    "TITLE": "Won deal",
+                    "DATE_CREATE": "2026-05-01T10:15:00+03:00",
+                    "STAGE_ID": "C0:WON",
+                    "OPPORTUNITY": "1500",
+                },
+            ],
+        )
+        upsert_source_rows(
+            portal=self.portal,
+            source_id="lead-default",
+            rows=[
+                {
+                    "ID": "10",
+                    "TITLE": "Converted lead",
+                    "DATE_CREATE": "2026-05-01T11:00:00+03:00",
+                    "STATUS_ID": "CONVERTED",
+                    "OPPORTUNITY": "900",
+                },
+            ],
+        )
+
+        today = timezone.localtime(now).date().isoformat()
+        three_months_ago = (timezone.localtime(now) - timedelta(days=90)).date().isoformat()
+        provider = BitrixReportDataProvider(rest_client_factory=FakeBitrixRestClient)
+        with patch.object(
+            BitrixReportDataProvider,
+            "_load_single_source_rows",
+            side_effect=AssertionError("REST loader must not run"),
+        ):
+            result = provider.build_preview(
+                filters={
+                    "period": "days",
+                    "dateRange": {"from": three_months_ago, "to": today},
+                    "selectedSources": ["deal-default", "lead-default"],
+                    "selectedMetricIds": ["deals_created", "leads_created"],
+                    "metricMode": "money",
+                    "chartDisplayMode": "sum",
+                },
+                context=ReportDataProviderContext(
+                    portal=self.portal,
+                    user=None,
+                    bitrix_user_id="42",
+                    user_name="",
+                ),
+            )
+
+        self.assertEqual(result.status, "ready")
+        self.assertTrue(PortalCrmRow.objects.filter(portal=self.portal).exists())
+
     def test_sync_chunk_writes_and_reads_rows(self):
         from datetime import timedelta
 

@@ -11,6 +11,7 @@ from django.utils.dateparse import parse_datetime
 from apps.billing.models import PortalAccess
 from apps.reports.catalog import REPORT_SOURCES
 from apps.reports.models import CrmSource, PortalCrmRow, PortalCrmSyncState
+from apps.reports.services.portal_timezone import get_portal_tzinfo
 
 
 logger = logging.getLogger(__name__)
@@ -74,12 +75,11 @@ def warehouse_covers_range(
     if state is None:
         return False
 
-    if (
-        state.status == PortalCrmSyncState.Status.READY
-        and state.coverage_from is not None
-        and state.coverage_to is not None
-        and state.coverage_from <= date_from
-        and state.coverage_to >= date_to
+    if state.status == PortalCrmSyncState.Status.READY and _ready_window_covers(
+        portal,
+        state,
+        date_from,
+        date_to,
     ):
         return True
 
@@ -92,6 +92,24 @@ def warehouse_covers_range(
         if not _ranges_cover(ranges, date_from, date_to):
             return False
     return True
+
+
+def _ready_window_covers(portal, state, date_from: datetime, date_to: datetime) -> bool:
+    if state.coverage_from is None or state.coverage_to is None:
+        return False
+
+    tz = get_portal_tzinfo(portal)
+    today = timezone.localtime(timezone.now(), tz).date()
+    covered_from = _local_date(state.coverage_from, tz)
+    covered_to = max(_local_date(state.coverage_to, tz), today)
+    return _local_date(date_from, tz) >= covered_from and _local_date(date_to, tz) <= covered_to
+
+
+def _local_date(value: datetime, tz):
+    moment = _aware_datetime(value)
+    if moment is None:
+        return timezone.localtime(timezone.now(), tz).date()
+    return timezone.localtime(moment, tz).date()
 
 
 def warehouse_sources_for_portal(portal) -> list[dict]:

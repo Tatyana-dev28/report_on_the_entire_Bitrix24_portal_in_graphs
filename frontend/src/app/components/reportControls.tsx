@@ -820,6 +820,80 @@ export function MultiSelect({
   );
 }
 
+const PANEL_VIEW_PADDING = 16;
+
+const isPanelMostlyInView = (rect: DOMRect) => {
+  const viewportHeight = window.innerHeight;
+  const visibleTop = Math.max(rect.top, PANEL_VIEW_PADDING);
+  const visibleBottom = Math.min(rect.bottom, viewportHeight - PANEL_VIEW_PADDING);
+  const visibleHeight = Math.max(0, visibleBottom - visibleTop);
+  const neededHeight = Math.min(rect.height, viewportHeight - PANEL_VIEW_PADDING * 2);
+
+  return visibleHeight >= neededHeight * 0.85 && rect.top >= PANEL_VIEW_PADDING - 8;
+};
+
+const scheduleBringPopoverIntoView = (
+  getPopover: () => HTMLElement | null,
+  doneRef: { current: boolean },
+  onAfterScroll?: () => void,
+) => {
+  let cancelled = false;
+  let timeoutId = 0;
+  let frame = 0;
+
+  const tryBringIntoView = (attempt = 0) => {
+    if (cancelled || doneRef.current) {
+      return;
+    }
+
+    const popover = getPopover();
+    const rect = popover?.getBoundingClientRect();
+    const notReady = !popover
+      || !rect
+      || rect.height < 80
+      || window.getComputedStyle(popover).visibility === 'hidden';
+
+    if (notReady) {
+      if (attempt < 12) {
+        frame = window.requestAnimationFrame(() => tryBringIntoView(attempt + 1));
+      }
+      return;
+    }
+
+    doneRef.current = true;
+
+    if (!rect || isPanelMostlyInView(rect)) {
+      return;
+    }
+
+    window.scrollBy({
+      top: rect.top - PANEL_VIEW_PADDING,
+      behavior: 'smooth',
+    });
+
+    if (!onAfterScroll) {
+      return;
+    }
+
+    const finish = () => {
+      if (!cancelled) {
+        onAfterScroll();
+      }
+    };
+
+    window.addEventListener('scrollend', finish, { once: true });
+    timeoutId = window.setTimeout(finish, 450);
+  };
+
+  frame = window.requestAnimationFrame(() => tryBringIntoView());
+
+  return () => {
+    cancelled = true;
+    window.cancelAnimationFrame(frame);
+    window.clearTimeout(timeoutId);
+  };
+};
+
 export function SectionMetricsMenu({
   section,
   metricMap,
@@ -839,7 +913,25 @@ export function SectionMetricsMenu({
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const ref = useOutsideClose<HTMLDivElement>(open, () => setOpen(false), [popoverRef]);
+  const didBringPanelIntoViewRef = useRef(false);
+  const ref = useOutsideClose<HTMLDivElement>(
+    open,
+    () => setOpen(false),
+    [popoverRef],
+    { closeOnPointerDown: false, closeOnScroll: false },
+  );
+
+  useEffect(() => {
+    if (!open) {
+      didBringPanelIntoViewRef.current = false;
+      return undefined;
+    }
+
+    return scheduleBringPopoverIntoView(
+      () => popoverRef.current,
+      didBringPanelIntoViewRef,
+    );
+  }, [open]);
 
   const handleApply = () => {
     onApply(section.id);
@@ -2178,6 +2270,7 @@ export function RowActionsMenu({
   const popoverRef = useRef<HTMLDivElement>(null);
   const employeeSelectorListRef = useRef<HTMLDivElement>(null);
   const pendingEmployeeScrollTopRef = useRef<number | null>(null);
+  const didBringEmployeePanelIntoViewRef = useRef(false);
   const stickyPopoverMode = mode === 'employees' || mode === 'thresholds';
   const ref = useOutsideClose<HTMLDivElement>(
     open && !stickyPopoverMode,
@@ -2360,6 +2453,38 @@ export function RowActionsMenu({
       window.removeEventListener('resize', updateExtraSpace);
     };
   }, [employeeSelectorAnchorRect, mode, open, ref]);
+
+  useEffect(() => {
+    if (!open || mode !== 'employees') {
+      didBringEmployeePanelIntoViewRef.current = false;
+      return undefined;
+    }
+
+    if (didBringEmployeePanelIntoViewRef.current) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const stop = scheduleBringPopoverIntoView(
+      () => popoverRef.current,
+      didBringEmployeePanelIntoViewRef,
+      () => {
+        if (cancelled) {
+          return;
+        }
+        const listRect = resolveEmployeeListAnchorRect();
+        if (listRect) {
+          setEmployeeSelectorAnchorRect(listRect);
+        }
+      },
+    );
+
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, [employeeSelectorAnchorRect, mode, open, resolveEmployeeListAnchorRect]);
 
   useEffect(() => {
     if (!open || mode !== 'employees') {

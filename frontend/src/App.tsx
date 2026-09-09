@@ -1420,6 +1420,32 @@ const buildAutomaticReportPreset = (
   };
 };
 
+const FAST_REPORTS_READY_SEEN_KEY = 'sapp24-fast-reports-ready-banner-v1';
+
+const hasSeenFastReportsReadyBanner = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  try {
+    return window.localStorage.getItem(FAST_REPORTS_READY_SEEN_KEY) === 'done';
+  } catch {
+    return false;
+  }
+};
+
+const markFastReportsReadyBannerSeen = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(FAST_REPORTS_READY_SEEN_KEY, 'done');
+  } catch {
+    // ignore quota / private mode
+  }
+};
+
 function App() {
   // Hydration guards: prevent auto-save until settings are fully loaded/applied
   const settingsHydratedRef = useRef(false);
@@ -1534,7 +1560,6 @@ function App() {
   const [billingHasPro, setBillingHasPro] = useState(false);
   const [fastReportsStatus, setFastReportsStatus] = useState<'preparing' | 'ready' | null>(null);
   const [fastReportsBannerVisible, setFastReportsBannerVisible] = useState(false);
-  const sawFastReportsPreparingRef = useRef(false);
   const [billingValidUntil, setBillingValidUntil] = useState<string | null>(null);
   const [billingIsLifetime, setBillingIsLifetime] = useState(false);
   const [billingPlans, setBillingPlans] = useState<BillingPlan[]>([]);
@@ -1872,18 +1897,23 @@ function App() {
 
   useEffect(() => {
     if (fastReportsStatus === 'preparing') {
-      sawFastReportsPreparingRef.current = true;
       setFastReportsBannerVisible(true);
       return undefined;
     }
 
-    if (fastReportsStatus !== 'ready' || !sawFastReportsPreparingRef.current) {
+    if (fastReportsStatus !== 'ready') {
+      setFastReportsBannerVisible(false);
+      return undefined;
+    }
+
+    if (hasSeenFastReportsReadyBanner()) {
       setFastReportsBannerVisible(false);
       return undefined;
     }
 
     setFastReportsBannerVisible(true);
     const timeoutId = window.setTimeout(() => {
+      markFastReportsReadyBannerSeen();
       setFastReportsBannerVisible(false);
     }, 10000);
 
@@ -7253,8 +7283,8 @@ function App() {
           <div className={`report-status-bar ${fastReportsStatus === 'ready' ? 'is-ready' : 'is-info'}`}>
             {fastReportsStatus === 'ready' ? (
               <span>
-                Быстрый режим: данные отчётов сохраняются на сервере. Последние 6 месяцев и уже
-                построенные периоды считаются без повторного ожидания Битрикс24.
+                Быстрый режим готов: отчёты за последние 6 месяцев и уже сохранённые периоды
+                считаются быстрее.
               </span>
             ) : (
               <span>

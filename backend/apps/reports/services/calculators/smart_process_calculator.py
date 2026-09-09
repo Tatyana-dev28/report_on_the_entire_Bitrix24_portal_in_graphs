@@ -42,15 +42,22 @@ def load_smart_process_rows(
     date_from: datetime,
     date_to: datetime,
     bitrix_datetime: Callable[[datetime], str],
+    modified_since: datetime | None = None,
 ) -> list[SmartProcessRow]:
     entity_type_id = source.get("entityTypeId") or source.get("entity_type_id")
     if not entity_type_id:
         return []
 
-    filter_payload: dict[str, Any] = {
-        ">=createdTime": bitrix_datetime(date_from),
-        "<=createdTime": bitrix_datetime(date_to),
-    }
+    if modified_since is not None:
+        filter_payload: dict[str, Any] = {
+            ">=updatedTime": bitrix_datetime(modified_since),
+            ">=createdTime": bitrix_datetime(date_from),
+        }
+    else:
+        filter_payload = {
+            ">=createdTime": bitrix_datetime(date_from),
+            "<=createdTime": bitrix_datetime(date_to),
+        }
 
     category_id = source.get("categoryId")
     if category_id is None:

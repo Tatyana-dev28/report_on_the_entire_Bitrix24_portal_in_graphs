@@ -4,6 +4,7 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.bitrix.models import BitrixPortal
 from apps.bitrix.services.portal_tokens import make_portal_api_token
@@ -85,6 +86,120 @@ class ReportPreviewApiTests(TestCase):
         self.assertEqual(build.cache_key, session.cache_key)
         self.assertEqual(build.sources, ["Воронка продажи"])
         self.assertEqual(build.metrics, ["deals_created"])
+
+    def test_pro_preview_serves_matching_snapshot_without_rebuild(self):
+        from apps.billing.models import PortalAccess
+        from apps.dashboard.models import DashboardPreparedSnapshot
+        from apps.reports.services.filters import make_filters_hash, normalize_report_filters
+        from django.utils import timezone
+
+        PortalAccess.objects.create(
+            portal=self.portal,
+            access_level=PortalAccess.AccessLevel.PRO,
+            has_pro=True,
+            is_lifetime=True,
+            valid_until=timezone.now() + timezone.timedelta(days=365),
+            source="test",
+        )
+        filters = normalize_report_filters(
+            {
+                "period": "days",
+                "dateRange": {"start": "2026-05-01", "end": "2026-05-31"},
+                "selectedSources": ["lead-default"],
+                "chartSelectedSources": ["lead-default"],
+                "selectedMetricIds": ["leads_created"],
+                "metricMode": "money",
+                "chartDisplayMode": "sum",
+            }
+        )
+        DashboardPreparedSnapshot.objects.create(
+            portal=self.portal,
+            is_current=True,
+            settings_snapshot={"filters": filters},
+            metadata={"filtersHash": make_filters_hash(filters)},
+            data={
+                "preview": {
+                    "data": [{"key": "2026-05-01", "values": {"leads_created": 7}}],
+                    "employees": [],
+                    "details": [],
+                    "source_metrics": {},
+                }
+            },
+            payload_size_bytes=32,
+        )
+
+        with patch("apps.reports.services.builders.ReportBuilder.build_preview") as build_preview:
+            response = self.client.post(
+                reverse("reports:preview"),
+                data=json.dumps(
+                    {
+                        "memberId": self.portal.member_id,
+                        "portalToken": self.portal_token,
+                        "bitrixUserId": "42",
+                        "period": "days",
+                        "dateRange": {"start": "2026-05-01", "end": "2026-05-31"},
+                        "selectedSources": ["lead-default"],
+                        "chartSelectedSources": ["lead-default"],
+                        "selectedMetricIds": ["leads_created"],
+                        "metricMode": "money",
+                        "chartDisplayMode": "sum",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["status"], "ready")
+        self.assertTrue(payload["servedFromSnapshot"])
+        self.assertEqual(payload["data"][0]["values"]["leads_created"], 7)
+        build_preview.assert_not_called()
+
+    def test_pro_preview_rebuilds_when_snapshot_filters_differ(self):
+        from apps.billing.models import PortalAccess
+        from apps.dashboard.models import DashboardPreparedSnapshot
+        from django.utils import timezone
+
+        PortalAccess.objects.create(
+            portal=self.portal,
+            access_level=PortalAccess.AccessLevel.PRO,
+            has_pro=True,
+            is_lifetime=True,
+            valid_until=timezone.now() + timezone.timedelta(days=365),
+            source="test",
+        )
+        DashboardPreparedSnapshot.objects.create(
+            portal=self.portal,
+            is_current=True,
+            settings_snapshot={"filters": {"period": "days", "dateRange": {"from": "2026-01-01", "to": "2026-01-31"}}},
+            metadata={"filtersHash": "stale-hash"},
+            data={"preview": {"data": [{"key": "old", "values": {"leads_created": 1}}]}},
+            payload_size_bytes=16,
+        )
+
+        response = self.client.post(
+            reverse("reports:preview"),
+            data=json.dumps(
+                {
+                    "memberId": self.portal.member_id,
+                    "portalToken": self.portal_token,
+                    "bitrixUserId": "42",
+                    "period": "days",
+                    "dateRange": {"start": "2026-05-01", "end": "2026-05-31"},
+                    "selectedSources": ["lead-default"],
+                    "selectedMetricIds": ["leads_created"],
+                    "metricMode": "money",
+                    "chartDisplayMode": "sum",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload.get("servedFromSnapshot"))
+        self.assertEqual(payload["data"], [])
 
     def test_preview_rejects_unknown_period(self):
         response = self.client.post(
@@ -2367,6 +2482,33 @@ class ReportSettingsApiTests(TestCase):
         self.assertEqual(record.app_settings["reportBuilderUserIds"], ["3"])
         self.assertEqual(record.detail_column_widths["rowNumber"], 100)
 
+    def test_pro_save_copies_saved_views_to_current_dashboard_snapshot(self):
+        from apps.dashboard.models import DashboardPreparedSnapshot
+        from apps.reports.models import PortalReportSettings
+
+        self._create_pro_access()
+        DashboardPreparedSnapshot.objects.create(
+            portal=self.portal,
+            is_current=True,
+            saved_views_snapshot=[{"value": "stale", "label": "Старый"}],
+            data={"preview": {"data": []}},
+        )
+        response = self.client.post(
+            reverse("reports:settings-save"),
+            data=json.dumps({
+                **self._get_context(),
+                "settings": {"period": "days"},
+                "savedViews": [{"value": "view1", "label": "View 1"}],
+                "appSettings": {},
+                "detailColumnWidths": {},
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        snapshot = DashboardPreparedSnapshot.objects.get(portal=self.portal, is_current=True)
+        self.assertEqual(snapshot.saved_views_snapshot[0]["value"], "view1")
+        self.assertEqual(PortalReportSettings.objects.get(portal=self.portal).saved_views[0]["value"], "view1")
+
     def test_pro_expired_cannot_save(self):
         from apps.billing.models import PortalAccess
         from django.utils import timezone
@@ -2618,3 +2760,272 @@ class BuildIndicatorValueTests(TestCase):
             source_ids=["deal-1", "deal-2", "deal-3"],
         )
         self.assertEqual(result, 13990)
+
+
+class CrmWarehouseTests(TestCase):
+    def setUp(self):
+        self.portal = BitrixPortal.objects.create(
+            member_id="warehouse-member",
+            domain="warehouse.bitrix24.ru",
+            protocol=BitrixPortal.Protocol.HTTPS,
+            status=BitrixPortal.Status.ACTIVE,
+            timezone="Europe/Moscow",
+        )
+
+    def _grant_pro(self):
+        from apps.billing.models import PortalAccess
+
+        return PortalAccess.objects.create(
+            portal=self.portal,
+            access_level=PortalAccess.AccessLevel.PRO,
+            has_pro=True,
+            is_lifetime=True,
+            valid_until=timezone.now() + timezone.timedelta(days=365),
+            source="test",
+        )
+
+    def test_free_sync_does_not_write_warehouse(self):
+        from apps.reports.models import PortalCrmRow
+        from apps.reports.services.crm_warehouse_sync import sync_portal_crm_warehouse
+
+        result = sync_portal_crm_warehouse(self.portal.id)
+
+        self.assertEqual(result["reason"], "not_pro")
+        self.assertFalse(PortalCrmRow.objects.filter(portal=self.portal).exists())
+
+    def test_pro_without_coverage_uses_bitrix_rest(self):
+        self._grant_pro()
+        calls = []
+
+        class TrackingClient(FakeBitrixRestClient):
+            def call_list(self, method, params=None, *, max_pages=None):
+                calls.append(method)
+                return super().call_list(method, params, max_pages=max_pages)
+
+        provider = BitrixReportDataProvider(rest_client_factory=TrackingClient)
+        result = provider.build_preview(
+            filters={
+                "period": "days",
+                "dateRange": {"from": "2026-05-01", "to": "2026-05-02"},
+                "selectedSources": ["Воронка продажи", "Лиды"],
+                "selectedMetricIds": ["deals_created", "leads_created"],
+                "metricMode": "money",
+                "chartDisplayMode": "sum",
+            },
+            context=ReportDataProviderContext(
+                portal=self.portal,
+                user=None,
+                bitrix_user_id="42",
+                user_name="",
+            ),
+        )
+
+        self.assertEqual(result.status, "ready")
+        self.assertGreater(len(calls), 0)
+        self.assertIn("crm.deal.list", calls)
+
+    def test_pro_live_report_is_saved_and_reused_without_rest(self):
+        from apps.reports.models import PortalCrmRow
+
+        self._grant_pro()
+        calls = []
+
+        class TrackingClient(FakeBitrixRestClient):
+            def call_list(self, method, params=None, *, max_pages=None):
+                calls.append(method)
+                return super().call_list(method, params, max_pages=max_pages)
+
+        provider = BitrixReportDataProvider(rest_client_factory=TrackingClient)
+        filters = {
+            "period": "days",
+            "dateRange": {"from": "2026-05-01", "to": "2026-05-02"},
+            "selectedSources": ["deal-default", "lead-default"],
+            "selectedMetricIds": ["deals_created", "leads_created"],
+            "metricMode": "money",
+            "chartDisplayMode": "sum",
+        }
+        context = ReportDataProviderContext(
+            portal=self.portal,
+            user=None,
+            bitrix_user_id="42",
+            user_name="",
+        )
+
+        first = provider.build_preview(filters=filters, context=context)
+
+        self.assertEqual(first.status, "ready")
+        self.assertGreater(PortalCrmRow.objects.filter(portal=self.portal).count(), 0)
+        self.assertIn("crm.deal.list", calls)
+
+        calls.clear()
+        second = provider.build_preview(filters=filters, context=context)
+
+        self.assertEqual(second.status, "ready")
+        self.assertNotIn("crm.deal.list", calls)
+        self.assertEqual(
+            second.data[0]["values"]["deals_created"],
+            first.data[0]["values"]["deals_created"],
+        )
+
+    def test_pro_ready_coverage_reads_mysql_without_rest(self):
+        from datetime import timedelta
+
+        from apps.reports.models import PortalCrmRow, PortalCrmSyncState
+        from apps.reports.services.crm_warehouse import upsert_source_rows
+
+        self._grant_pro()
+        now = timezone.now()
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.READY,
+            coverage_from=now - timedelta(days=180),
+            coverage_to=now + timedelta(days=1),
+            next_chunk_to=now - timedelta(days=180),
+            progress_percent=100,
+            last_incremental_at=now,
+        )
+        upsert_source_rows(
+            portal=self.portal,
+            source_id="deal-default",
+            rows=[
+                {
+                    "ID": "1",
+                    "TITLE": "Won deal",
+                    "DATE_CREATE": "2026-05-01T10:15:00+03:00",
+                    "STAGE_ID": "C0:WON",
+                    "OPPORTUNITY": "1500",
+                },
+                {
+                    "ID": "2",
+                    "TITLE": "Lost deal",
+                    "DATE_CREATE": "2026-05-01T12:00:00+03:00",
+                    "STAGE_ID": "C0:LOSE",
+                    "OPPORTUNITY": "700",
+                },
+            ],
+        )
+        upsert_source_rows(
+            portal=self.portal,
+            source_id="lead-default",
+            rows=[
+                {
+                    "ID": "10",
+                    "TITLE": "Converted lead",
+                    "DATE_CREATE": "2026-05-01T11:00:00+03:00",
+                    "STATUS_ID": "CONVERTED",
+                    "OPPORTUNITY": "900",
+                },
+            ],
+        )
+
+        provider = BitrixReportDataProvider(rest_client_factory=FakeBitrixRestClient)
+        with patch.object(
+            BitrixReportDataProvider,
+            "_load_single_source_rows",
+            side_effect=AssertionError("REST loader must not run"),
+        ):
+            result = provider.build_preview(
+                filters={
+                    "period": "days",
+                    "dateRange": {"from": "2026-05-01", "to": "2026-05-02"},
+                    "selectedSources": ["deal-default", "lead-default"],
+                    "selectedMetricIds": ["deals_created", "deals_won", "leads_created"],
+                    "metricMode": "money",
+                    "chartDisplayMode": "sum",
+                },
+                context=ReportDataProviderContext(
+                    portal=self.portal,
+                    user=None,
+                    bitrix_user_id="42",
+                    user_name="",
+                ),
+            )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.data[0]["values"]["deals_created"], 2)
+        self.assertEqual(result.data[0]["values"]["deals_won"], 1)
+        self.assertEqual(result.data[0]["values"]["leads_created"], 1)
+        self.assertTrue(PortalCrmRow.objects.filter(portal=self.portal).exists())
+
+    def test_sync_chunk_writes_and_reads_rows(self):
+        from datetime import timedelta
+
+        from apps.reports.models import PortalCrmRow, PortalCrmSyncState
+        from apps.reports.services.bitrix_report_data_provider import BitrixReportDataProvider as RealProvider
+        from apps.reports.services.crm_warehouse import prune_warehouse_rows, serialize_fast_reports
+        from apps.reports.services.crm_warehouse_sync import sync_portal_crm_warehouse
+
+        self._grant_pro()
+        now = timezone.now()
+
+        class RecentClient(FakeBitrixRestClient):
+            def call_list(self, method, params=None, *, max_pages=None):
+                rows = super().call_list(method, params, max_pages=max_pages)
+                stamp = now.isoformat()
+                patched = []
+                for row in rows:
+                    item = dict(row)
+                    item["DATE_CREATE"] = stamp
+                    patched.append(item)
+                return patched
+
+        self.assertEqual(serialize_fast_reports(self.portal)["fastReports"], "preparing")
+
+        with patch("apps.reports.services.crm_warehouse.WAREHOUSE_WINDOW_DAYS", 30), patch(
+            "apps.reports.services.crm_warehouse_sync.WAREHOUSE_CHUNK_DAYS",
+            30,
+        ), patch(
+            "apps.reports.services.crm_warehouse_sync.BitrixReportDataProvider",
+            side_effect=lambda: RealProvider(rest_client_factory=RecentClient),
+        ):
+            result = sync_portal_crm_warehouse(self.portal.id)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["mode"], "backfill")
+        self.assertGreater(PortalCrmRow.objects.filter(portal=self.portal).count(), 0)
+        state = PortalCrmSyncState.objects.get(portal=self.portal)
+        self.assertEqual(state.status, PortalCrmSyncState.Status.READY)
+        self.assertEqual(serialize_fast_reports(self.portal)["fastReports"], "ready")
+
+        old_row = PortalCrmRow.objects.create(
+            portal=self.portal,
+            source_id="deal-default",
+            entity_id="ancient",
+            occurred_at=now - timedelta(days=200),
+            payload={"ID": "ancient"},
+        )
+        prune_warehouse_rows(self.portal, now=now)
+        self.assertFalse(PortalCrmRow.objects.filter(pk=old_row.pk).exists())
+
+    def test_prune_keeps_rows_from_saved_report_coverage(self):
+        from datetime import timedelta
+
+        from apps.reports.models import PortalCrmRow, PortalCrmSyncState
+        from apps.reports.services.crm_warehouse import prune_warehouse_rows
+
+        self._grant_pro()
+        now = timezone.now()
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.IDLE,
+            source_coverage={
+                "deal-default": [
+                    {
+                        "from": (now - timedelta(days=400)).isoformat(),
+                        "to": now.isoformat(),
+                    }
+                ]
+            },
+        )
+        kept = PortalCrmRow.objects.create(
+            portal=self.portal,
+            source_id="deal-default",
+            entity_id="year-report",
+            occurred_at=now - timedelta(days=370),
+            payload={"ID": "year-report"},
+        )
+
+        prune_warehouse_rows(self.portal, now=now)
+
+        self.assertTrue(PortalCrmRow.objects.filter(pk=kept.pk).exists())
+

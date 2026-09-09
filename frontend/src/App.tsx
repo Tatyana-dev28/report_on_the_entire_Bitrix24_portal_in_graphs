@@ -257,6 +257,7 @@ import {
 } from './app/utils/autoSetupPrompt';
 import { exportReportPdf } from './app/export/exportReportPdf';
 import { exportReportExcel } from './app/export/exportReportExcel';
+import { toFriendlyUserError } from './app/utils/friendlyUserError';
 
 const splitEmployeeName = (name: string) => {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -292,7 +293,7 @@ const getFriendlyReportError = (error: unknown, fallback: string) => {
   if (isReloadRequiredErrorMessage(message)) {
     return RELOAD_PAGE_TO_CONTINUE_MESSAGE;
   }
-  return message || fallback;
+  return toFriendlyUserError(error, fallback);
 };
 
 const toReportEmployee = (employee: {
@@ -1468,7 +1469,11 @@ function App() {
   } | null>(null);
 
   const [savedViews, setSavedViews] = useState<SavedReportViewOption[]>(() => [defaultSavedView]);
+  const savedViewsRef = useRef(savedViews);
+  savedViewsRef.current = savedViews;
   const [selectedView, setSelectedView] = useState('default');
+  const selectedViewRef = useRef(selectedView);
+  selectedViewRef.current = selectedView;
   const [draftFilters, setDraftFilters] = useState<ReportFilters>(() => createDefaultFilters());
   const [appliedFilters, setAppliedFilters] = useState<ReportFilters>(() => createDefaultFilters());
   // Separate state for table settings — these are the sources the user selected
@@ -1527,6 +1532,7 @@ function App() {
   const [isAppSettingsOpen, setIsAppSettingsOpen] = useState(false);
   const [isFreeLimitOpen, setIsFreeLimitOpen] = useState(false);
   const [billingHasPro, setBillingHasPro] = useState(false);
+  const [fastReportsStatus, setFastReportsStatus] = useState<'preparing' | 'ready' | null>(null);
   const [billingValidUntil, setBillingValidUntil] = useState<string | null>(null);
   const [billingIsLifetime, setBillingIsLifetime] = useState(false);
   const [billingPlans, setBillingPlans] = useState<BillingPlan[]>([]);
@@ -1543,12 +1549,16 @@ function App() {
     lastAttemptFailedAt: string | null;
     lastErrorMessage: string;
     snapshotPreparedAt?: string | null;
+    phase?: string;
+    phaseLabel?: string;
   } | null>(null);
   const [dashboardOpening, setDashboardOpening] = useState(false);
   const [dashboardLaunchUrl, setDashboardLaunchUrl] = useState('');
   const dashboardLaunchExpiresAtRef = useRef(0);
   const dashboardLaunchPrefetchRef = useRef<Promise<string> | null>(null);
   const [dashboardSnapshotEpoch, setDashboardSnapshotEpoch] = useState(0);
+  const [dashboardApplyingData, setDashboardApplyingData] = useState(false);
+  const dashboardSawApplyLoadingRef = useRef(false);
   const dashboardLastSuccessAtRef = useRef<string | null>(null);
   const dashboardSnapshotPreparedAtRef = useRef<string | null>(null);
   const dashboardWasRefreshingRef = useRef(false);
@@ -1813,6 +1823,7 @@ function App() {
       .then((state) => {
         setBillingLoadFailed(false);
         setBillingHasPro(Boolean(state.access?.hasPro));
+        setFastReportsStatus(state.fastReports ?? null);
         setBillingValidUntil(state.access?.validUntil ?? null);
         setBillingIsLifetime(Boolean(state.access?.isLifetime));
         setBillingPlans(state.plans ?? []);
@@ -1844,6 +1855,18 @@ function App() {
   useEffect(() => {
     refreshBillingState();
   }, [refreshBillingState]);
+
+  useEffect(() => {
+    if (isDashboardMode || !billingHasPro || fastReportsStatus === 'ready') {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void refreshBillingState();
+    }, 60000);
+
+    return () => window.clearInterval(intervalId);
+  }, [billingHasPro, fastReportsStatus, isDashboardMode, refreshBillingState]);
 
   useEffect(() => {
     if (isProOpen) {
@@ -2064,6 +2087,13 @@ function App() {
           }
           if (nextStatus?.snapshotPreparedAt) {
             dashboardSnapshotPreparedAtRef.current = nextStatus.snapshotPreparedAt;
+          }
+        }
+
+        if (isDashboardMode && 'fastReports' in response) {
+          const nextFast = response.fastReports;
+          if (nextFast === 'preparing' || nextFast === 'ready' || nextFast === null) {
+            setFastReportsStatus(nextFast);
           }
         }
 
@@ -2878,9 +2908,11 @@ function App() {
             }, 0);
           }
 
-          if (!isDashboardMode && billingHasProRef.current) {
+          if (!isDashboardMode && billingHasProRef.current && !preview.servedFromSnapshot) {
             const currentState = captureCurrentViewState();
             const refreshInterval = appSettings.dashboardRefreshIntervalMinutes ?? 10;
+            const viewsForSnapshot = savedViewsRef.current;
+            const selectedViewForSnapshot = selectedViewRef.current;
 
             saveDashboardPreparedSnapshot({
               refreshIntervalMinutes: refreshInterval,
@@ -2888,11 +2920,11 @@ function App() {
                 ...currentState,
                 filters,
               } as Record<string, unknown>,
-              savedViews: savedViews.map((view) => ({
+              savedViews: viewsForSnapshot.map((view) => ({
                 value: view.value,
                 label: view.label,
                 isSystem: view.isSystem,
-                isDefault: view.value === selectedView,
+                isDefault: view.value === selectedViewForSnapshot,
                 state: view.state,
               })),
               data: {
@@ -2916,7 +2948,7 @@ function App() {
               },
               metadata: {
                 builtAt: new Date().toISOString(),
-                selectedView,
+                selectedView: selectedViewForSnapshot,
                 source: 'bitrix_app_report_build',
               },
             }).catch((error) => {
@@ -6056,7 +6088,10 @@ function App() {
   );
 
   const saveViews = useCallback((views: SavedReportViewOption[]) => {
+    savedViewsRef.current = views;
     setSavedViews(views);
+    immediateAutoSaveRef.current = true;
+    setAutoSaveRequest((current) => current + 1);
     // Pro сохраняет savedViews через triggerAutoSave → saveReportSettings() на backend.
     // localStorage не используется — ни для Free, ни для Pro.
   }, []);
@@ -6132,7 +6167,7 @@ function App() {
           employeeThresholdsByMetricId: currentState.employeeThresholdsByMetricId ?? {},
           metricDirectionsById: currentState.metricDirectionsById ?? {},
         },
-        savedViews: savedViews.filter((view) => !view.isSystem).map((view) => ({
+        savedViews: savedViewsRef.current.filter((view) => !view.isSystem).map((view) => ({
           value: view.value,
           label: view.label,
           isSystem: view.isSystem,
@@ -6745,6 +6780,10 @@ function App() {
     const successChanged = Boolean(nextSuccess && nextSuccess !== previousSuccess);
     const snapshotChanged = Boolean(nextSnapshotAt && nextSnapshotAt !== previousSnapshotAt);
     const refreshFinished = wasRefreshing && !isRefreshing;
+    if (refreshFinished) {
+      dashboardSawApplyLoadingRef.current = false;
+      setDashboardApplyingData(true);
+    }
     if (successChanged || snapshotChanged || refreshFinished) {
       invalidateDashboardReportCache();
       setDashboardSnapshotEpoch((current) => current + 1);
@@ -6757,8 +6796,27 @@ function App() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!dashboardApplyingData) {
+      return undefined;
+    }
+    if (reportLoading) {
+      dashboardSawApplyLoadingRef.current = true;
+      return undefined;
+    }
+    if (dashboardSawApplyLoadingRef.current) {
+      dashboardSawApplyLoadingRef.current = false;
+      setDashboardApplyingData(false);
+    }
+    const timeoutId = window.setTimeout(() => {
+      dashboardSawApplyLoadingRef.current = false;
+      setDashboardApplyingData(false);
+    }, 8000);
+    return () => window.clearTimeout(timeoutId);
+  }, [dashboardApplyingData, reportLoading]);
+
   const handleDashboardRefreshNow = useCallback(() => {
-    if (!isDashboardMode || isDashboardShareViewer || dashboardRefreshStatus?.isRefreshing) {
+    if (!isDashboardMode || isDashboardShareViewer || dashboardRefreshStatus?.isRefreshing || dashboardApplyingData) {
       return;
     }
 
@@ -6789,12 +6847,13 @@ function App() {
       })
       .catch((error) => {
         dashboardRebuildInFlightRef.current = false;
-        setNotification(error instanceof Error ? error.message : 'Не удалось запустить обновление.');
+        setNotification(getFriendlyReportError(error, 'Не удалось запустить обновление. Обновите страницу и нажмите «Обновить сейчас».'));
       });
   }, [
     applyDashboardRefreshStatus,
     appliedFilters.selectedSources,
     captureCurrentViewState,
+    dashboardApplyingData,
     dashboardRefreshStatus?.isRefreshing,
     savedViews,
     selectedView,
@@ -6815,6 +6874,9 @@ function App() {
             return;
           }
           applyDashboardRefreshStatus(data.refreshStatus);
+          if (data.fastReports === 'preparing' || data.fastReports === 'ready') {
+            setFastReportsStatus(data.fastReports);
+          }
         })
         .catch(() => {
           if (getDashboardViewerMode() === 'share') {
@@ -7161,7 +7223,24 @@ function App() {
             status={dashboardRefreshStatus}
             canRefresh={!isDashboardShareViewer}
             onRefresh={isDashboardShareViewer ? undefined : handleDashboardRefreshNow}
+            isApplyingData={dashboardApplyingData}
           />
+        ) : null}
+
+        {billingHasPro && fastReportsStatus ? (
+          <div className={`report-status-bar ${fastReportsStatus === 'ready' ? 'is-ready' : 'is-info'}`}>
+            {fastReportsStatus === 'ready' ? (
+              <span>
+                Быстрый режим: данные отчётов сохраняются на сервере. Последние 6 месяцев и уже
+                построенные периоды считаются без повторного ожидания Битрикс24.
+              </span>
+            ) : (
+              <span>
+                Готовим быстрый режим за последние 6 месяцев. Пока отчёт считается из Битрикс24,
+                но построенный период в ПРО тоже сохраняется для следующих расчётов.
+              </span>
+            )}
+          </div>
         ) : null}
 
         <div className="soft-divider" />

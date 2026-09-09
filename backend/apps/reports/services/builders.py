@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -21,6 +22,9 @@ from apps.reports.services.filters import (
     result_size_bytes,
 )
 from apps.reports.services.exceptions import ReportPreviewSessionError
+
+
+logger = logging.getLogger(__name__)
 
 
 ASYNC_DATE_RANGE_DAYS = 30
@@ -264,7 +268,7 @@ class ReportBuilder:
             build.finished_at = timezone.now()
             build.save(update_fields=["cache_key", "status", "error_message", "finished_at", "updated_at"])
 
-        return {
+        payload = {
             "status": "ready",
             "sessionKey": str(session.session_key),
             "filtersHash": filters_hash,
@@ -283,6 +287,17 @@ class ReportBuilder:
             "metadata": result_payload.get("metadata", {}),
             "message": result_payload["meta"]["message"],
         }
+        try:
+            from apps.dashboard.services.snapshot_preview import persist_pro_preview_snapshot
+
+            persist_pro_preview_snapshot(
+                context.portal,
+                filters=filters,
+                preview_payload=payload,
+            )
+        except Exception:
+            logger.exception("Failed to persist PRO snapshot after report preview")
+        return payload
 
     def _queued_payload(
         self,

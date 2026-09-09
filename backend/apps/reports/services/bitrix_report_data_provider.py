@@ -151,6 +151,7 @@ class BitrixReportDataProvider:
         source_value_states: dict[str, dict[str, str]] = {}
         rows_by_source = self._load_source_rows(
             client=client,
+            portal=context.portal,
             selected_sources=all_selected_sources,
             date_from=date_from,
             date_to=date_to,
@@ -269,16 +270,40 @@ class BitrixReportDataProvider:
         date_from: datetime,
         date_to: datetime,
         source_value_states: dict[str, dict[str, str]] | None = None,
+        portal=None,
     ) -> dict[str, list[dict]]:
+        from apps.reports.services.crm_warehouse import (
+            load_warehouse_source_rows,
+            persist_live_report_rows,
+            warehouse_covers_range,
+        )
+
         rows_by_source: dict[str, list[dict]] = {}
 
         if not selected_sources:
             return rows_by_source
 
+        warehouse_portal = portal if portal is not None else getattr(client, "portal", None)
+        selected_source_ids = [str(source.get("id") or "") for source in selected_sources if source.get("id")]
+        if warehouse_covers_range(
+            warehouse_portal,
+            date_from,
+            date_to,
+            source_ids=selected_source_ids,
+        ):
+            return load_warehouse_source_rows(
+                portal=warehouse_portal,
+                selected_sources=selected_sources,
+                date_from=date_from,
+                date_to=date_to,
+            )
+
+        failed_source_ids: set[str] = set()
         max_workers = min(_source_load_workers(), len(selected_sources))
 
         if max_workers <= 1:
             for source in selected_sources:
+                source_id = str(source.get("id") or "")
                 try:
                     rows_by_source[source["id"]] = self._load_single_source_rows(
                         client=client,
@@ -288,7 +313,7 @@ class BitrixReportDataProvider:
                     )
                 except BitrixRestAuthError:
                     if source_value_states is not None:
-                        source_value_states[str(source.get("id") or "")] = {
+                        source_value_states[source_id] = {
                             "reason": "access_denied",
                             "message": "Нет доступа к данным показателя",
                         }
@@ -300,18 +325,26 @@ class BitrixReportDataProvider:
                         exc_info=True,
                     )
                     if source_value_states is not None:
-                        source_value_states[str(source.get("id") or "")] = _value_state_for_bitrix_error(error)
+                        source_value_states[source_id] = _value_state_for_bitrix_error(error)
+                    failed_source_ids.add(source_id)
                     rows_by_source[source["id"]] = []
 
+            persist_live_report_rows(
+                portal=warehouse_portal,
+                rows_by_source=rows_by_source,
+                date_from=date_from,
+                date_to=date_to,
+                failed_source_ids=failed_source_ids,
+            )
             return rows_by_source
 
-        portal = getattr(client, "portal", None)
+        rest_portal = getattr(client, "portal", None)
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_source = {
                 executor.submit(
                     self._load_single_source_rows,
-                    client=self.rest_client_factory(portal) if portal is not None else client,
+                    client=self.rest_client_factory(rest_portal) if rest_portal is not None else client,
                     source=source,
                     date_from=date_from,
                     date_to=date_to,
@@ -321,12 +354,13 @@ class BitrixReportDataProvider:
 
             for future in as_completed(future_to_source):
                 source = future_to_source[future]
+                source_id = str(source.get("id") or "")
 
                 try:
                     rows_by_source[source["id"]] = future.result()
                 except BitrixRestAuthError:
                     if source_value_states is not None:
-                        source_value_states[str(source.get("id") or "")] = {
+                        source_value_states[source_id] = {
                             "reason": "access_denied",
                             "message": "Нет доступа к данным показателя",
                         }
@@ -338,9 +372,17 @@ class BitrixReportDataProvider:
                         exc_info=True,
                     )
                     if source_value_states is not None:
-                        source_value_states[str(source.get("id") or "")] = _value_state_for_bitrix_error(error)
+                        source_value_states[source_id] = _value_state_for_bitrix_error(error)
+                    failed_source_ids.add(source_id)
                     rows_by_source[source["id"]] = []
 
+        persist_live_report_rows(
+            portal=warehouse_portal,
+            rows_by_source=rows_by_source,
+            date_from=date_from,
+            date_to=date_to,
+            failed_source_ids=failed_source_ids,
+        )
         return rows_by_source
 
     def _load_single_source_rows(
@@ -350,6 +392,7 @@ class BitrixReportDataProvider:
         source: dict,
         date_from: datetime,
         date_to: datetime,
+        modified_since: datetime | None = None,
     ) -> list[dict]:
         source_type = source.get("type")
 
@@ -359,6 +402,7 @@ class BitrixReportDataProvider:
                 source=source,
                 date_from=date_from,
                 date_to=date_to,
+                modified_since=modified_since,
             )
 
         if source_type == "lead":
@@ -367,6 +411,7 @@ class BitrixReportDataProvider:
                 source=source,
                 date_from=date_from,
                 date_to=date_to,
+                modified_since=modified_since,
             )
 
         if source_type == "invoice":
@@ -375,6 +420,7 @@ class BitrixReportDataProvider:
                 source=source,
                 date_from=date_from,
                 date_to=date_to,
+                modified_since=modified_since,
             )
 
         if source_type == "smartProcess":
@@ -383,6 +429,7 @@ class BitrixReportDataProvider:
                 source=source,
                 date_from=date_from,
                 date_to=date_to,
+                modified_since=modified_since,
             )
 
         if source_type == "telephony":
@@ -404,6 +451,7 @@ class BitrixReportDataProvider:
                 client=client,
                 date_from=date_from,
                 date_to=date_to,
+                modified_since=modified_since,
             )
 
         if source_type == "company":
@@ -411,6 +459,7 @@ class BitrixReportDataProvider:
                 client=client,
                 date_from=date_from,
                 date_to=date_to,
+                modified_since=modified_since,
             )
 
         if source_type == "contact":
@@ -418,6 +467,7 @@ class BitrixReportDataProvider:
                 client=client,
                 date_from=date_from,
                 date_to=date_to,
+                modified_since=modified_since,
             )
 
         if source_type == "task":
@@ -443,11 +493,13 @@ class BitrixReportDataProvider:
         source: dict,
         date_from: datetime,
         date_to: datetime,
+        modified_since: datetime | None = None,
     ) -> list[dict]:
-        filter_payload: dict[str, Any] = {
-            ">=DATE_CREATE": _bitrix_datetime(date_from),
-            "<=DATE_CREATE": _bitrix_datetime(date_to),
-        }
+        filter_payload: dict[str, Any] = _crm_created_or_modified_filter(
+            date_from,
+            date_to,
+            modified_since,
+        )
 
         if source.get("categoryId") is not None:
             filter_payload["CATEGORY_ID"] = source["categoryId"]
@@ -461,6 +513,7 @@ class BitrixReportDataProvider:
                     "ID",
                     "TITLE",
                     "DATE_CREATE",
+                    "DATE_MODIFY",
                     "STAGE_ID",
                     "STAGE_SEMANTIC_ID",
                     "CATEGORY_ID",
@@ -480,19 +533,18 @@ class BitrixReportDataProvider:
         source: dict,
         date_from: datetime,
         date_to: datetime,
+        modified_since: datetime | None = None,
     ) -> list[dict]:
         return client.call_list(
             "crm.lead.list",
             {
                 "order": {"DATE_CREATE": "ASC"},
-                "filter": {
-                    ">=DATE_CREATE": _bitrix_datetime(date_from),
-                    "<=DATE_CREATE": _bitrix_datetime(date_to),
-                },
+                "filter": _crm_created_or_modified_filter(date_from, date_to, modified_since),
                 "select": [
                     "ID",
                     "TITLE",
                     "DATE_CREATE",
+                    "DATE_MODIFY",
                     "STATUS_ID",
                     "OPPORTUNITY",
                     "CURRENCY_ID",
@@ -510,6 +562,7 @@ class BitrixReportDataProvider:
         source: dict,
         date_from: datetime,
         date_to: datetime,
+        modified_since: datetime | None = None,
     ) -> list[dict]:
         try:
             rows = self._load_smart_invoices(
@@ -517,6 +570,7 @@ class BitrixReportDataProvider:
                 source=source,
                 date_from=date_from,
                 date_to=date_to,
+                modified_since=modified_since,
             )
 
             if rows:
@@ -528,6 +582,7 @@ class BitrixReportDataProvider:
             client=client,
             date_from=date_from,
             date_to=date_to,
+            modified_since=modified_since,
         )
 
     def _load_smart_invoices(
@@ -537,6 +592,7 @@ class BitrixReportDataProvider:
         source: dict,
         date_from: datetime,
         date_to: datetime,
+        modified_since: datetime | None = None,
     ) -> list[dict]:
         entity_type_id = int(source.get("entityTypeId") or 31)
 
@@ -545,14 +601,18 @@ class BitrixReportDataProvider:
             {
                 "entityTypeId": entity_type_id,
                 "order": {"createdTime": "ASC"},
-                "filter": {
-                    ">=createdTime": _bitrix_datetime(date_from),
-                    "<=createdTime": _bitrix_datetime(date_to),
-                },
+                "filter": _crm_created_or_modified_filter(
+                    date_from,
+                    date_to,
+                    modified_since,
+                    create_field="createdTime",
+                    modify_field="updatedTime",
+                ),
                 "select": [
                     "id",
                     "title",
                     "createdTime",
+                    "updatedTime",
                     "stageId",
                     "stageSemanticId",
                     "opportunity",
@@ -570,21 +630,26 @@ class BitrixReportDataProvider:
         client,
         date_from: datetime,
         date_to: datetime,
+        modified_since: datetime | None = None,
     ) -> list[dict]:
         rows = client.call_list(
             "crm.invoice.list",
             {
                 "order": {"DATE_INSERT": "ASC"},
-                "filter": {
-                    ">=DATE_INSERT": _bitrix_datetime(date_from),
-                    "<=DATE_INSERT": _bitrix_datetime(date_to),
-                },
+                "filter": _crm_created_or_modified_filter(
+                    date_from,
+                    date_to,
+                    modified_since,
+                    create_field="DATE_INSERT",
+                    modify_field="DATE_UPDATE",
+                ),
                 "select": [
                     "ID",
                     "ACCOUNT_NUMBER",
                     "ORDER_TOPIC",
                     "DATE_INSERT",
                     "DATE_BILL",
+                    "DATE_UPDATE",
                     "STATUS_ID",
                     "PRICE",
                     "OPPORTUNITY",
@@ -604,6 +669,7 @@ class BitrixReportDataProvider:
         source: dict,
         date_from: datetime,
         date_to: datetime,
+        modified_since: datetime | None = None,
     ) -> list[dict]:
         source_role = get_smart_source_report_role(source)
 
@@ -613,6 +679,7 @@ class BitrixReportDataProvider:
             date_from=date_from,
             date_to=date_to,
             bitrix_datetime=_bitrix_datetime,
+            modified_since=modified_since,
         )
 
         return [
@@ -659,12 +726,14 @@ class BitrixReportDataProvider:
         client,
         date_from: datetime,
         date_to: datetime,
+        modified_since: datetime | None = None,
     ) -> list[dict]:
         return load_quote_rows(
             client=client,
             date_from=date_from,
             date_to=date_to,
             bitrix_datetime=_bitrix_datetime,
+            modified_since=modified_since,
         )
 
     def _load_companies(
@@ -673,20 +742,19 @@ class BitrixReportDataProvider:
         client,
         date_from: datetime,
         date_to: datetime,
+        modified_since: datetime | None = None,
     ) -> list[dict]:
         try:
             rows = client.call_list(
                 "crm.company.list",
                 {
                     "order": {"DATE_CREATE": "ASC"},
-                    "filter": {
-                        ">=DATE_CREATE": _bitrix_datetime(date_from),
-                        "<=DATE_CREATE": _bitrix_datetime(date_to),
-                    },
+                    "filter": _crm_created_or_modified_filter(date_from, date_to, modified_since),
                     "select": [
                         "ID",
                         "TITLE",
                         "DATE_CREATE",
+                        "DATE_MODIFY",
                         "ASSIGNED_BY_ID",
                         "ASSIGNED_BY_NAME",
                         "ASSIGNED_BY_LAST_NAME",
@@ -705,22 +773,21 @@ class BitrixReportDataProvider:
         client,
         date_from: datetime,
         date_to: datetime,
+        modified_since: datetime | None = None,
     ) -> list[dict]:
         try:
             rows = client.call_list(
                 "crm.contact.list",
                 {
                     "order": {"DATE_CREATE": "ASC"},
-                    "filter": {
-                        ">=DATE_CREATE": _bitrix_datetime(date_from),
-                        "<=DATE_CREATE": _bitrix_datetime(date_to),
-                    },
+                    "filter": _crm_created_or_modified_filter(date_from, date_to, modified_since),
                     "select": [
                         "ID",
                         "NAME",
                         "LAST_NAME",
                         "SECOND_NAME",
                         "DATE_CREATE",
+                        "DATE_MODIFY",
                         "ASSIGNED_BY_ID",
                         "ASSIGNED_BY_NAME",
                         "ASSIGNED_BY_LAST_NAME",
@@ -2628,6 +2695,26 @@ def _bitrix_datetime(value: datetime) -> str:
     # Tasks REST expects ISO-8601 offsets with a colon (+03:00). Python's %z
     # yields +0300, which makes tasks.task.list filters match nothing.
     return timezone.localtime(value).isoformat(timespec="seconds")
+
+
+def _crm_created_or_modified_filter(
+    date_from: datetime,
+    date_to: datetime,
+    modified_since: datetime | None = None,
+    *,
+    create_field: str = "DATE_CREATE",
+    modify_field: str = "DATE_MODIFY",
+) -> dict[str, str]:
+    if modified_since is not None:
+        return {
+            f">={modify_field}": _bitrix_datetime(modified_since),
+            f">={create_field}": _bitrix_datetime(date_from),
+        }
+
+    return {
+        f">={create_field}": _bitrix_datetime(date_from),
+        f"<={create_field}": _bitrix_datetime(date_to),
+    }
 
 
 def _sum_opportunity(rows: list[dict]) -> int:

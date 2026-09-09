@@ -147,7 +147,16 @@ def get_billing_state(portal: BitrixPortal) -> dict:
         "access": serialize_access(access),
         "plans": [serialize_plan(plan) for plan in plans],
         "bitrixTariff": serialize_bitrix_tariff_policy(portal),
+        **_fast_reports_payload(portal, access),
     }
+
+
+def _fast_reports_payload(portal: BitrixPortal, access: PortalAccess | None) -> dict:
+    from apps.reports.services.crm_warehouse import serialize_fast_reports
+
+    if not access or not access.is_pro_valid:
+        return {"fastReports": None}
+    return serialize_fast_reports(portal)
 
 
 def format_robokassa_amount(amount: Decimal) -> str:

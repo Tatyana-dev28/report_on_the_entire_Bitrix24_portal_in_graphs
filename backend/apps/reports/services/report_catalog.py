@@ -78,12 +78,16 @@ class ReportCatalogError(Exception):
 
 
 def build_report_catalog(portal: BitrixPortal | None = None) -> dict:
-    return {
+    from apps.reports.services.crm_warehouse import serialize_fast_reports
+
+    payload = {
         "periods": PERIOD_OPTIONS,
         "sources": get_report_sources(portal),
         "metricSections": METRIC_SECTIONS,
         "metrics": METRICS,
     }
+    payload.update(serialize_fast_reports(portal) if portal else {"fastReports": None})
+    return payload
 
 
 def get_report_sources(portal: BitrixPortal | None = None) -> list[dict]:

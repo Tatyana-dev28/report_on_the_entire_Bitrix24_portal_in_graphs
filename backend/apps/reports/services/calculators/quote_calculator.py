@@ -26,22 +26,31 @@ def load_quote_rows(
     date_from: datetime,
     date_to: datetime,
     bitrix_datetime,
+    modified_since: datetime | None = None,
 ) -> list[dict]:
     rows = []
+    if modified_since is not None:
+        date_filter = {
+            ">=DATE_MODIFY": bitrix_datetime(modified_since),
+            ">=DATE_CREATE": bitrix_datetime(date_from),
+        }
+    else:
+        date_filter = {
+            ">=DATE_CREATE": bitrix_datetime(date_from),
+            "<=DATE_CREATE": bitrix_datetime(date_to),
+        }
 
     try:
         rows = client.call_list(
             "crm.quote.list",
             {
                 "order": {"DATE_CREATE": "ASC"},
-                "filter": {
-                    ">=DATE_CREATE": bitrix_datetime(date_from),
-                    "<=DATE_CREATE": bitrix_datetime(date_to),
-                },
+                "filter": date_filter,
                 "select": [
                     "ID",
                     "TITLE",
                     "DATE_CREATE",
+                    "DATE_MODIFY",
                     "STATUS_ID",
                     "OPPORTUNITY",
                     "CURRENCY_ID",

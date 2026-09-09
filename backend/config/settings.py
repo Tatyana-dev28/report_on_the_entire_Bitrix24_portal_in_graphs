@@ -318,6 +318,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.dashboard.tasks.refresh_due_dashboard_portals",
         "schedule": 60.0,
     },
+    "sync-due-crm-warehouses": {
+        "task": "apps.reports.tasks.sync_due_crm_warehouses",
+        "schedule": 180.0,
+    },
 }
 
 LOG_LEVEL = get_env("LOG_LEVEL", default="INFO")

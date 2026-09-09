@@ -3203,6 +3203,19 @@ body > .floating-popover {
   color: #a33131;
 }
 
+.report-status-bar.is-info {
+  background: #f7fbff;
+  color: #3a5a78;
+  font-weight: 600;
+}
+
+.report-status-bar.is-ready {
+  background: #f3fbf6;
+  border-bottom-color: #cfe8d8;
+  color: #2f6a45;
+  font-weight: 600;
+}
+
 .report-update-status-bar {
   display: flex;
   flex-wrap: wrap;

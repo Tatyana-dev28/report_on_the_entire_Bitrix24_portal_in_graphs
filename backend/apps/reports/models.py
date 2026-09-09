@@ -10,6 +10,7 @@ from apps.common.models import (
     BaseModel,
     PublicBaseModel,
     SortableModel,
+    TimeStampedModel,
 )
 
 
@@ -855,3 +856,132 @@ class PortalReportSettings(BaseModel):
 
     def __str__(self):
         return f"{self.portal.domain} — настройки отчета"
+
+
+class PortalCrmRow(TimeStampedModel):
+    """
+    Сырая строка CRM для быстрого PRO-отчёта.
+
+    Хранит тот же dict, который отдал Bitrix REST загрузчик источника.
+    """
+
+    portal = models.ForeignKey(
+        BitrixPortal,
+        on_delete=models.CASCADE,
+        related_name="crm_warehouse_rows",
+        verbose_name="Портал",
+    )
+    source_id = models.CharField(
+        max_length=150,
+        db_index=True,
+        verbose_name="ID источника",
+    )
+    entity_id = models.CharField(
+        max_length=64,
+        verbose_name="ID сущности",
+    )
+    occurred_at = models.DateTimeField(
+        db_index=True,
+        verbose_name="Дата события",
+    )
+    payload = models.JSONField(
+        default=dict,
+        verbose_name="Строка CRM",
+    )
+
+    class Meta:
+        verbose_name = "Строка CRM склада"
+        verbose_name_plural = "Строки CRM склада"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["portal", "source_id", "entity_id"],
+                name="reports_portalcrmrow_portal_source_entity_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["portal", "source_id", "occurred_at"]),
+            models.Index(fields=["portal", "occurred_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.portal.domain} — {self.source_id} — {self.entity_id}"
+
+
+class PortalCrmSyncState(TimeStampedModel):
+    """Состояние фоновой заливки склада CRM за 6 месяцев (только PRO)."""
+
+    class Status(models.TextChoices):
+        IDLE = "idle", "Ожидание"
+        RUNNING = "running", "Идёт загрузка"
+        READY = "ready", "Готово"
+        FAILED = "failed", "Ошибка"
+
+    portal = models.OneToOneField(
+        BitrixPortal,
+        on_delete=models.CASCADE,
+        related_name="crm_sync_state",
+        verbose_name="Портал",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.IDLE,
+        db_index=True,
+        verbose_name="Статус",
+    )
+    coverage_from = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Покрытие с",
+    )
+    coverage_to = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Покрытие по",
+    )
+    next_chunk_to = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Конец следующего куска",
+    )
+    progress_percent = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name="Прогресс, %",
+    )
+    progress_message = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="Сообщение прогресса",
+    )
+    error_message = models.TextField(
+        blank=True,
+        verbose_name="Ошибка",
+    )
+    last_started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Начало текущего шага",
+    )
+    last_finished_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Конец последнего шага",
+    )
+    last_incremental_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Последний инкремент",
+    )
+    source_coverage = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Покрытие по источникам",
+        help_text="Диапазоны дат, которые уже сохранили из построенных PRO-отчётов, по source_id.",
+    )
+
+    class Meta:
+        verbose_name = "Состояние склада CRM"
+        verbose_name_plural = "Состояния склада CRM"
+
+    def __str__(self):
+        return f"{self.portal.domain} — {self.status}"

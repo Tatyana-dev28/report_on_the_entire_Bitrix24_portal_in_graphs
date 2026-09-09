@@ -116,8 +116,11 @@ export type DashboardOwnerBootstrapResponse = ReportSettingsResponse & {
     lastAttemptFailedAt: string | null;
     lastErrorMessage: string;
     snapshotPreparedAt?: string | null;
+    phase?: string;
+    phaseLabel?: string;
   } | null;
   share?: DashboardShareLinkItem;
+  fastReports?: 'preparing' | 'ready' | null;
 };
 
 export const loadDashboardOwnerBootstrap = () =>
@@ -134,6 +137,7 @@ export const loadDashboardOwnerSettings = () =>
     hasPreparedData: Boolean(response.hasPreparedData),
     refreshStatus: response.refreshStatus,
     portal: response.portal,
+    fastReports: response.fastReports ?? null,
   }));
 
 export const endDashboardOwnerAccess = () =>

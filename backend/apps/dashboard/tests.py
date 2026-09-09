@@ -317,6 +317,47 @@ class DashboardAccessSessionApiTests(TestCase):
         self.assertEqual(payload["reports"], [{"id": "sales", "name": "Продажи", "isDefault": True}])
         self.assertEqual(payload["selectedReportId"], "sales")
 
+    def test_bootstrap_uses_saved_views_from_portal_settings(self):
+        from apps.reports.models import PortalReportSettings
+
+        _session, raw_token = create_dashboard_access_session(
+            portal=self.portal,
+            user=None,
+            bitrix_user_id="42",
+            user_name="",
+            is_trusted_device=True,
+        )
+        DashboardPreparedSnapshot.objects.create(
+            portal=self.portal,
+            is_current=True,
+            saved_views_snapshot=[
+                {
+                    "value": "stale",
+                    "label": "Старый снимок",
+                    "isDefault": True,
+                }
+            ],
+        )
+        PortalReportSettings.objects.create(
+            portal=self.portal,
+            saved_views=[
+                {
+                    "value": "from-app",
+                    "label": "Из приложения",
+                    "state": {"appliedFilters": {"period": "days"}},
+                }
+            ],
+        )
+        self.client.cookies[DASHBOARD_ACCESS_COOKIE_NAME] = raw_token
+
+        response = self.client.get(reverse("dashboard:owner-bootstrap"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["savedViews"][0]["value"], "from-app")
+        self.assertEqual(payload["reports"], [{"id": "from-app", "name": "Из приложения", "isDefault": True}])
+        self.assertEqual(payload["selectedReportId"], "from-app")
+
     def test_owner_catalog_requires_dashboard_cookie(self):
         response = self.client.get(reverse("dashboard:owner-catalog"))
 
@@ -542,6 +583,8 @@ class DashboardAccessSessionApiTests(TestCase):
         )
         self.assertGreater(refresh_status["nextUpdateAt"], refresh_status["lastSuccessfulUpdateAt"])
         self.assertFalse(refresh_status["isRefreshing"])
+        self.assertEqual(refresh_status["phase"], "")
+        self.assertEqual(refresh_status["phaseLabel"], "")
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
@@ -682,6 +725,30 @@ class DashboardRefreshTests(TestCase):
         self.assertNotEqual(current.id, self.snapshot.id)
         self.assertIsNotNone(run.next_planned_at)
 
+    def test_refresh_copies_portal_settings_saved_views_instead_of_stale_snapshot(self):
+        from apps.reports.models import PortalReportSettings
+
+        PortalReportSettings.objects.create(
+            portal=self.portal,
+            saved_views=[
+                {
+                    "value": "from-app",
+                    "label": "Из приложения",
+                    "state": {"appliedFilters": {"period": "weeks"}},
+                }
+            ],
+        )
+
+        run, _accepted = request_portal_refresh(
+            portal=self.portal,
+            enqueue=False,
+            saved_views=[{"value": "sales", "label": "Продажи"}],
+        )
+        run_portal_refresh(run.id)
+
+        current = DashboardPreparedSnapshot.objects.get(is_current=True)
+        self.assertEqual(current.saved_views_snapshot[0]["value"], "from-app")
+
     def test_failed_refresh_keeps_previous_snapshot(self):
         provider = MagicMock()
         provider.build_preview.side_effect = Exception("Bitrix24 API error")
@@ -696,6 +763,8 @@ class DashboardRefreshTests(TestCase):
         self.assertEqual(run.status, DashboardRefreshRun.Status.FAILED)
         self.assertTrue(self.snapshot.is_current)
         self.assertIsNotNone(run.next_planned_at)
+        self.assertIn("Битрикс24", run.error_message)
+        self.assertNotIn("Bitrix24 API error", run.error_message)
         self.assertEqual(
             DashboardPreparedSnapshot.objects.filter(portal=self.portal, is_current=True).count(),
             1,
@@ -740,11 +809,31 @@ class DashboardRefreshTests(TestCase):
         self.assertEqual(recovered, 1)
         self.assertEqual(stale.status, DashboardRefreshRun.Status.FAILED)
         self.assertLessEqual(stale.next_planned_at, timezone.now())
+        self.assertIn("Обновить сейчас", stale.error_message)
 
         with patch("apps.dashboard.services.refresh.enqueue_dashboard_refresh", return_value="test-job"):
             result = refresh_due_portals()
 
         self.assertEqual(result["started"], 1)
+
+    def test_stale_running_run_without_heartbeat_is_recovered(self):
+        stale = DashboardRefreshRun.objects.create(
+            portal=self.portal,
+            snapshot=self.snapshot,
+            status=DashboardRefreshRun.Status.RUNNING,
+            started_at=timezone.now() - timedelta(minutes=10),
+        )
+        DashboardRefreshRun.objects.filter(pk=stale.pk).update(
+            created_at=timezone.now() - timedelta(minutes=10),
+            updated_at=timezone.now() - timedelta(minutes=5),
+        )
+
+        recovered = recover_stale_refresh_runs(portal=self.portal)
+        stale.refresh_from_db()
+
+        self.assertEqual(recovered, 1)
+        self.assertEqual(stale.status, DashboardRefreshRun.Status.FAILED)
+        self.assertIn("Обновить сейчас", stale.error_message)
 
     def test_snapshot_without_refresh_run_becomes_due(self):
         DashboardRefreshRun.objects.all().delete()
@@ -779,6 +868,7 @@ class DashboardRefreshTests(TestCase):
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["accepted"])
         self.assertTrue(payload["refreshStatus"]["isRefreshing"])
+        self.assertEqual(payload["refreshStatus"]["phase"], "queued")
 
     def test_refresh_status_includes_current_snapshot_time(self):
         status = build_refresh_status(self.portal)

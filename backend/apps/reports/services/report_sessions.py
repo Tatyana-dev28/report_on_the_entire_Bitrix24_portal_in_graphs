@@ -22,6 +22,12 @@ def create_report_preview_session(request, payload: dict) -> dict:
     portal = resolve_portal(request, payload)
     user, bitrix_user_id, user_name = resolve_user(portal, request, payload)
 
+    from apps.dashboard.services.snapshot_preview import try_serve_prepared_snapshot
+
+    served = try_serve_prepared_snapshot(portal, filters)
+    if served:
+        return served
+
     return ReportBuilder().build_preview(
         filters=filters,
         context=ReportBuildContext(

@@ -51,11 +51,14 @@ from apps.dashboard.services.refresh import (
     DashboardRefreshError,
     build_refresh_status,
     get_current_snapshot,
+    merge_saved_views,
     persist_refresh_settings,
     request_portal_refresh,
+    resolve_portal_saved_views,
     sync_portal_refresh_interval,
 )
 from apps.dashboard.services.retention import prune_dashboard_history
+from apps.dashboard.services.snapshot_preview import stamp_filters_hash
 
 
 logger = logging.getLogger(__name__)
@@ -94,6 +97,12 @@ def _json_ready(value):
     return str(value).encode("utf-8", "replace").decode("utf-8")
 
 
+def _fast_reports_for_portal(portal) -> dict:
+    from apps.reports.services.crm_warehouse import serialize_fast_reports
+
+    return serialize_fast_reports(portal)
+
+
 def _empty_bootstrap_payload(*, access: str, portal=None) -> dict:
     return {
         "ok": True,
@@ -124,6 +133,7 @@ def _empty_bootstrap_payload(*, access: str, portal=None) -> dict:
         },
         "confirmationMethod": "bitrix_launch_link",
         "viewerMode": "owner" if access == "authorized" else "none",
+        **_fast_reports_for_portal(portal),
     }
 
 
@@ -248,11 +258,14 @@ def _flatten_settings_snapshot(settings) -> dict:
 
 
 def _bootstrap_payload(*, access: str, portal=None, snapshot: DashboardPreparedSnapshot | None = None) -> dict:
-    reports = _saved_reports_from_snapshot(snapshot)
+    saved_views = resolve_portal_saved_views(portal, snapshot) if portal else (
+        snapshot.saved_views_snapshot if snapshot and isinstance(snapshot.saved_views_snapshot, list) else []
+    )
+    reports = _saved_reports_from_views(saved_views)
     selected_report_id = None
 
-    if snapshot and isinstance(snapshot.saved_views_snapshot, list):
-        for view in snapshot.saved_views_snapshot:
+    if isinstance(saved_views, list):
+        for view in saved_views:
             if isinstance(view, dict) and view.get("isDefault"):
                 selected_report_id = str(view.get("value") or view.get("id") or "")
                 break
@@ -284,7 +297,7 @@ def _bootstrap_payload(*, access: str, portal=None, snapshot: DashboardPreparedS
         ),
         "reports": reports,
         "selectedReportId": selected_report_id,
-        "savedViews": snapshot.saved_views_snapshot if snapshot and isinstance(snapshot.saved_views_snapshot, list) else [],
+        "savedViews": saved_views if isinstance(saved_views, list) else [],
         "settings": _flatten_settings_snapshot(snapshot.settings_snapshot if snapshot else {}),
         "appSettings": {
             "dashboardRefreshIntervalMinutes": (
@@ -304,6 +317,7 @@ def _bootstrap_payload(*, access: str, portal=None, snapshot: DashboardPreparedS
         },
         "confirmationMethod": "bitrix_launch_link",
         "viewerMode": "owner" if access == "authorized" else "none",
+        **_fast_reports_for_portal(portal),
     }
 
 
@@ -362,6 +376,25 @@ def _ensure_snapshot_has_view(portal, snapshot: DashboardPreparedSnapshot | None
         return
 
     current_views = list(snapshot.saved_views_snapshot) if snapshot and isinstance(snapshot.saved_views_snapshot, list) else []
+    report_settings = PortalReportSettings.objects.filter(portal=portal).first()
+    settings_views = (
+        list(report_settings.saved_views)
+        if report_settings and isinstance(report_settings.saved_views, list)
+        else []
+    )
+
+    if _find_view_in_list(current_views, report_id) and _find_view_in_list(settings_views, report_id):
+        return
+
+    if report_settings:
+        if not _find_view_in_list(settings_views, report_id):
+            base_views = settings_views if settings_views else current_views
+            settings_views = merge_saved_views(base_views, [view])
+            report_settings.saved_views = settings_views
+            report_settings.save(update_fields=["saved_views", "updated_at"])
+        persist_refresh_settings(portal, saved_views=settings_views)
+        return
+
     if _find_view_in_list(current_views, report_id):
         return
 
@@ -419,6 +452,7 @@ def _share_bootstrap_payload(link: DashboardShareLink, snapshot: DashboardPrepar
         "share": serialize_share_link(link),
         "confirmationMethod": "share_link",
         "hasPreparedData": _safe_has_prepared_data(snapshot),
+        **_fast_reports_for_portal(link.portal),
     }
 
 
@@ -485,9 +519,7 @@ def _get_current_snapshot(portal, *, load_data: bool = True):
     return get_current_snapshot(portal, load_data=load_data)
 
 
-def _saved_reports_from_snapshot(snapshot: DashboardPreparedSnapshot | None) -> list[dict]:
-    saved_views = snapshot.saved_views_snapshot if snapshot else []
-
+def _saved_reports_from_views(saved_views) -> list[dict]:
     if not isinstance(saved_views, list):
         return []
 
@@ -512,6 +544,10 @@ def _saved_reports_from_snapshot(snapshot: DashboardPreparedSnapshot | None) -> 
         )
 
     return reports
+
+
+def _saved_reports_from_snapshot(snapshot: DashboardPreparedSnapshot | None) -> list[dict]:
+    return _saved_reports_from_views(snapshot.saved_views_snapshot if snapshot else [])
 
 
 def _snapshot_catalog(snapshot: DashboardPreparedSnapshot | None, portal) -> dict:
@@ -722,6 +758,7 @@ def owner_catalog_view(request):
         {
             "ok": True,
             **catalog,
+            **_fast_reports_for_portal(session.portal),
         },
         json_dumps_params={"ensure_ascii": False},
     )
@@ -812,7 +849,7 @@ def owner_snapshot_save_view(request):
             settings_snapshot=settings,
             saved_views_snapshot=saved_views,
             data=data,
-            metadata=metadata,
+            metadata=stamp_filters_hash(metadata, settings),
             payload_size_bytes=payload_size,
         )
         DashboardRefreshRun.objects.create(
@@ -1191,6 +1228,7 @@ def share_catalog_view(request):
         {
             "ok": True,
             **_snapshot_catalog(snapshot, link.portal),
+            **_fast_reports_for_portal(link.portal),
         },
         json_dumps_params={"ensure_ascii": False},
     )

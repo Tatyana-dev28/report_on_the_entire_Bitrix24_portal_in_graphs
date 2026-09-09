@@ -119,6 +119,7 @@ export type ReportPreviewPayload = {
   sourceMetrics?: Record<string, SourceMetricsData>;
   chartSourceMetrics?: Record<string, SourceMetricsData>;
   valueStates?: ValueStateMap;
+  servedFromSnapshot?: boolean;
 };
 
 /** A single metric inside a source (deal pipeline or smart process) */

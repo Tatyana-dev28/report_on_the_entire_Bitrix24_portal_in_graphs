@@ -14,6 +14,7 @@ export type ReportCatalogResponse = {
     sources: CrmSource[];
     metricSections: MetricSection[];
     metrics: MetricRow[];
+    fastReports?: 'preparing' | 'ready' | null;
 };
 
 export type ReportPreviewResponse = {
@@ -29,6 +30,7 @@ export type ReportPreviewResponse = {
     details: MetricDetailItem[];
     source_metrics?: Record<string, SourceMetricsData>;
     chart_source_metrics?: Record<string, SourceMetricsData>;
+    servedFromSnapshot?: boolean;
     metadata?: {
         valueStates?: ValueStateMap;
         [key: string]: unknown;

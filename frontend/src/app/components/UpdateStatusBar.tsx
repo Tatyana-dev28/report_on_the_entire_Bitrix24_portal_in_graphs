@@ -6,29 +6,47 @@ type DashboardRefreshStatus = {
   isRefreshing: boolean;
   lastAttemptFailedAt: string | null;
   lastErrorMessage: string;
+  phase?: string;
+  phaseLabel?: string;
 };
 
 type UpdateStatusBarProps = {
   status: DashboardRefreshStatus | null;
   canRefresh?: boolean;
   onRefresh?: () => void;
+  isApplyingData?: boolean;
 };
 
-export function UpdateStatusBar({ status, canRefresh = false, onRefresh }: UpdateStatusBarProps) {
-  const refreshDisabled = !canRefresh || Boolean(status?.isRefreshing) || !onRefresh;
+export function UpdateStatusBar({
+  status,
+  canRefresh = false,
+  onRefresh,
+  isApplyingData = false,
+}: UpdateStatusBarProps) {
+  const refreshDisabled = !canRefresh || Boolean(status?.isRefreshing) || isApplyingData || !onRefresh;
+  const lastUpdated = formatDashboardStatusTime(status?.lastSuccessfulUpdateAt ?? null);
+  const liveLabel = status?.isRefreshing
+    ? (status.phaseLabel || 'Обновляю данные…')
+    : isApplyingData
+      ? 'Обновляю экран…'
+      : '';
 
   return (
     <div className="report-update-status-bar" aria-label="Актуальность данных">
-      <span>Обновлено: {formatDashboardStatusTime(status?.lastSuccessfulUpdateAt ?? null)}</span>
-      {status?.isRefreshing ? (
-        <strong>Обновляем данные... Последние данные: {formatDashboardStatusTime(status.lastSuccessfulUpdateAt)}</strong>
+      <span>Обновлено: {lastUpdated}</span>
+      {liveLabel ? (
+        <strong>
+          {liveLabel}
+          {' '}
+          Сейчас на экране данные на {lastUpdated}.
+        </strong>
       ) : (
         <span>Следующее обновление: {formatDashboardStatusTime(status?.nextUpdateAt ?? null)}</span>
       )}
-      {status?.lastAttemptFailedAt && !status.isRefreshing ? (
+      {status?.lastAttemptFailedAt && !status.isRefreshing && !isApplyingData ? (
         <em>
-          Обновление в {formatDashboardStatusTime(status.lastAttemptFailedAt)} не удалось
-          {status.lastErrorMessage ? `. ${status.lastErrorMessage}` : ''}
+          {status.lastErrorMessage
+            || `Обновление в ${formatDashboardStatusTime(status.lastAttemptFailedAt)} не удалось. Обновите страницу и нажмите «Обновить сейчас».`}
         </em>
       ) : null}
       {canRefresh ? (

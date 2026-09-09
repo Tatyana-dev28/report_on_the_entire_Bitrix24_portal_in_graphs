@@ -15,15 +15,24 @@ from apps.bitrix.models import BitrixPortal
 from apps.dashboard.constants import (
     ALLOWED_REFRESH_INTERVAL_MINUTES,
     DEFAULT_REFRESH_INTERVAL_MINUTES,
+    REFRESH_ERROR_BITRIX,
+    REFRESH_ERROR_GENERIC,
+    REFRESH_ERROR_STALE,
+    REFRESH_HEARTBEAT_SECONDS,
+    REFRESH_PHASE_BUILDING,
+    REFRESH_PHASE_FETCHING,
+    REFRESH_PHASE_LABELS,
+    REFRESH_PHASE_QUEUED,
+    REFRESH_PHASE_SAVING,
     STALE_ACTIVE_REFRESH_MINUTES,
     STALE_PENDING_REFRESH_MINUTES,
+    STALE_RUNNING_IDLE_MINUTES,
 )
 from apps.dashboard.models import DashboardPreparedSnapshot, DashboardRefreshRun
 from apps.dashboard.services.retention import prune_dashboard_history
 from apps.reports.catalog import METRICS
 from apps.reports.models import PortalReportSettings
 from apps.reports.services.data_providers import ReportDataProviderContext, get_report_data_provider
-from apps.reports.services.exceptions import ReportPreviewSessionError
 from apps.reports.services.filters import normalize_report_filters
 from apps.reports.services.report_catalog import build_report_catalog
 
@@ -34,6 +43,72 @@ ACTIVE_REFRESH_STATUSES = {
     DashboardRefreshRun.Status.PENDING,
     DashboardRefreshRun.Status.RUNNING,
 }
+
+
+def _refresh_phase(run: DashboardRefreshRun | None) -> str:
+    if run is None:
+        return ""
+    if run.status == DashboardRefreshRun.Status.PENDING:
+        return REFRESH_PHASE_QUEUED
+    if run.status != DashboardRefreshRun.Status.RUNNING:
+        return ""
+    metadata = run.metadata if isinstance(run.metadata, dict) else {}
+    phase = str(metadata.get("phase") or REFRESH_PHASE_FETCHING)
+    return phase if phase in REFRESH_PHASE_LABELS else REFRESH_PHASE_FETCHING
+
+
+def _set_refresh_phase(run: DashboardRefreshRun, phase: str) -> None:
+    metadata = dict(run.metadata or {})
+    metadata["phase"] = phase
+    run.metadata = metadata
+    run.save(update_fields=["metadata", "updated_at"])
+
+
+def _heartbeat_refresh(run_id: int, stop: threading.Event) -> None:
+    close_old_connections()
+    try:
+        while not stop.wait(REFRESH_HEARTBEAT_SECONDS):
+            updated = DashboardRefreshRun.objects.filter(
+                pk=run_id,
+                status=DashboardRefreshRun.Status.RUNNING,
+            ).update(updated_at=timezone.now())
+            if not updated:
+                return
+    finally:
+        close_old_connections()
+
+
+def public_refresh_error_message(message: str | None) -> str:
+    text = str(message or "").strip()
+    if not text:
+        return ""
+    if text in {REFRESH_ERROR_BITRIX, REFRESH_ERROR_STALE, REFRESH_ERROR_GENERIC}:
+        return text
+    if text.startswith("Нет подготовленного"):
+        return text
+    lowered = text.lower()
+    if "зависло" in lowered:
+        return REFRESH_ERROR_STALE
+    bitrix_tokens = (
+        "bitrix",
+        "битрикс",
+        "crm.",
+        "query_limit",
+        "error_description",
+        "timeout",
+        "timed out",
+        "502",
+        "503",
+        "504",
+        "connection aborted",
+        "connection reset",
+        "max retries",
+        "returned ",
+        "limit is",
+    )
+    if any(token in lowered for token in bitrix_tokens):
+        return REFRESH_ERROR_BITRIX
+    return REFRESH_ERROR_GENERIC
 
 
 class DashboardRefreshError(Exception):
@@ -83,6 +158,8 @@ def build_refresh_status(portal: BitrixPortal | None) -> dict | None:
     if portal is None:
         return None
 
+    recover_stale_refresh_runs(portal=portal)
+
     latest_run = _latest_refresh_run(portal)
     latest_success = _latest_refresh_run(
         portal,
@@ -110,11 +187,16 @@ def build_refresh_status(portal: BitrixPortal | None) -> dict | None:
     else:
         next_update_at = _next_planned_update_at(portal, snapshot, latest_success)
 
+    is_refreshing = bool(latest_run and latest_run.status in ACTIVE_REFRESH_STATUSES)
+    phase = _refresh_phase(latest_run) if is_refreshing else ""
+
     return {
         "lastSuccessfulUpdateAt": _iso_utc(updated_at),
         "snapshotPreparedAt": _iso_utc(snapshot.prepared_at if snapshot else None),
         "nextUpdateAt": _iso_utc(next_update_at),
-        "isRefreshing": bool(latest_run and latest_run.status in ACTIVE_REFRESH_STATUSES),
+        "isRefreshing": is_refreshing,
+        "phase": phase,
+        "phaseLabel": REFRESH_PHASE_LABELS.get(phase, ""),
         "lastAttemptFailedAt": _iso_utc(
             latest_run.finished_at
             if latest_run
@@ -123,7 +205,7 @@ def build_refresh_status(portal: BitrixPortal | None) -> dict | None:
             else None
         ),
         "lastErrorMessage": (
-            latest_run.error_message
+            public_refresh_error_message(latest_run.error_message)
             if latest_run and latest_run.status == DashboardRefreshRun.Status.FAILED
             else ""
         ),
@@ -163,6 +245,63 @@ def get_current_snapshot(portal: BitrixPortal, *, load_data: bool = True) -> Das
     if not load_data:
         queryset = queryset.defer("data")
     return queryset.first()
+
+
+def saved_view_id(view) -> str:
+    if not isinstance(view, dict):
+        return ""
+    return str(view.get("value") or view.get("id") or view.get("stateKey") or "").strip()
+
+
+def merge_saved_views(primary, extra) -> list:
+    """Keep primary items; append extras whose ids are not already present."""
+    merged: list = []
+    seen: set[str] = set()
+
+    for source in (primary, extra):
+        if not isinstance(source, list):
+            continue
+        for view in source:
+            view_id = saved_view_id(view)
+            if not view_id or view_id in seen:
+                continue
+            seen.add(view_id)
+            merged.append(view)
+
+    return merged
+
+
+def resolve_portal_saved_views(
+    portal: BitrixPortal,
+    snapshot: DashboardPreparedSnapshot | None = None,
+) -> list:
+    """Portal settings are the source of truth when the user has saved reports."""
+    current = get_current_snapshot(portal, load_data=False) or snapshot
+    snapshot_views = (
+        current.saved_views_snapshot
+        if current and isinstance(current.saved_views_snapshot, list)
+        else []
+    )
+    report_settings = PortalReportSettings.objects.filter(portal=portal).first()
+    settings_views = (
+        report_settings.saved_views
+        if report_settings and isinstance(report_settings.saved_views, list)
+        else None
+    )
+    if settings_views:
+        return list(settings_views)
+    return list(snapshot_views)
+
+
+def sync_current_snapshot_saved_views(portal: BitrixPortal, saved_views: list) -> None:
+    """Copy the app-saved report list onto the current dashboard snapshot without rebuilding data."""
+    snapshot = get_current_snapshot(portal, load_data=False)
+    if snapshot is None:
+        return
+
+    views_payload = saved_views if isinstance(saved_views, list) else []
+    snapshot.saved_views_snapshot = views_payload
+    snapshot.save(update_fields=["saved_views_snapshot", "updated_at"])
 
 
 def persist_refresh_settings(
@@ -209,8 +348,15 @@ def request_portal_refresh(
     if not has_pro:
         raise DashboardRefreshError(error_message or "PRO-доступ не найден.", status=403)
 
-    if settings is not None or saved_views is not None:
-        persist_refresh_settings(portal, settings=settings, saved_views=saved_views)
+    recover_stale_refresh_runs(portal=portal)
+
+    if settings is not None:
+        persist_refresh_settings(portal, settings=settings)
+    elif saved_views is not None:
+        persist_refresh_settings(
+            portal,
+            saved_views=resolve_portal_saved_views(portal) or saved_views,
+        )
 
     snapshot = get_current_snapshot(portal)
     if snapshot is None:
@@ -239,7 +385,7 @@ def request_portal_refresh(
             refresh_interval_minutes=interval,
             requested_by_bitrix_user_id=str(bitrix_user_id or ""),
             next_planned_at=timezone.now() + timedelta(minutes=interval),
-            metadata={"source": "dashboard_refresh"},
+            metadata={"source": "dashboard_refresh", "phase": REFRESH_PHASE_QUEUED},
         )
 
     if enqueue:
@@ -273,9 +419,22 @@ def run_portal_refresh(run_id: int) -> DashboardRefreshRun:
     run.status = DashboardRefreshRun.Status.RUNNING
     run.started_at = started_at
     run.save(update_fields=["status", "started_at", "updated_at"])
+    _set_refresh_phase(run, REFRESH_PHASE_FETCHING)
 
     if snapshot is None:
-        return _fail_run(run, "Нет подготовленного снимка для обновления.")
+        return _fail_run(
+            run,
+            "Нет подготовленного отчёта. Постройте сводку в приложении, затем нажмите «Обновить сейчас».",
+        )
+
+    stop_heartbeat = threading.Event()
+    heartbeat = threading.Thread(
+        target=_heartbeat_refresh,
+        args=(run.id, stop_heartbeat),
+        name=f"dashboard-refresh-heartbeat-{run.id}",
+        daemon=True,
+    )
+    heartbeat.start()
 
     try:
         filters = build_refresh_filters(snapshot)
@@ -288,8 +447,10 @@ def run_portal_refresh(run_id: int) -> DashboardRefreshRun:
                 user_name="",
             ),
         )
+        _set_refresh_phase(run, REFRESH_PHASE_BUILDING)
         catalog = build_report_catalog(portal)
         settings, saved_views = _settings_for_new_snapshot(portal, snapshot)
+        _set_refresh_phase(run, REFRESH_PHASE_SAVING)
         payload = {
             "catalog": {
                 "periods": catalog.get("periods") or [],
@@ -313,6 +474,8 @@ def run_portal_refresh(run_id: int) -> DashboardRefreshRun:
         finished_at = timezone.now()
         interval = _safe_refresh_interval(run.refresh_interval_minutes)
 
+        from apps.dashboard.services.snapshot_preview import stamp_filters_hash
+
         with transaction.atomic():
             DashboardPreparedSnapshot.objects.filter(portal=portal, is_current=True).update(is_current=False)
             new_snapshot = DashboardPreparedSnapshot.objects.create(
@@ -323,11 +486,14 @@ def run_portal_refresh(run_id: int) -> DashboardRefreshRun:
                 settings_snapshot=settings,
                 saved_views_snapshot=saved_views,
                 data=payload,
-                metadata={
-                    "source": "dashboard_refresh",
-                    "triggerType": run.trigger_type,
-                    "runId": run.id,
-                },
+                metadata=stamp_filters_hash(
+                    {
+                        "source": "dashboard_refresh",
+                        "triggerType": run.trigger_type,
+                        "runId": run.id,
+                    },
+                    settings,
+                ),
                 payload_size_bytes=payload_size,
             )
             run.snapshot = new_snapshot
@@ -350,6 +516,9 @@ def run_portal_refresh(run_id: int) -> DashboardRefreshRun:
     except Exception as error:
         logger.exception("Dashboard refresh run %s failed", run.id)
         return _fail_run(run, _friendly_refresh_error(error))
+    finally:
+        stop_heartbeat.set()
+        heartbeat.join(timeout=1)
 
     return run
 
@@ -407,27 +576,31 @@ def _portal_refresh_is_due(
     return prepared_at + timedelta(minutes=interval) <= now
 
 
-def recover_stale_refresh_runs() -> int:
+def recover_stale_refresh_runs(portal: BitrixPortal | None = None) -> int:
     now = timezone.now()
     pending_cutoff = now - timedelta(minutes=STALE_PENDING_REFRESH_MINUTES)
-    running_cutoff = now - timedelta(minutes=STALE_ACTIVE_REFRESH_MINUTES)
+    idle_cutoff = now - timedelta(minutes=STALE_RUNNING_IDLE_MINUTES)
+    zombie_cutoff = now - timedelta(minutes=STALE_ACTIVE_REFRESH_MINUTES)
+    active = DashboardRefreshRun.objects.filter(status__in=ACTIVE_REFRESH_STATUSES)
+    if portal is not None:
+        active = active.filter(portal=portal)
+
     stale_ids = list(
-        DashboardRefreshRun.objects.filter(
+        active.filter(
             status=DashboardRefreshRun.Status.PENDING,
             started_at__isnull=True,
             created_at__lt=pending_cutoff,
         ).values_list("pk", flat=True)
     ) + list(
-        DashboardRefreshRun.objects.filter(
-            status__in=ACTIVE_REFRESH_STATUSES,
-            created_at__lt=running_cutoff,
-        ).values_list("pk", flat=True)
+        active.filter(updated_at__lt=idle_cutoff).values_list("pk", flat=True)
+    ) + list(
+        active.filter(created_at__lt=zombie_cutoff).values_list("pk", flat=True)
     )
     stale_runs = list(
         DashboardRefreshRun.objects.filter(pk__in=set(stale_ids)).select_related("portal")
     )
     for run in stale_runs:
-        _fail_run(run, "Обновление зависло и было остановлено. Следующее запустится по расписанию.")
+        _fail_run(run, REFRESH_ERROR_STALE)
         run.next_planned_at = now
         run.save(update_fields=["next_planned_at", "updated_at"])
     return len(stale_runs)
@@ -537,35 +710,37 @@ def _run_refresh_in_thread(run_id: int) -> None:
 
 
 def _friendly_refresh_error(error: BaseException) -> str:
-    if isinstance(error, ReportPreviewSessionError):
-        return str(error)[:4000]
-
     try:
         from apps.bitrix.services.rest_client import BitrixRestError
     except ImportError:
         BitrixRestError = tuple()  # type: ignore[assignment]
 
     if BitrixRestError and isinstance(error, BitrixRestError):
-        return "Битрикс24 не отдал данные для обновления. Попробуйте ещё раз через минуту."
+        return REFRESH_ERROR_BITRIX
 
-    text = str(error or "").strip()
-    lowered = text.lower()
-    if any(token in lowered for token in ("500", "502", "503", "timeout", "timed out")):
-        return (
-            "Битрикс24 временно не ответил. Предыдущий отчёт сохранён, попробуйте обновить ещё раз."
-        )
+    error_name = type(error).__name__.lower()
+    if "timeout" in error_name or "timelimit" in error_name:
+        if "soft" in error_name or "time" in error_name:
+            return REFRESH_ERROR_BITRIX
+        return REFRESH_ERROR_BITRIX
 
-    return (text or "Не удалось обновить данные Битрикс24.")[:4000]
+    return public_refresh_error_message(str(error or "")) or REFRESH_ERROR_GENERIC
 
 
 def _fail_run(run: DashboardRefreshRun, message: str) -> DashboardRefreshRun:
     finished_at = timezone.now()
     interval = _safe_refresh_interval(run.refresh_interval_minutes)
+    friendly = public_refresh_error_message(message) or REFRESH_ERROR_GENERIC
+    metadata = dict(run.metadata or {})
+    metadata["phase"] = "failed"
     run.status = DashboardRefreshRun.Status.FAILED
-    run.error_message = message[:4000]
+    run.error_message = friendly[:4000]
     run.finished_at = finished_at
     run.next_planned_at = finished_at + timedelta(minutes=interval)
-    run.save(update_fields=["status", "error_message", "finished_at", "next_planned_at", "updated_at"])
+    run.metadata = metadata
+    run.save(
+        update_fields=["status", "error_message", "finished_at", "next_planned_at", "metadata", "updated_at"]
+    )
     return run
 
 
@@ -648,14 +823,12 @@ def sync_portal_refresh_interval(portal: BitrixPortal, minutes) -> int:
 
 def _settings_for_new_snapshot(portal: BitrixPortal, snapshot: DashboardPreparedSnapshot) -> tuple[dict, list]:
     settings = snapshot.settings_snapshot if isinstance(snapshot.settings_snapshot, dict) else {}
-    saved_views = snapshot.saved_views_snapshot if isinstance(snapshot.saved_views_snapshot, list) else []
+    saved_views = resolve_portal_saved_views(portal, snapshot)
 
     report_settings = PortalReportSettings.objects.filter(portal=portal).first()
     if report_settings:
         if not settings and isinstance(report_settings.settings, dict) and report_settings.settings:
             settings = report_settings.settings
-        if not saved_views and isinstance(report_settings.saved_views, list) and report_settings.saved_views:
-            saved_views = report_settings.saved_views
 
     return settings, saved_views
 

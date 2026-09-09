@@ -69,6 +69,7 @@ export const bitrixReportDataSource: ReportDataSource = {
       sourceMetrics: preview.source_metrics ?? {},
       chartSourceMetrics: preview.chart_source_metrics ?? preview.source_metrics ?? {},
       valueStates: preview.metadata?.valueStates ?? {},
+      servedFromSnapshot: Boolean(preview.servedFromSnapshot || preview.metadata?.servedFromSnapshot),
     };
 
     return latestPreview;

@@ -57,7 +57,11 @@ def serialize_fast_reports(portal) -> dict[str, str | None]:
         return {"fastReports": None}
 
     state = PortalCrmSyncState.objects.filter(portal=portal).first()
-    if state and state.status == PortalCrmSyncState.Status.READY:
+    if state is None:
+        return {"fastReports": "preparing"}
+
+    window_start, window_end = warehouse_window()
+    if _ready_window_covers(portal, state, window_start, window_end):
         return {"fastReports": "ready"}
     return {"fastReports": "preparing"}
 
@@ -75,7 +79,7 @@ def warehouse_covers_range(
     if state is None:
         return False
 
-    if state.status == PortalCrmSyncState.Status.READY and _ready_window_covers(
+    if _ready_window_covers(
         portal,
         state,
         date_from,

@@ -1433,7 +1433,7 @@ class BitrixReportDataProviderTests(TestCase):
             status=BitrixPortal.Status.ACTIVE,
         )
 
-    def test_selected_sources_are_extended_with_essential_sources(self):
+    def test_selected_sources_are_not_expanded_with_unselected_sources(self):
         CrmSource.objects.create(
             portal=self.portal,
             external_key="deal-31",
@@ -1458,17 +1458,7 @@ class BitrixReportDataProviderTests(TestCase):
         sources = resolve_selected_sources_for_portal(self.portal, ["task-default"])
         source_ids = {source["id"] for source in sources}
 
-        self.assertIn("task-default", source_ids)
-        self.assertIn("deal-31", source_ids)
-        self.assertIn("smart-140-53", source_ids)
-        self.assertIn("lead-default", source_ids)
-        self.assertIn("invoice-default", source_ids)
-        self.assertIn("telephony-default", source_ids)
-        self.assertIn("activity-default", source_ids)
-        self.assertIn("quote-default", source_ids)
-        self.assertIn("company-default", source_ids)
-        self.assertIn("contact-default", source_ids)
-        self.assertIn("crm-form-default", source_ids)
+        self.assertEqual(source_ids, {"task-default"})
 
     def test_provider_loads_tasks_by_month_for_long_periods(self):
         provider = BitrixReportDataProvider(rest_client_factory=FakeMonthlyTaskBitrixRestClient)
@@ -2039,7 +2029,7 @@ class BitrixReportDataProviderTests(TestCase):
 
         self.assertEqual(result.status, "ready")
         self.assertEqual(result.metadata["unsupportedSources"], [])
-        self.assertEqual(first_day["meetings_created"], 2)
+        self.assertEqual(first_day["meetings_created"], 1)
         self.assertEqual(first_day["contracts_created"], 3)
         self.assertEqual(first_day["contracts_sent"], 1)
         self.assertEqual(first_day["contracts_signed"], 1)

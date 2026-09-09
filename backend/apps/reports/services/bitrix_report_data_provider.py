@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
 import logging
 from typing import Any, Callable
 
@@ -88,18 +89,6 @@ DEFAULT_REPORT_MESSAGE = "Отчет построен по данным Bitrix24
 logger = logging.getLogger(__name__)
 DEFAULT_SOURCE_LOAD_WORKERS = 4
 DEFAULT_TASK_MONTH_LOAD_WORKERS = 3
-ESSENTIAL_STATIC_SOURCE_IDS = {
-    "lead-default",
-    "deal-default",
-    "invoice-default",
-    "telephony-default",
-    "activity-default",
-    "quote-default",
-    "company-default",
-    "contact-default",
-    "task-default",
-    "crm-form-default",
-}
 SALES_NEW_STAGES = {"NEW", "PREPARATION"}
 SALES_TALK_STAGES = {"PREPAYMENT_INVOICE", "EXECUTING"}
 SALES_NUMERIC_STAGE_BUCKETS = {
@@ -211,7 +200,11 @@ class BitrixReportDataProvider:
             for source_id, rows in rows_by_source.items()
         }
         matched_source_row_counts = {
-            source_id: sum(1 for row in rows if any(_row_in_bucket(row, bucket) for bucket in buckets))
+            source_id: sum(
+                1
+                for row in rows
+                if _row_matches_any_bucket(row, buckets)
+            )
             for source_id, rows in rows_by_source.items()
         }
         # One heavy source_metrics pass for the loaded union, then split by settings.
@@ -1121,10 +1114,20 @@ def build_report_points(
     metric_mode: str = "money",
 ) -> list[dict]:
     metric_ids = [metric["id"] for metric in metric_catalog]
+    source_ids = list(rows_by_source.keys())
+    bucket_rows = _index_non_task_rows_by_bucket(rows_by_source, buckets)
+    task_rows = {
+        source_id: rows
+        for source_id, rows in rows_by_source.items()
+        if str(source_id).startswith("task-")
+    }
     points = []
 
-    for bucket in buckets:
-        values = _build_bucket_values(bucket, rows_by_source, metric_ids)
+    for index, bucket in enumerate(buckets):
+        rows_for_bucket = bucket_rows[index] if bucket_rows else {}
+        if task_rows:
+            rows_for_bucket = {**rows_for_bucket, **task_rows}
+        values = _build_bucket_values(bucket, rows_for_bucket, metric_ids)
 
         points.append(
             {
@@ -1136,7 +1139,7 @@ def build_report_points(
                     values,
                     metric_catalog,
                     metric_mode,
-                    source_ids=rows_by_source.keys(),
+                    source_ids=source_ids,
                 ),
                 "values": values,
             }
@@ -1432,13 +1435,14 @@ def _build_indicator_value(
                 metric_ids.add(metric_id)
 
         indicator = sum(values.get(metric_id, 0) for metric_id in metric_ids)
-        logger.info(
-            "Indicator debug (source_ids path) metric_mode=%s source_ids=%s metric_ids=%s indicator=%s",
-            metric_mode,
-            list(source_ids),
-            sorted(metric_ids),
-            indicator,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Indicator debug (source_ids path) metric_mode=%s source_ids=%s metric_ids=%s indicator=%s",
+                metric_mode,
+                list(source_ids),
+                sorted(metric_ids),
+                indicator,
+            )
         return indicator
 
     if metric_mode == "count":
@@ -1448,11 +1452,12 @@ def _build_indicator_value(
             if metric.get("type") not in {"money", "percent"}
         ]
         indicator = sum(values.get(metric_id, 0) for metric_id in metric_ids)
-        logger.info(
-            "Indicator debug (count path) metric_ids=%s indicator=%s",
-            metric_ids,
-            indicator,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Indicator debug (count path) metric_ids=%s indicator=%s",
+                metric_ids,
+                indicator,
+            )
         return indicator
 
     # "money" mode: only sum successful/won money metrics that the user has selected.
@@ -1463,13 +1468,14 @@ def _build_indicator_value(
     relevant_ids = SUCCESS_MONEY_METRIC_IDS & selected_metric_ids
     metric_values = {metric_id: values.get(metric_id, 0) for metric_id in relevant_ids}
     indicator = sum(metric_values.values())
-    logger.info(
-        "Indicator debug (money path) selected_metric_ids=%s relevant_ids=%s metric_values=%s indicator=%s",
-        selected_metric_ids,
-        relevant_ids,
-        metric_values,
-        indicator,
-    )
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "Indicator debug (money path) selected_metric_ids=%s relevant_ids=%s metric_values=%s indicator=%s",
+            selected_metric_ids,
+            relevant_ids,
+            metric_values,
+            indicator,
+        )
     return indicator
 
 
@@ -1712,103 +1718,6 @@ def _default_portal_sources(portal: Any) -> list[dict]:
     return result
 
 
-def _ensure_essential_source_types(
-    result: list[dict],
-    portal_sources: list[CrmSource],
-) -> None:
-    """Дополняет список источников необходимыми типами, если их нет.
-
-    Если не выбраны базовые виртуальные источники из REPORT_SOURCES —
-    добавляет их, чтобы включенные метрики не считались по пустому набору.
-    Если в result нет ни одного deal — добавляет первый доступный.
-    Если в result нет ни одного smartProcess — добавляет первый (приоритет: 140, 128).
-    """
-    seen_ids = {str(source.get("id") or "") for source in result}
-    seen_types = {s["type"] for s in result}
-
-    logger.info(
-        "_ensure_essential_source_types: before=%d sources, types=%s, portal_sources=%d",
-        len(result),
-        sorted(seen_types),
-        len(portal_sources),
-    )
-
-    for source in REPORT_SOURCES:
-        source_id = str(source.get("id") or "")
-
-        if source_id not in ESSENTIAL_STATIC_SOURCE_IDS:
-            continue
-
-        if source_id in seen_ids or source["type"] in seen_types:
-            continue
-
-        result.append(dict(source))
-        seen_ids.add(source_id)
-        seen_types.add(source["type"])
-        logger.info("_ensure_essential_source_types: added static source %s", source_id)
-
-    if "deal" not in seen_types:
-        # Prefer CRM-entity "Сделки" (all deals) over a random funnel.
-        for source in REPORT_SOURCES:
-            if str(source.get("id") or "") == "deal-default":
-                result.append(dict(source))
-                seen_ids.add("deal-default")
-                seen_types.add("deal")
-                logger.info("_ensure_essential_source_types: added static source deal-default")
-                break
-        else:
-            for source in portal_sources:
-                if source.source_type == CrmSource.SourceType.DEAL:
-                    result.append(_crm_source_to_report_source(source))
-                    seen_types.add("deal")
-                    logger.info(
-                        "_ensure_essential_source_types: added deal source %s (entityTypeId=%s)",
-                        source.external_key,
-                        source.entity_type_id,
-                    )
-                    break
-            else:
-                logger.warning(
-                    "_ensure_essential_source_types: no DEAL source found in %d portal sources",
-                    len(portal_sources),
-                )
-
-    if "smartProcess" not in seen_types:
-        for source in portal_sources:
-            if source.source_type == CrmSource.SourceType.SMART_PROCESS:
-                if source.entity_type_id in (140, 128):
-                    result.append(_crm_source_to_report_source(source))
-                    seen_types.add("smartProcess")
-                    logger.info(
-                        "_ensure_essential_source_types: added smartProcess source %s (entityTypeId=%s)",
-                        source.external_key,
-                        source.entity_type_id,
-                    )
-                    break
-        if "smartProcess" not in seen_types:
-            for source in portal_sources:
-                if source.source_type == CrmSource.SourceType.SMART_PROCESS:
-                    result.append(_crm_source_to_report_source(source))
-                    seen_types.add("smartProcess")
-                    logger.info(
-                        "_ensure_essential_source_types: added smartProcess source %s (entityTypeId=%s, fallback)",
-                        source.external_key,
-                        source.entity_type_id,
-                    )
-                    break
-            else:
-                logger.warning(
-                    "_ensure_essential_source_types: no SMART_PROCESS source found in %d portal sources",
-                    len(portal_sources),
-                )
-
-    logger.info(
-        "_ensure_essential_source_types: after=%d sources, types=%s",
-        len(result),
-        sorted(seen_types),
-    )
-
-
 def resolve_selected_sources_for_portal(portal: Any, selected_sources: list[str]) -> list[dict]:
     if not selected_sources:
         return _default_portal_sources(portal)
@@ -1844,8 +1753,6 @@ def resolve_selected_sources_for_portal(portal: Any, selected_sources: list[str]
         seen_ids.add(source["id"])
 
     if result:
-        # Дополняем необходимыми типами (deal, smartProcess), если их нет
-        _ensure_essential_source_types(result, portal_sources)
         return result
 
     for source in portal_sources:
@@ -1879,7 +1786,6 @@ def resolve_selected_sources_for_portal(portal: Any, selected_sources: list[str]
         seen_ids.add(source["id"])
 
     if result:
-        _ensure_essential_source_types(result, portal_sources)
         return result
 
     return resolve_selected_sources(selected_sources)
@@ -2194,8 +2100,22 @@ def _parse_datetime_or_date(
     if not value or not isinstance(value, str):
         return None
 
-    portal_tz = get_portal_tzinfo(portal)
+    if portal is None:
+        return _cached_parse_datetime_str(value, end_of_day)
 
+    return _parse_datetime_or_date_with_tz(value, end_of_day, get_portal_tzinfo(portal))
+
+
+@lru_cache(maxsize=65536)
+def _cached_parse_datetime_str(value: str, end_of_day: bool) -> datetime | None:
+    return _parse_datetime_or_date_with_tz(value, end_of_day, get_portal_tzinfo(None))
+
+
+def _parse_datetime_or_date_with_tz(
+    value: str,
+    end_of_day: bool,
+    portal_tz,
+) -> datetime | None:
     if len(value) == 10:
         parsed_date = parse_date(value)
 
@@ -2469,6 +2389,62 @@ def _row_in_bucket(row: dict, bucket: PeriodBucket) -> bool:
     created_at = _extract_row_datetime(row)
 
     return bool(created_at and bucket.start <= created_at <= bucket.end)
+
+
+def _matching_bucket_indexes(created_at: datetime, buckets: list[PeriodBucket]) -> list[int]:
+    if not buckets:
+        return []
+
+    lo = 0
+    hi = len(buckets) - 1
+    candidate = -1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if buckets[mid].start <= created_at:
+            candidate = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+
+    matches: list[int] = []
+    start_idx = max(0, candidate - 1)
+    end_idx = min(len(buckets), candidate + 2)
+    for index in range(start_idx, end_idx):
+        bucket = buckets[index]
+        if bucket.start <= created_at <= bucket.end:
+            matches.append(index)
+    return matches
+
+
+def _row_matches_any_bucket(row: dict, buckets: list[PeriodBucket]) -> bool:
+    created_at = _extract_row_datetime(row)
+    if not created_at:
+        return False
+    return bool(_matching_bucket_indexes(created_at, buckets))
+
+
+def _index_non_task_rows_by_bucket(
+    rows_by_source: dict[str, list[dict]],
+    buckets: list[PeriodBucket],
+) -> list[dict[str, list[dict]]]:
+    other_ids = [
+        source_id
+        for source_id in rows_by_source
+        if not str(source_id).startswith("task-")
+    ]
+    indexed = [{source_id: [] for source_id in other_ids} for _ in buckets]
+    if not buckets:
+        return indexed
+
+    for source_id in other_ids:
+        for row in rows_by_source.get(source_id, []):
+            created_at = _extract_row_datetime(row)
+            if not created_at:
+                continue
+            for index in _matching_bucket_indexes(created_at, buckets):
+                indexed[index][source_id].append(row)
+
+    return indexed
 
 
 def _row_field_in_bucket(row: dict, field: str, bucket: PeriodBucket) -> bool:

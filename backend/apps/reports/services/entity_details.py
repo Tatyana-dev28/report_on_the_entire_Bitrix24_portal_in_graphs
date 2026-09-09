@@ -76,19 +76,44 @@ def build_entity_details(
     if not metric_ids:
         return details
 
-    for bucket in buckets:
-        for source_id, rows in rows_by_source.items():
-            for row in rows:
-                for metric_id in _row_metric_ids(source_id, row, metric_ids):
-                    if not _detail_row_matches_bucket(
-                        row,
-                        bucket,
-                        source_id=source_id,
-                        metric_id=metric_id,
-                        portal=portal,
-                    ):
-                        continue
+    for source_id, rows in rows_by_source.items():
+        for row in rows:
+            metric_ids_for_row = _row_metric_ids(source_id, row, metric_ids)
+            if not metric_ids_for_row:
+                continue
 
+            if source_id.startswith("task-"):
+                for bucket in buckets:
+                    for metric_id in metric_ids_for_row:
+                        if not _detail_row_matches_bucket(
+                            row,
+                            bucket,
+                            source_id=source_id,
+                            metric_id=metric_id,
+                            portal=portal,
+                        ):
+                            continue
+                        metric = metric_by_id.get(metric_id, {})
+                        details.append(
+                            _build_entity_detail(
+                                row=row,
+                                source_id=source_id,
+                                metric_id=metric_id,
+                                metric=metric,
+                                period_key=bucket.key,
+                                portal=portal,
+                            )
+                        )
+                continue
+
+            created_at = _extract_row_datetime(row, portal=portal)
+            if not created_at:
+                continue
+
+            for bucket in buckets:
+                if not (bucket.start <= created_at <= bucket.end):
+                    continue
+                for metric_id in metric_ids_for_row:
                     metric = metric_by_id.get(metric_id, {})
                     details.append(
                         _build_entity_detail(

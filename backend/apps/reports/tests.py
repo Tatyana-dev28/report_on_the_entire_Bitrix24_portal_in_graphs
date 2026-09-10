@@ -3196,3 +3196,156 @@ class CrmWarehouseTests(TestCase):
         stored = PortalCrmRow.objects.get(portal=self.portal, source_id="deal-default", entity_id="1")
         self.assertEqual(stored.payload.get("TITLE"), "Updated deal")
 
+    def test_upsert_source_rows_deduplicates_same_batch(self):
+        from apps.reports.models import PortalCrmRow
+        from apps.reports.services.crm_warehouse import upsert_source_rows
+
+        self._grant_pro()
+        upsert_source_rows(
+            portal=self.portal,
+            source_id="deal-default",
+            rows=[
+                {
+                    "ID": "1",
+                    "TITLE": "First",
+                    "DATE_CREATE": "2026-05-01T10:15:00+03:00",
+                },
+                {
+                    "ID": "1",
+                    "TITLE": "Second",
+                    "DATE_CREATE": "2026-05-01T11:15:00+03:00",
+                },
+            ],
+        )
+
+        stored = list(PortalCrmRow.objects.filter(portal=self.portal, source_id="deal-default", entity_id="1"))
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(stored[0].payload.get("TITLE"), "Second")
+
+    def test_stale_coverage_falls_back_to_rest_for_report_through_today(self):
+        from datetime import timedelta
+
+        from apps.reports.models import PortalCrmSyncState
+
+        self._grant_pro()
+        now = timezone.now()
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.READY,
+            coverage_from=now - timedelta(days=180),
+            coverage_to=now - timedelta(days=4),
+            next_chunk_to=now - timedelta(days=180),
+            progress_percent=100,
+            last_incremental_at=now - timedelta(days=4),
+        )
+
+        calls = []
+
+        class TrackingClient(FakeBitrixRestClient):
+            def call_list(self, method, params=None, *, max_pages=None):
+                calls.append(method)
+                return super().call_list(method, params, max_pages=max_pages)
+
+        today = timezone.localtime(now).date().isoformat()
+        three_months_ago = (timezone.localtime(now) - timedelta(days=90)).date().isoformat()
+        provider = BitrixReportDataProvider(rest_client_factory=TrackingClient)
+        result = provider.build_preview(
+            filters={
+                "period": "days",
+                "dateRange": {"from": three_months_ago, "to": today},
+                "selectedSources": ["deal-default", "lead-default"],
+                "selectedMetricIds": ["deals_created", "leads_created"],
+                "metricMode": "money",
+                "chartDisplayMode": "sum",
+            },
+            context=ReportDataProviderContext(
+                portal=self.portal,
+                user=None,
+                bitrix_user_id="42",
+                user_name="",
+            ),
+        )
+
+        self.assertEqual(result.status, "ready")
+        self.assertIn("crm.deal.list", calls)
+
+    def test_ready_warehouse_keeps_incremental_after_deploy(self):
+        from datetime import timedelta
+
+        from apps.reports.models import PortalCrmSyncState
+        from apps.reports.services.crm_warehouse_sync import sync_portal_crm_warehouse
+
+        self._grant_pro()
+        now = timezone.now()
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.READY,
+            coverage_from=now - timedelta(days=180),
+            coverage_to=now - timedelta(days=1),
+            next_chunk_to=now - timedelta(days=180),
+            progress_percent=100,
+            last_incremental_at=now - timedelta(days=1),
+        )
+
+        calls = []
+
+        class SpyProvider(BitrixReportDataProvider):
+            def __init__(self):
+                super().__init__(rest_client_factory=FakeBitrixRestClient)
+
+            def _load_single_source_rows(self, **kwargs):
+                calls.append(kwargs)
+                return []
+
+        with patch(
+            "apps.reports.services.crm_warehouse_sync.BitrixReportDataProvider",
+            SpyProvider,
+        ):
+            result = sync_portal_crm_warehouse(self.portal.id)
+
+        self.assertEqual(result["mode"], "incremental")
+        self.assertTrue(calls)
+        event_calls = [item for item in calls if item.get("modified_since") is None]
+        self.assertTrue(event_calls)
+        oldest_event_from = min(item["date_from"] for item in event_calls)
+        self.assertLessEqual(oldest_event_from, now - timedelta(hours=20))
+
+    def test_failed_incremental_does_not_advance_coverage_to(self):
+        from datetime import timedelta
+
+        from apps.reports.models import PortalCrmSyncState
+        from apps.reports.services.crm_warehouse_sync import sync_portal_crm_warehouse
+
+        self._grant_pro()
+        now = timezone.now()
+        stale = now - timedelta(days=4)
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.READY,
+            coverage_from=now - timedelta(days=180),
+            coverage_to=stale,
+            next_chunk_to=now - timedelta(days=180),
+            progress_percent=100,
+            last_incremental_at=stale,
+        )
+
+        class FailingProvider(BitrixReportDataProvider):
+            def __init__(self):
+                super().__init__(rest_client_factory=FakeBitrixRestClient)
+
+            def _load_single_source_rows(self, **kwargs):
+                raise RuntimeError("bitrix unavailable")
+
+        with patch(
+            "apps.reports.services.crm_warehouse_sync.BitrixReportDataProvider",
+            FailingProvider,
+        ):
+            result = sync_portal_crm_warehouse(self.portal.id)
+
+        state = PortalCrmSyncState.objects.get(portal=self.portal)
+        self.assertEqual(result["mode"], "incremental")
+        self.assertEqual(state.coverage_to, stale)
+        self.assertEqual(state.last_incremental_at, stale)
+        self.assertTrue(state.error_message)
+
+

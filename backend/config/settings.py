@@ -303,6 +303,8 @@ ROBOKASSA_PAYMENT_URL = get_env(
 ROBOKASSA_RECEIPT_TAX = get_env("ROBOKASSA_RECEIPT_TAX", default="none")
 ROBOKASSA_RECEIPT_SNO = get_env("ROBOKASSA_RECEIPT_SNO", default="")
 
+from celery.schedules import crontab
+
 CELERY_BROKER_URL = get_env(
     "CELERY_BROKER_URL",
     default="redis://127.0.0.1:6379/2",
@@ -321,6 +323,10 @@ CELERY_BEAT_SCHEDULE = {
     "sync-due-crm-warehouses": {
         "task": "apps.reports.tasks.sync_due_crm_warehouses",
         "schedule": 180.0,
+    },
+    "sync-crm-warehouses-morning": {
+        "task": "apps.reports.tasks.sync_due_crm_warehouses",
+        "schedule": crontab(hour=4, minute=15),
     },
 }
 

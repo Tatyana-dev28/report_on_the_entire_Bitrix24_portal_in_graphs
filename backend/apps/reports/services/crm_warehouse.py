@@ -18,9 +18,11 @@ logger = logging.getLogger(__name__)
 
 WAREHOUSE_WINDOW_DAYS = 180
 WAREHOUSE_CHUNK_DAYS = 30
-WAREHOUSE_INCREMENTAL_LOOKBACK_DAYS = 3
+WAREHOUSE_INCREMENTAL_LOOKBACK_DAYS = 2
+WAREHOUSE_INCREMENTAL_MAX_CATCHUP_DAYS = 14
 WAREHOUSE_INCREMENTAL_MIN_INTERVAL = timedelta(minutes=5)
 WAREHOUSE_STALE_RUNNING = timedelta(minutes=20)
+WAREHOUSE_COVERAGE_GRACE_DAYS = 1
 DATE_MODIFY_SOURCE_TYPES = {
     "deal",
     "lead",
@@ -105,7 +107,11 @@ def _ready_window_covers(portal, state, date_from: datetime, date_to: datetime) 
     tz = get_portal_tzinfo(portal)
     today = timezone.localtime(timezone.now(), tz).date()
     covered_from = _local_date(state.coverage_from, tz)
-    covered_to = max(_local_date(state.coverage_to, tz), today)
+    covered_to = _local_date(state.coverage_to, tz)
+    # Same calendar day, or yesterday's sync, still covers a report that ends today.
+    # Multi-day lag must not pretend 7–10 Sep are in MySQL if coverage stopped on the 6th.
+    if 0 <= (today - covered_to).days <= WAREHOUSE_COVERAGE_GRACE_DAYS:
+        covered_to = max(covered_to, today)
     return _local_date(date_from, tz) >= covered_from and _local_date(date_to, tz) <= covered_to
 
 
@@ -158,8 +164,9 @@ def upsert_source_rows(*, portal, source_id: str, rows: list[dict]) -> int:
     if not rows:
         return 0
 
-    objects: list[PortalCrmRow] = []
+    objects_by_entity: dict[str, PortalCrmRow] = {}
     fallback_occurred = timezone.now()
+    normalized_source_id = str(source_id)
 
     for row in rows:
         if not isinstance(row, dict):
@@ -168,16 +175,16 @@ def upsert_source_rows(*, portal, source_id: str, rows: list[dict]) -> int:
         if not entity_id:
             continue
         occurred_at = _extract_row_datetime(row) or fallback_occurred
-        objects.append(
-            PortalCrmRow(
-                portal=portal,
-                source_id=str(source_id),
-                entity_id=entity_id[:64],
-                occurred_at=occurred_at,
-                payload=row,
-            )
+        key = entity_id[:64]
+        objects_by_entity[key] = PortalCrmRow(
+            portal=portal,
+            source_id=normalized_source_id,
+            entity_id=key,
+            occurred_at=occurred_at,
+            payload=row,
         )
 
+    objects = list(objects_by_entity.values())
     if not objects:
         return 0
 

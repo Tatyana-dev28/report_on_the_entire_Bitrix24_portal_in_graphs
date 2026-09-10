@@ -13,6 +13,7 @@ from apps.reports.services.crm_warehouse import (
     WAREHOUSE_CHUNK_DAYS,
     WAREHOUSE_WINDOW_DAYS,
     WAREHOUSE_INCREMENTAL_LOOKBACK_DAYS,
+    WAREHOUSE_INCREMENTAL_MAX_CATCHUP_DAYS,
     WAREHOUSE_INCREMENTAL_MIN_INTERVAL,
     WAREHOUSE_STALE_RUNNING,
     iter_pro_portal_ids,
@@ -50,11 +51,18 @@ def _should_skip_portal(portal_id: int) -> bool:
     state = PortalCrmSyncState.objects.filter(portal_id=portal_id).first()
     if state is None:
         return False
+    now = timezone.now()
     if state.status == PortalCrmSyncState.Status.RUNNING:
         started = state.last_started_at or state.updated_at
-        return bool(started and timezone.now() - started < WAREHOUSE_STALE_RUNNING)
+        return bool(started and now - started < WAREHOUSE_STALE_RUNNING)
+    if state.last_finished_at and now - state.last_finished_at < WAREHOUSE_INCREMENTAL_MIN_INTERVAL:
+        return True
+    if state.status == PortalCrmSyncState.Status.READY and state.coverage_to:
+        # Calendar lag: keep retrying even if last_incremental_at was bumped recently.
+        if now - state.coverage_to >= timedelta(hours=12):
+            return False
     if state.status == PortalCrmSyncState.Status.READY and state.last_incremental_at:
-        return timezone.now() - state.last_incremental_at < WAREHOUSE_INCREMENTAL_MIN_INTERVAL
+        return now - state.last_incremental_at < WAREHOUSE_INCREMENTAL_MIN_INTERVAL
     return False
 
 
@@ -99,6 +107,9 @@ def _run_sync_step(portal, state: PortalCrmSyncState, previous_status: str) -> d
 def _backfill_complete(state: PortalCrmSyncState, window_start) -> bool:
     if state.coverage_from is None or state.coverage_to is None:
         return False
+    # Already finished the 6-month fill: sliding window must not restart it after deploy.
+    if state.progress_percent >= 100:
+        return True
     if state.coverage_from > window_start:
         return False
     if state.next_chunk_to is not None and state.next_chunk_to > window_start:
@@ -164,9 +175,9 @@ def _run_backfill_chunk(portal, state, provider, client, sources, window_start, 
 
 
 def _run_incremental(portal, state, provider, client, sources, window_start, window_end) -> dict:
-    lookback = window_end - timedelta(days=WAREHOUSE_INCREMENTAL_LOOKBACK_DAYS)
-    modified_since = state.last_incremental_at or lookback
+    catchup_start = _incremental_catchup_start(state, window_end)
     written = 0
+    failed_source_ids: list[str] = []
 
     modify_sources = [source for source in sources if source.get("type") in DATE_MODIFY_SOURCE_TYPES]
     event_sources = [source for source in sources if source.get("type") not in DATE_MODIFY_SOURCE_TYPES]
@@ -178,35 +189,76 @@ def _run_incremental(portal, state, provider, client, sources, window_start, win
         sources=modify_sources,
         date_from=window_start,
         date_to=window_end,
-        modified_since=modified_since,
+        modified_since=catchup_start,
+        failed_source_ids=failed_source_ids,
     )
     written += _fetch_and_store(
         portal=portal,
         provider=provider,
         client=client,
         sources=event_sources,
-        date_from=lookback,
+        date_from=catchup_start,
         date_to=window_end,
         modified_since=None,
+        failed_source_ids=failed_source_ids,
     )
 
     prune_warehouse_rows(portal, now=window_end)
+    now = timezone.now()
     state.status = PortalCrmSyncState.Status.READY
-    state.coverage_from = window_start
-    state.coverage_to = window_end
+    state.coverage_from = min(state.coverage_from or window_start, window_start)
     state.next_chunk_to = window_start
     state.progress_percent = 100
-    state.progress_message = "Склад готов"
-    state.last_incremental_at = window_end
-    state.last_finished_at = window_end
-    state.error_message = ""
+    state.last_finished_at = now
+
+    if failed_source_ids:
+        state.progress_message = "Склад готов, повтор свежих дней"
+        state.error_message = (
+            "Не удалось обновить источники: " + ", ".join(failed_source_ids[:12])
+        )[:2000]
+        # Keep coverage_to / last_incremental_at so the next run still catch-up from the gap.
+    else:
+        state.coverage_to = window_end
+        state.last_incremental_at = window_end
+        state.progress_message = "Склад готов"
+        state.error_message = ""
+
     state.save()
-    return {"ok": True, "mode": "incremental", "written": written, "status": state.status}
+    return {
+        "ok": True,
+        "mode": "incremental",
+        "written": written,
+        "failed_sources": failed_source_ids,
+        "status": state.status,
+        "catchup_from": catchup_start.isoformat(),
+    }
 
 
-def _fetch_and_store(*, portal, provider, client, sources, date_from, date_to, modified_since) -> int:
+def _incremental_catchup_start(state: PortalCrmSyncState, window_end):
+    floor = window_end - timedelta(days=WAREHOUSE_INCREMENTAL_MAX_CATCHUP_DAYS)
+    recent = window_end - timedelta(days=WAREHOUSE_INCREMENTAL_LOOKBACK_DAYS)
+    candidates = [recent]
+    if state.last_incremental_at is not None:
+        candidates.append(state.last_incremental_at)
+    if state.coverage_to is not None:
+        candidates.append(state.coverage_to)
+    return max(min(candidates), floor)
+
+
+def _fetch_and_store(
+    *,
+    portal,
+    provider,
+    client,
+    sources,
+    date_from,
+    date_to,
+    modified_since,
+    failed_source_ids: list[str] | None = None,
+) -> int:
     written = 0
     for source in sources:
+        source_id = str(source.get("id") or "")
         try:
             rows = provider._load_single_source_rows(
                 client=client,
@@ -219,9 +271,11 @@ def _fetch_and_store(*, portal, provider, client, sources, date_from, date_to, m
             logger.warning(
                 "CRM warehouse source load failed portal=%s source=%s",
                 portal.pk,
-                source.get("id"),
+                source_id,
                 exc_info=True,
             )
+            if failed_source_ids is not None and source_id:
+                failed_source_ids.append(source_id)
             continue
-        written += upsert_source_rows(portal=portal, source_id=str(source.get("id") or ""), rows=rows)
+        written += upsert_source_rows(portal=portal, source_id=source_id, rows=rows)
     return written

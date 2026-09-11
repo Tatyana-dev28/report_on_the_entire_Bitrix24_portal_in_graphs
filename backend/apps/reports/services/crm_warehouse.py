@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 WAREHOUSE_WINDOW_DAYS = 180
 WAREHOUSE_CHUNK_DAYS = 30
+WAREHOUSE_BACKFILL_CHUNKS_PER_RUN = 3
 WAREHOUSE_INCREMENTAL_LOOKBACK_DAYS = 2
 WAREHOUSE_INCREMENTAL_MAX_CATCHUP_DAYS = 14
 WAREHOUSE_INCREMENTAL_MIN_INTERVAL = timedelta(minutes=5)
@@ -77,42 +78,58 @@ def warehouse_covers_range(
     date_to: datetime,
     source_ids: list[str] | None = None,
 ) -> bool:
-    if not portal_has_pro(portal):
+    selected_ids = [str(source_id) for source_id in (source_ids or []) if source_id]
+    if not selected_ids:
         return False
+    return all(
+        not warehouse_uncovered_ranges(portal, source_id, date_from, date_to)
+        for source_id in selected_ids
+    )
+
+
+def warehouse_uncovered_ranges(
+    portal,
+    source_id: str,
+    date_from: datetime,
+    date_to: datetime,
+) -> list[tuple[datetime, datetime]]:
+    """Date ranges that must be fetched from Bitrix REST for this source."""
+
+    if date_from > date_to:
+        return []
+    if not portal_has_pro(portal):
+        return [(date_from, date_to)]
 
     state = PortalCrmSyncState.objects.filter(portal=portal).first()
     if state is None:
-        return False
+        return [(date_from, date_to)]
 
     coverage = state.source_coverage if isinstance(state.source_coverage, dict) else {}
-    selected_ids = [str(source_id) for source_id in (source_ids or []) if source_id]
-    telephony_ids = [source_id for source_id in selected_ids if _source_requires_own_coverage(source_id)]
-    if telephony_ids:
-        for source_id in telephony_ids:
-            ranges = _source_coverage_ranges(coverage.get(str(source_id)))
-            if not _ranges_cover(ranges, date_from, date_to):
-                return False
-        other_ids = [source_id for source_id in selected_ids if source_id not in telephony_ids]
-        if not other_ids:
-            return True
-        selected_ids = other_ids
+    floor = _coverage_floor_for_reads(portal, state)
+    ranges = _clip_ranges_to_floor(_source_coverage_ranges(coverage.get(str(source_id))), floor)
 
-    if _ready_window_covers(
-        portal,
-        state,
-        date_from,
-        date_to,
-    ):
-        return _stored_rows_reach_from(portal, date_from)
+    if _source_requires_own_coverage(source_id):
+        if not ranges:
+            return [(date_from, date_to)]
+        return _uncovered_ranges(date_from, date_to, _ranges_with_to_grace(portal, ranges, date_to))
 
-    if not selected_ids:
-        return False
+    if ranges:
+        return _uncovered_ranges(date_from, date_to, _ranges_with_to_grace(portal, ranges, date_to))
 
-    for source_id in selected_ids:
-        ranges = _source_coverage_ranges(coverage.get(str(source_id)))
-        if not _ranges_cover(ranges, date_from, date_to):
-            return False
-    return True
+    oldest = (
+        PortalCrmRow.objects.filter(portal=portal, source_id=str(source_id))
+        .order_by("occurred_at")
+        .values_list("occurred_at", flat=True)
+        .first()
+    )
+    if oldest is None or state.coverage_to is None:
+        return [(date_from, date_to)]
+
+    synthetic_from = oldest
+    if floor is not None:
+        synthetic_from = max(_aware_datetime(floor) or oldest, _aware_datetime(oldest) or floor)
+    covered_to = _apply_coverage_to_grace(portal, state.coverage_to, date_to) or state.coverage_to
+    return _uncovered_ranges(date_from, date_to, [(synthetic_from, covered_to)])
 
 
 def _ready_window_covers(portal, state, date_from: datetime, date_to: datetime) -> bool:
@@ -141,6 +158,42 @@ def _stored_rows_reach_from(portal, date_from: datetime) -> bool:
         return False
     tz = get_portal_tzinfo(portal)
     return _local_date(oldest, tz) <= _local_date(date_from, tz)
+
+
+def _stored_source_rows_reach_from(portal, source_id: str, date_from: datetime) -> bool:
+    oldest = (
+        PortalCrmRow.objects.filter(portal=portal, source_id=str(source_id))
+        .order_by("occurred_at")
+        .values_list("occurred_at", flat=True)
+        .first()
+    )
+    if oldest is None:
+        return False
+    tz = get_portal_tzinfo(portal)
+    return _local_date(oldest, tz) <= _local_date(date_from, tz)
+
+
+def _apply_coverage_to_grace(portal, covered_to: datetime | None, date_to: datetime) -> datetime | None:
+    covered_to = _aware_datetime(covered_to)
+    date_to = _aware_datetime(date_to)
+    if covered_to is None or date_to is None:
+        return covered_to
+    tz = get_portal_tzinfo(portal)
+    today = timezone.localtime(timezone.now(), tz).date()
+    if 0 <= (today - _local_date(covered_to, tz)).days <= WAREHOUSE_COVERAGE_GRACE_DAYS:
+        return max(covered_to, date_to)
+    return covered_to
+
+
+def _ranges_with_to_grace(
+    portal,
+    ranges: list[tuple[datetime, datetime]],
+    date_to: datetime,
+) -> list[tuple[datetime, datetime]]:
+    return [
+        (start, _apply_coverage_to_grace(portal, end, date_to) or end)
+        for start, end in ranges
+    ]
 
 
 def _local_date(value: datetime, tz):
@@ -281,7 +334,6 @@ def persist_live_report_rows(
             continue
         try:
             upsert_source_rows(portal=portal, source_id=source_id, rows=rows)
-            extend_source_coverage(portal, source_id, date_from, date_to)
         except Exception:
             logger.exception(
                 "Failed to persist live PRO report rows for portal=%s source=%s",
@@ -349,10 +401,98 @@ def _merge_ranges(ranges: list[tuple[datetime, datetime]]) -> list[tuple[datetim
 
 
 def _ranges_cover(ranges: list[tuple[datetime, datetime]], date_from: datetime, date_to: datetime) -> bool:
-    for start, end in _merge_ranges(ranges):
-        if start <= date_from and end >= date_to:
-            return True
-    return False
+    return not _uncovered_ranges(date_from, date_to, ranges)
+
+
+def _uncovered_ranges(
+    date_from: datetime,
+    date_to: datetime,
+    ranges: list[tuple[datetime, datetime]],
+) -> list[tuple[datetime, datetime]]:
+    start = _aware_datetime(date_from)
+    end = _aware_datetime(date_to)
+    if start is None or end is None or start > end:
+        return []
+
+    gaps: list[tuple[datetime, datetime]] = []
+    cursor = start
+    for covered_start, covered_end in _merge_ranges(ranges):
+        covered_start = _aware_datetime(covered_start)
+        covered_end = _aware_datetime(covered_end)
+        if covered_start is None or covered_end is None or covered_end < cursor:
+            continue
+        if covered_start > cursor:
+            gap_end = min(covered_start, end)
+            if cursor < gap_end:
+                gaps.append((cursor, gap_end))
+        cursor = max(cursor, covered_end)
+        if cursor >= end:
+            break
+    if cursor < end:
+        gaps.append((cursor, end))
+    return gaps
+
+
+def _clip_ranges_to_floor(
+    ranges: list[tuple[datetime, datetime]],
+    floor: datetime | None,
+) -> list[tuple[datetime, datetime]]:
+    if floor is None:
+        return ranges
+    floor = _aware_datetime(floor)
+    clipped: list[tuple[datetime, datetime]] = []
+    for start, end in ranges:
+        start = _aware_datetime(start)
+        end = _aware_datetime(end)
+        if floor is None or start is None or end is None or end < floor:
+            continue
+        clipped.append((max(start, floor), end))
+    return clipped
+
+
+def _coverage_floor_for_reads(portal, state: PortalCrmSyncState) -> datetime | None:
+    window_start, _window_end = warehouse_window()
+    floor = _aware_datetime(state.coverage_from)
+    if floor is None:
+        return None
+    if floor > window_start:
+        return floor
+    if not _needs_false_coverage_repair(portal, state, window_start):
+        return floor
+    return _recent_block_frontier(portal) or floor
+
+
+def _needs_false_coverage_repair(portal, state: PortalCrmSyncState, window_start: datetime) -> bool:
+    if state.coverage_from is None or state.coverage_from > window_start:
+        return False
+    now = timezone.now()
+    recent_start = now - timedelta(days=WAREHOUSE_CHUNK_DAYS)
+    previous_start = recent_start - timedelta(days=WAREHOUSE_CHUNK_DAYS)
+    window_head_end = window_start + timedelta(days=WAREHOUSE_CHUNK_DAYS)
+    has_window_head = PortalCrmRow.objects.filter(
+        portal=portal,
+        occurred_at__lte=window_head_end,
+    ).exists()
+    has_previous_chunk = PortalCrmRow.objects.filter(
+        portal=portal,
+        occurred_at__gte=previous_start,
+        occurred_at__lt=recent_start,
+    ).exists()
+    return not (has_window_head and has_previous_chunk)
+
+
+def _recent_block_frontier(portal):
+    now = timezone.now()
+    recent_start = now - timedelta(days=WAREHOUSE_CHUNK_DAYS)
+    return (
+        PortalCrmRow.objects.filter(
+            portal=portal,
+            occurred_at__gte=recent_start - timedelta(days=2),
+        )
+        .order_by("occurred_at")
+        .values_list("occurred_at", flat=True)
+        .first()
+    )
 
 
 def repair_false_warehouse_coverage(portal, state: PortalCrmSyncState, window_start: datetime) -> bool:
@@ -361,42 +501,84 @@ def repair_false_warehouse_coverage(portal, state: PortalCrmSyncState, window_st
     Incremental used to set coverage_from to the sliding window start without
     downloading older days. Reports then read MySQL and showed zeros at the
     start of a long range (e.g. 3–6 Aug in 3 Aug–6 Sep).
+
+    Do not use the globally oldest row: a recently modified old deal would skip
+    the August hole and resume backfill from March.
     """
 
     if state.coverage_from is None:
         return False
-
-    oldest = (
-        PortalCrmRow.objects.filter(portal=portal)
-        .order_by("occurred_at")
-        .values_list("occurred_at", flat=True)
-        .first()
-    )
-    if oldest is None:
+    if not _needs_false_coverage_repair(portal, state, window_start):
+        _clip_source_coverage_to_floor(state)
         return False
+
+    frontier = _recent_block_frontier(portal)
+    if frontier is None:
+        oldest = (
+            PortalCrmRow.objects.filter(portal=portal)
+            .order_by("occurred_at")
+            .values_list("occurred_at", flat=True)
+            .first()
+        )
+        if oldest is None:
+            return False
+        frontier = oldest
 
     slack = timedelta(days=2)
-    if oldest <= state.coverage_from + slack:
+    if frontier <= state.coverage_from + slack:
+        _clip_source_coverage_to_floor(state)
         return False
 
-    state.coverage_from = oldest
-    state.next_chunk_to = oldest
+    state.coverage_from = frontier
+    state.next_chunk_to = frontier
     if state.progress_percent >= 100:
         state.progress_percent = 99
+    _clip_source_coverage_to_floor(state, persist=False)
     state.save(
         update_fields=[
             "coverage_from",
             "next_chunk_to",
             "progress_percent",
+            "source_coverage",
             "updated_at",
         ]
     )
     logger.info(
-        "CRM warehouse coverage repaired portal=%s coverage_from=%s (oldest row)",
+        "CRM warehouse coverage repaired portal=%s coverage_from=%s (recent block)",
         getattr(portal, "pk", None),
-        oldest.isoformat(),
+        frontier.isoformat(),
     )
     return True
+
+
+def _clip_source_coverage_to_floor(state: PortalCrmSyncState, *, persist: bool = True) -> None:
+    floor = _aware_datetime(state.coverage_from)
+    coverage = dict(state.source_coverage or {}) if isinstance(state.source_coverage, dict) else {}
+    if not coverage or floor is None:
+        return
+
+    changed = False
+    clipped: dict[str, list[dict]] = {}
+    for source_id, raw in coverage.items():
+        ranges = []
+        for start, end in _source_coverage_ranges(raw):
+            if end < floor:
+                changed = True
+                continue
+            if start < floor:
+                start = floor
+                changed = True
+            ranges.append((start, end))
+        clipped[str(source_id)] = [
+            {"from": item_start.isoformat(), "to": item_end.isoformat()}
+            for item_start, item_end in _merge_ranges(ranges)
+        ]
+
+    if not changed:
+        return
+    state.source_coverage = clipped
+    if persist:
+        state.save(update_fields=["source_coverage", "updated_at"])
 
 
 def prune_warehouse_rows(portal, *, now: datetime | None = None) -> int:

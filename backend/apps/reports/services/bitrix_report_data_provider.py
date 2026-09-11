@@ -268,7 +268,7 @@ class BitrixReportDataProvider:
         from apps.reports.services.crm_warehouse import (
             load_warehouse_source_rows,
             persist_live_report_rows,
-            warehouse_covers_range,
+            warehouse_uncovered_ranges,
         )
 
         rows_by_source: dict[str, list[dict]] = {}
@@ -277,21 +277,177 @@ class BitrixReportDataProvider:
             return rows_by_source
 
         warehouse_portal = portal if portal is not None else getattr(client, "portal", None)
-        selected_source_ids = [str(source.get("id") or "") for source in selected_sources if source.get("id")]
-        if warehouse_covers_range(
-            warehouse_portal,
-            date_from,
-            date_to,
-            source_ids=selected_source_ids,
-        ):
-            return load_warehouse_source_rows(
-                portal=warehouse_portal,
-                selected_sources=selected_sources,
-                date_from=date_from,
-                date_to=date_to,
+        rest_jobs: list[tuple[dict, datetime, datetime]] = []
+        warehouse_sources: list[dict] = []
+
+        for source in selected_sources:
+            source_id = str(source.get("id") or "")
+            gaps = warehouse_uncovered_ranges(
+                warehouse_portal,
+                source_id,
+                date_from,
+                date_to,
+            )
+            if len(gaps) != 1 or gaps[0] != (date_from, date_to):
+                warehouse_sources.append(source)
+            for gap_start, gap_end in gaps:
+                rest_jobs.append((source, gap_start, gap_end))
+
+        if warehouse_sources:
+            rows_by_source.update(
+                load_warehouse_source_rows(
+                    portal=warehouse_portal,
+                    selected_sources=warehouse_sources,
+                    date_from=date_from,
+                    date_to=date_to,
+                )
             )
 
+        for source in selected_sources:
+            source_id = source.get("id")
+            if source_id and source_id not in rows_by_source:
+                rows_by_source[source_id] = []
+
+        if not rest_jobs:
+            return rows_by_source
+
         failed_source_ids: set[str] = set()
+        rest_rows, rest_persisted = self._load_source_gaps_via_rest(
+            client=client,
+            rest_jobs=rest_jobs,
+            source_value_states=source_value_states,
+            failed_source_ids=failed_source_ids,
+        )
+        for source_id, extra_rows in rest_rows.items():
+            rows_by_source[source_id] = _merge_entity_rows(
+                rows_by_source.get(source_id, []),
+                extra_rows,
+            )
+
+        persist_live_report_rows(
+            portal=warehouse_portal,
+            rows_by_source=rest_persisted,
+            date_from=date_from,
+            date_to=date_to,
+            failed_source_ids=failed_source_ids,
+        )
+        return rows_by_source
+
+    def _load_source_gaps_via_rest(
+        self,
+        *,
+        client,
+        rest_jobs: list[tuple[dict, datetime, datetime]],
+        source_value_states: dict[str, dict[str, str]] | None,
+        failed_source_ids: set[str],
+    ) -> tuple[dict[str, list[dict]], dict[str, list[dict]]]:
+        rows_by_source: dict[str, list[dict]] = {}
+        persisted_by_source: dict[str, list[dict]] = {}
+        coverage_by_source: dict[str, list[tuple[datetime, datetime]]] = {}
+
+        def _record_success(source: dict, gap_start: datetime, gap_end: datetime, rows: list[dict]) -> None:
+            source_id = str(source.get("id") or "")
+            rows_by_source[source_id] = _merge_entity_rows(rows_by_source.get(source_id, []), rows)
+            persisted_by_source[source_id] = _merge_entity_rows(
+                persisted_by_source.get(source_id, []),
+                rows,
+            )
+            coverage_by_source.setdefault(source_id, []).append((gap_start, gap_end))
+
+        def _record_failure(source: dict, error: Exception) -> None:
+            source_id = str(source.get("id") or "")
+            failed_source_ids.add(source_id)
+            if source_value_states is not None and source_id not in source_value_states:
+                if isinstance(error, BitrixRestError):
+                    source_value_states[source_id] = _value_state_for_bitrix_error(error)
+                else:
+                    source_value_states[source_id] = {
+                        "reason": "source_unavailable",
+                        "message": "Не удалось загрузить данные показателя. Показаны сохранённые значения, если они есть.",
+                    }
+            logger.warning(
+                "Bitrix source loading failed for source=%s; warehouse rows stay if present.",
+                source.get("id"),
+                exc_info=True,
+            )
+
+        max_workers = min(_source_load_workers(), len(rest_jobs))
+        if max_workers <= 1:
+            for source, gap_start, gap_end in rest_jobs:
+                try:
+                    rows = self._load_single_source_rows(
+                        client=client,
+                        source=source,
+                        date_from=gap_start,
+                        date_to=gap_end,
+                    )
+                    _record_success(source, gap_start, gap_end, rows)
+                except BitrixRestAuthError:
+                    source_id = str(source.get("id") or "")
+                    if source_value_states is not None:
+                        source_value_states[source_id] = {
+                            "reason": "access_denied",
+                            "message": "Нет доступа к данным показателя",
+                        }
+                    raise
+                except Exception as error:
+                    _record_failure(source, error)
+        else:
+            rest_portal = getattr(client, "portal", None)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_job = {
+                    executor.submit(
+                        self._load_single_source_rows,
+                        client=self.rest_client_factory(rest_portal) if rest_portal is not None else client,
+                        source=source,
+                        date_from=gap_start,
+                        date_to=gap_end,
+                    ): (source, gap_start, gap_end)
+                    for source, gap_start, gap_end in rest_jobs
+                }
+                for future in as_completed(future_to_job):
+                    source, gap_start, gap_end = future_to_job[future]
+                    try:
+                        _record_success(source, gap_start, gap_end, future.result())
+                    except BitrixRestAuthError:
+                        source_id = str(source.get("id") or "")
+                        if source_value_states is not None:
+                            source_value_states[source_id] = {
+                                "reason": "access_denied",
+                                "message": "Нет доступа к данным показателя",
+                            }
+                        raise
+                    except Exception as error:
+                        _record_failure(source, error)
+
+        from apps.reports.services.crm_warehouse import extend_source_coverage
+
+        persist_portal = getattr(client, "portal", None)
+        for source_id, ranges in coverage_by_source.items():
+            if source_id in failed_source_ids or persist_portal is None:
+                continue
+            for gap_start, gap_end in ranges:
+                try:
+                    extend_source_coverage(persist_portal, source_id, gap_start, gap_end)
+                except Exception:
+                    logger.exception(
+                        "Failed to extend PRO coverage after REST gap fill source=%s",
+                        source_id,
+                    )
+
+        return rows_by_source, persisted_by_source
+
+    def _load_sources_via_rest(
+        self,
+        *,
+        client,
+        selected_sources: list[dict],
+        date_from: datetime,
+        date_to: datetime,
+        source_value_states: dict[str, dict[str, str]] | None,
+        failed_source_ids: set[str],
+    ) -> dict[str, list[dict]]:
+        rows_by_source: dict[str, list[dict]] = {}
         max_workers = min(_source_load_workers(), len(selected_sources))
 
         if max_workers <= 1:
@@ -321,14 +477,6 @@ class BitrixReportDataProvider:
                         source_value_states[source_id] = _value_state_for_bitrix_error(error)
                     failed_source_ids.add(source_id)
                     rows_by_source[source["id"]] = []
-
-            persist_live_report_rows(
-                portal=warehouse_portal,
-                rows_by_source=rows_by_source,
-                date_from=date_from,
-                date_to=date_to,
-                failed_source_ids=failed_source_ids,
-            )
             return rows_by_source
 
         rest_portal = getattr(client, "portal", None)
@@ -369,13 +517,6 @@ class BitrixReportDataProvider:
                     failed_source_ids.add(source_id)
                     rows_by_source[source["id"]] = []
 
-        persist_live_report_rows(
-            portal=warehouse_portal,
-            rows_by_source=rows_by_source,
-            date_from=date_from,
-            date_to=date_to,
-            failed_source_ids=failed_source_ids,
-        )
         return rows_by_source
 
     def _load_single_source_rows(
@@ -2894,6 +3035,14 @@ def _deduplicate_rows_by_id(rows: list[dict]) -> list[dict]:
         result.append(row)
 
     return result
+
+
+def _merge_entity_rows(*groups: list[dict]) -> list[dict]:
+    # Later groups win for the same entity id (live REST over warehouse).
+    merged: list[dict] = []
+    for group in reversed(groups):
+        merged.extend(group)
+    return _deduplicate_rows_by_id(merged)
 
 
 def _extract_raw_row_id(row: dict) -> str:

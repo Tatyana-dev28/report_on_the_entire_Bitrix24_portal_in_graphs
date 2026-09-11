@@ -11,6 +11,7 @@ from apps.reports.models import PortalCrmSyncState
 from apps.reports.services.bitrix_report_data_provider import BitrixReportDataProvider
 from apps.reports.services.crm_warehouse import (
     DATE_MODIFY_SOURCE_TYPES,
+    WAREHOUSE_BACKFILL_CHUNKS_PER_RUN,
     WAREHOUSE_CHUNK_DAYS,
     WAREHOUSE_WINDOW_DAYS,
     WAREHOUSE_INCREMENTAL_LOOKBACK_DAYS,
@@ -104,11 +105,26 @@ def _run_sync_step(portal, state: PortalCrmSyncState, _previous_status: str) -> 
     ensure_portal_timezone(portal, client)
     sources = warehouse_sources_for_portal(portal)
     repair_false_warehouse_coverage(portal, state, window_start)
+    state.refresh_from_db()
 
     if _backfill_complete(state, window_start):
         return _run_incremental(portal, state, provider, client, sources, window_start, window_end)
 
-    return _run_backfill_chunk(portal, state, provider, client, sources, window_start, window_end)
+    last_result: dict = {}
+    for _index in range(max(1, WAREHOUSE_BACKFILL_CHUNKS_PER_RUN)):
+        last_result = _run_backfill_chunk(
+            portal,
+            state,
+            provider,
+            client,
+            sources,
+            window_start,
+            window_end,
+        )
+        state.refresh_from_db()
+        if _backfill_complete(state, window_start) or last_result.get("status") == PortalCrmSyncState.Status.READY:
+            break
+    return last_result
 
 
 def _backfill_complete(state: PortalCrmSyncState, window_start) -> bool:
@@ -167,6 +183,7 @@ def _run_backfill_chunk(portal, state, provider, client, sources, window_start, 
     else:
         state.status = PortalCrmSyncState.Status.IDLE
 
+    _keep_persisted_source_coverage(state)
     state.save()
     return {
         "ok": True,
@@ -232,6 +249,7 @@ def _run_incremental(portal, state, provider, client, sources, window_start, win
         state.progress_message = "Склад готов"
         state.error_message = ""
 
+    _keep_persisted_source_coverage(state)
     state.save()
     return {
         "ok": True,
@@ -241,6 +259,16 @@ def _run_incremental(portal, state, provider, client, sources, window_start, win
         "status": state.status,
         "catchup_from": catchup_start.isoformat(),
     }
+
+
+def _keep_persisted_source_coverage(state: PortalCrmSyncState) -> None:
+    latest = (
+        PortalCrmSyncState.objects.filter(pk=state.pk)
+        .values_list("source_coverage", flat=True)
+        .first()
+    )
+    if latest is not None:
+        state.source_coverage = latest
 
 
 def _incremental_catchup_start(state: PortalCrmSyncState, window_end):
@@ -297,5 +325,6 @@ def _fetch_and_store(
             continue
         written += upsert_source_rows(portal=portal, source_id=source_id, rows=rows)
         if source_id:
-            extend_source_coverage(portal, source_id, date_from, date_to)
+            coverage_from = modified_since if modified_since is not None else date_from
+            extend_source_coverage(portal, source_id, coverage_from, date_to)
     return written

@@ -9,10 +9,15 @@ from apps.bitrix.services.install import (
     create_or_update_portal_from_bitrix_payload,
     normalize_bitrix_payload,
 )
-from apps.bitrix.services.rest_client import BitrixRestClient
+from apps.bitrix.services.rest_client import BitrixRestClient, BitrixRestTokenRefreshError
 
 
 class BitrixOAuthInstallTests(TestCase):
+    def setUp(self):
+        license_patcher = patch("apps.bitrix.services.install.refresh_portal_bitrix_license")
+        license_patcher.start()
+        self.addCleanup(license_patcher.stop)
+
     def test_normalize_flat_bitrix_payload(self):
         normalized = normalize_bitrix_payload(
             {
@@ -219,6 +224,11 @@ class BitrixOAuthInstallTests(TestCase):
 
 
 class BitrixRestClientRefreshTests(TestCase):
+    def setUp(self):
+        license_patcher = patch("apps.bitrix.services.install.refresh_portal_bitrix_license")
+        license_patcher.start()
+        self.addCleanup(license_patcher.stop)
+
     @patch("apps.bitrix.services.install.ensure_free_subscription_and_access")
     @override_settings(BITRIX_CLIENT_ID="client-id", BITRIX_CLIENT_SECRET="client-secret")
     def test_rest_client_refreshes_tokens(self, _ensure_access):
@@ -241,6 +251,8 @@ class BitrixRestClientRefreshTests(TestCase):
         token.save(update_fields=["expires_at", "updated_at"])
 
         response = Mock()
+        response.status_code = 200
+        response.content = b'{"access_token":"new-access-token"}'
         response.raise_for_status.return_value = None
         response.json.return_value = {
             "access_token": "new-access-token",
@@ -264,3 +276,90 @@ class BitrixRestClientRefreshTests(TestCase):
 
         self.assertEqual(portal.client_endpoint, "https://demo.bitrix24.ru/rest/")
         self.assertEqual(portal.server_endpoint, "https://oauth.bitrix.info/rest/")
+        self.assertFalse(portal.oauth_reauth_required)
+
+    @patch("apps.bitrix.services.install.ensure_free_subscription_and_access")
+    @override_settings(BITRIX_CLIENT_ID="client-id", BITRIX_CLIENT_SECRET="leaked-secret")
+    def test_dead_refresh_token_marks_portal_and_skips_retry(self, _ensure_access):
+        portal = create_or_update_portal_from_bitrix_payload(
+            payload={
+                "DOMAIN": "demo.bitrix24.ru",
+                "member_id": "member-123",
+                "AUTH_ID": "old-access-token",
+                "REFRESH_ID": "old-refresh-token",
+                "AUTH_EXPIRES": "3600",
+                "USER_ID": "42",
+            },
+            mark_installed=True,
+        )
+
+        response = Mock()
+        response.status_code = 400
+        response.content = b'{"error":"invalid_grant"}'
+        response.json.return_value = {"error": "invalid_grant"}
+        response.url = (
+            "https://oauth.bitrix.info/oauth/token/"
+            "?client_secret=leaked-secret&refresh_token=dead-token"
+        )
+
+        with patch("apps.bitrix.services.rest_client.requests.get", return_value=response) as oauth_get:
+            with self.assertRaises(BitrixRestTokenRefreshError) as raised:
+                BitrixRestClient(portal).refresh_tokens()
+
+        self.assertNotIn("leaked-secret", str(raised.exception))
+        self.assertNotIn("dead-token", str(raised.exception))
+        portal.refresh_from_db()
+        self.assertTrue(portal.oauth_reauth_required)
+        self.assertEqual(portal.oauth_reauth_error, "invalid_grant")
+        self.assertEqual(oauth_get.call_count, 1)
+
+        with patch("apps.bitrix.services.rest_client.requests.get") as oauth_get_again:
+            with self.assertRaises(BitrixRestTokenRefreshError):
+                BitrixRestClient(portal).refresh_tokens()
+
+        oauth_get_again.assert_not_called()
+
+    @patch("apps.bitrix.services.install.ensure_free_subscription_and_access")
+    def test_new_refresh_token_clears_oauth_reauth_flag(self, _ensure_access):
+        portal = create_or_update_portal_from_bitrix_payload(
+            payload={
+                "DOMAIN": "demo.bitrix24.ru",
+                "member_id": "member-reauth",
+                "AUTH_ID": "old-access-token",
+                "REFRESH_ID": "old-refresh-token",
+                "AUTH_EXPIRES": "3600",
+                "USER_ID": "42",
+            },
+            mark_installed=True,
+        )
+        portal.oauth_reauth_required = True
+        portal.oauth_reauth_error = "invalid_grant"
+        portal.save(update_fields=["oauth_reauth_required", "oauth_reauth_error", "updated_at"])
+
+        create_or_update_portal_from_bitrix_payload(
+            payload={
+                "DOMAIN": "demo.bitrix24.ru",
+                "member_id": "member-reauth",
+                "AUTH_ID": "only-access",
+                "AUTH_EXPIRES": "3600",
+                "USER_ID": "42",
+            },
+            mark_installed=False,
+        )
+        portal.refresh_from_db()
+        self.assertTrue(portal.oauth_reauth_required)
+
+        create_or_update_portal_from_bitrix_payload(
+            payload={
+                "DOMAIN": "demo.bitrix24.ru",
+                "member_id": "member-reauth",
+                "AUTH_ID": "fresh-access",
+                "REFRESH_ID": "fresh-refresh",
+                "AUTH_EXPIRES": "3600",
+                "USER_ID": "42",
+            },
+            mark_installed=True,
+        )
+        portal.refresh_from_db()
+        self.assertFalse(portal.oauth_reauth_required)
+        self.assertEqual(portal.oauth_reauth_error, "")

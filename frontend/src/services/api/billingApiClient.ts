@@ -30,6 +30,7 @@ export type BillingStateResponse = {
     access: BillingAccess;
     plans: BillingPlan[];
     fastReports?: 'preparing' | 'ready' | null;
+    oauthReauthRequired?: boolean;
     bitrixTariff?: {
         license: string;
         licenseType: string;

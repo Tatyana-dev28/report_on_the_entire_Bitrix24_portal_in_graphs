@@ -6,6 +6,7 @@ from datetime import timedelta
 from django.utils import timezone
 
 from apps.bitrix.models import BitrixPortal
+from apps.bitrix.services.rest_client import BitrixRestTokenRefreshError
 from apps.reports.models import PortalCrmSyncState
 from apps.reports.services.bitrix_report_data_provider import BitrixReportDataProvider
 from apps.reports.services.crm_warehouse import (
@@ -16,9 +17,11 @@ from apps.reports.services.crm_warehouse import (
     WAREHOUSE_INCREMENTAL_MAX_CATCHUP_DAYS,
     WAREHOUSE_INCREMENTAL_MIN_INTERVAL,
     WAREHOUSE_STALE_RUNNING,
+    extend_source_coverage,
     iter_pro_portal_ids,
     portal_has_pro,
     prune_warehouse_rows,
+    repair_false_warehouse_coverage,
     try_acquire_sync_lock,
     upsert_source_rows,
     warehouse_sources_for_portal,
@@ -74,6 +77,9 @@ def sync_portal_crm_warehouse(portal_id: int) -> dict:
     if not portal_has_pro(portal):
         return {"ok": True, "reason": "not_pro"}
 
+    if portal.oauth_reauth_required:
+        return {"ok": False, "reason": "oauth_reauth_required"}
+
     state, previous_status = try_acquire_sync_lock(portal)
     if state is None:
         return {"ok": True, "reason": "locked"}
@@ -90,15 +96,16 @@ def sync_portal_crm_warehouse(portal_id: int) -> dict:
         return {"ok": False, "reason": "failed", "error": str(error)}
 
 
-def _run_sync_step(portal, state: PortalCrmSyncState, previous_status: str) -> dict:
+def _run_sync_step(portal, state: PortalCrmSyncState, _previous_status: str) -> dict:
     now = timezone.now()
     window_start, window_end = warehouse_window(now)
     provider = BitrixReportDataProvider()
     client = provider.rest_client_factory(portal)
     ensure_portal_timezone(portal, client)
     sources = warehouse_sources_for_portal(portal)
+    repair_false_warehouse_coverage(portal, state, window_start)
 
-    if previous_status == PortalCrmSyncState.Status.READY or _backfill_complete(state, window_start):
+    if _backfill_complete(state, window_start):
         return _run_incremental(portal, state, provider, client, sources, window_start, window_end)
 
     return _run_backfill_chunk(portal, state, provider, client, sources, window_start, window_end)
@@ -107,9 +114,6 @@ def _run_sync_step(portal, state: PortalCrmSyncState, previous_status: str) -> d
 def _backfill_complete(state: PortalCrmSyncState, window_start) -> bool:
     if state.coverage_from is None or state.coverage_to is None:
         return False
-    # Already finished the 6-month fill: sliding window must not restart it after deploy.
-    if state.progress_percent >= 100:
-        return True
     if state.coverage_from > window_start:
         return False
     if state.next_chunk_to is not None and state.next_chunk_to > window_start:
@@ -206,9 +210,14 @@ def _run_incremental(portal, state, provider, client, sources, window_start, win
     prune_warehouse_rows(portal, now=window_end)
     now = timezone.now()
     state.status = PortalCrmSyncState.Status.READY
-    state.coverage_from = min(state.coverage_from or window_start, window_start)
-    state.next_chunk_to = window_start
-    state.progress_percent = 100
+    if state.coverage_from is not None and state.coverage_from < window_start:
+        state.coverage_from = window_start
+    if _backfill_complete(state, window_start):
+        state.next_chunk_to = window_start
+        state.progress_percent = 100
+    else:
+        filled_days = max(0, (window_end - (state.coverage_from or window_end)).days)
+        state.progress_percent = min(99, int((filled_days / WAREHOUSE_WINDOW_DAYS) * 100))
     state.last_finished_at = now
 
     if failed_source_ids:
@@ -267,6 +276,15 @@ def _fetch_and_store(
                 date_to=date_to,
                 modified_since=modified_since,
             )
+        except BitrixRestTokenRefreshError:
+            logger.warning(
+                "CRM warehouse stopped: OAuth reauth required portal=%s source=%s",
+                portal.pk,
+                source_id,
+            )
+            if failed_source_ids is not None:
+                failed_source_ids.append(source_id)
+            break
         except Exception:
             logger.warning(
                 "CRM warehouse source load failed portal=%s source=%s",
@@ -278,4 +296,6 @@ def _fetch_and_store(
                 failed_source_ids.append(source_id)
             continue
         written += upsert_source_rows(portal=portal, source_id=source_id, rows=rows)
+        if source_id:
+            extend_source_coverage(portal, source_id, date_from, date_to)
     return written

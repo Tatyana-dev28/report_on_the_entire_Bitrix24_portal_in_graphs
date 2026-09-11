@@ -1560,6 +1560,7 @@ function App() {
   const [billingHasPro, setBillingHasPro] = useState(false);
   const [fastReportsStatus, setFastReportsStatus] = useState<'preparing' | 'ready' | null>(null);
   const [fastReportsBannerVisible, setFastReportsBannerVisible] = useState(false);
+  const [oauthReauthRequired, setOauthReauthRequired] = useState(false);
   const [billingValidUntil, setBillingValidUntil] = useState<string | null>(null);
   const [billingIsLifetime, setBillingIsLifetime] = useState(false);
   const [billingPlans, setBillingPlans] = useState<BillingPlan[]>([]);
@@ -1851,6 +1852,7 @@ function App() {
         setBillingLoadFailed(false);
         setBillingHasPro(Boolean(state.access?.hasPro));
         setFastReportsStatus(state.fastReports ?? null);
+        setOauthReauthRequired(Boolean(state.oauthReauthRequired));
         setBillingValidUntil(state.access?.validUntil ?? null);
         setBillingIsLifetime(Boolean(state.access?.isLifetime));
         setBillingPlans(state.plans ?? []);
@@ -6929,6 +6931,9 @@ function App() {
           if (data.fastReports === 'preparing' || data.fastReports === 'ready') {
             setFastReportsStatus(data.fastReports);
           }
+          if (typeof data.oauthReauthRequired === 'boolean') {
+            setOauthReauthRequired(data.oauthReauthRequired);
+          }
         })
         .catch(() => {
           if (getDashboardViewerMode() === 'share') {
@@ -7277,6 +7282,17 @@ function App() {
             onRefresh={isDashboardShareViewer ? undefined : handleDashboardRefreshNow}
             isApplyingData={dashboardApplyingData}
           />
+        ) : null}
+
+        {oauthReauthRequired ? (
+          <div className="report-status-bar is-error" role="alert">
+            <span>
+              Битрикс24 отозвал доступ приложения (протух или сброшен refresh-токен).
+              Откройте приложение заново из Битрикс24. Если плашка останется — удалите
+              приложение на портале и установите снова. Пока доступ не восстановится,
+              данные не обновляются.
+            </span>
+          </div>
         ) : null}
 
         {billingHasPro && fastReportsBannerVisible && fastReportsStatus ? (

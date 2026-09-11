@@ -148,6 +148,7 @@ def get_billing_state(portal: BitrixPortal) -> dict:
         "plans": [serialize_plan(plan) for plan in plans],
         "bitrixTariff": serialize_bitrix_tariff_policy(portal),
         **_fast_reports_payload(portal, access),
+        **_oauth_reauth_payload(portal),
     }
 
 
@@ -157,6 +158,12 @@ def _fast_reports_payload(portal: BitrixPortal, access: PortalAccess | None) -> 
     if not access or not access.is_pro_valid:
         return {"fastReports": None}
     return serialize_fast_reports(portal)
+
+
+def _oauth_reauth_payload(portal: BitrixPortal) -> dict:
+    from apps.bitrix.services.oauth_reauth import serialize_oauth_reauth
+
+    return serialize_oauth_reauth(portal)
 
 
 def format_robokassa_amount(amount: Decimal) -> str:

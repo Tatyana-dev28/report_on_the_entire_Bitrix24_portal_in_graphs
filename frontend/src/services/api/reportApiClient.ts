@@ -15,6 +15,7 @@ export type ReportCatalogResponse = {
     metricSections: MetricSection[];
     metrics: MetricRow[];
     fastReports?: 'preparing' | 'ready' | null;
+    oauthReauthRequired?: boolean;
 };
 
 export type ReportPreviewResponse = {

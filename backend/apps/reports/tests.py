@@ -1847,6 +1847,43 @@ class BitrixReportDataProviderTests(TestCase):
         self.assertEqual(second_day["calls_in"], 1)
         self.assertEqual(second_day["calls_missed"], 0)
 
+    def test_telephony_long_range_is_split_into_short_bitrix_windows(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from apps.reports.services.calculators.telephony_calculator import (
+            CALL_QUERY_WINDOW_DAYS,
+            iter_call_query_windows,
+            load_call_rows,
+        )
+
+        moscow = ZoneInfo("Europe/Moscow")
+        date_from = datetime(2026, 8, 3, 0, 0, tzinfo=moscow)
+        date_to = datetime(2026, 9, 6, 23, 59, 59, tzinfo=moscow)
+        windows = iter_call_query_windows(date_from, date_to)
+
+        self.assertGreater(len(windows), 1)
+        self.assertEqual(windows[0][0], date_from)
+        self.assertEqual(windows[-1][1], date_to)
+        self.assertLessEqual((windows[0][1] - windows[0][0]).days, CALL_QUERY_WINDOW_DAYS)
+
+        recorded = []
+
+        class TrackingCallsClient:
+            def call_list(self, method, params=None, *, max_pages=None):
+                recorded.append((params or {}).get("FILTER"))
+                return []
+
+        load_call_rows(
+            client=TrackingCallsClient(),
+            date_from=date_from,
+            date_to=date_to,
+            bitrix_datetime=lambda value: value.isoformat(),
+        )
+
+        self.assertEqual(len(recorded), len(windows))
+        self.assertTrue(recorded[0][">=CALL_START_DATE"].startswith("2026-08-03"))
+
     def test_provider_builds_activity_quote_and_contract_metrics(self):
         CrmSource.objects.create(
             portal=self.portal,
@@ -2783,6 +2820,90 @@ class CrmWarehouseTests(TestCase):
         self.assertEqual(result["reason"], "not_pro")
         self.assertFalse(PortalCrmRow.objects.filter(portal=self.portal).exists())
 
+    def test_oauth_reauth_skips_warehouse_sync(self):
+        from apps.reports.services.crm_warehouse_sync import sync_portal_crm_warehouse
+
+        self._grant_pro()
+        self.portal.oauth_reauth_required = True
+        self.portal.save(update_fields=["oauth_reauth_required", "updated_at"])
+
+        result = sync_portal_crm_warehouse(self.portal.id)
+
+        self.assertEqual(result["reason"], "oauth_reauth_required")
+
+    def test_ready_warehouse_does_not_cover_telephony_without_source_coverage(self):
+        from datetime import timedelta
+
+        from apps.reports.models import PortalCrmSyncState
+        from apps.reports.services.crm_warehouse import warehouse_covers_range
+
+        self._grant_pro()
+        now = timezone.now()
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.READY,
+            coverage_from=now - timedelta(days=180),
+            coverage_to=now,
+            progress_percent=100,
+        )
+        date_from = now - timedelta(days=34)
+        self.assertFalse(
+            warehouse_covers_range(
+                self.portal,
+                date_from,
+                now,
+                source_ids=["telephony-default"],
+            )
+        )
+        self.assertFalse(
+            warehouse_covers_range(
+                self.portal,
+                date_from,
+                now,
+                source_ids=["deal-default"],
+            )
+        )
+
+    def test_claimed_180_day_coverage_does_not_hide_missing_early_days(self):
+        from datetime import timedelta
+
+        from apps.reports.models import PortalCrmSyncState
+        from apps.reports.services.crm_warehouse import (
+            upsert_source_rows,
+            warehouse_covers_range,
+        )
+
+        self._grant_pro()
+        now = timezone.now()
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.READY,
+            coverage_from=now - timedelta(days=180),
+            coverage_to=now,
+            progress_percent=100,
+        )
+        upsert_source_rows(
+            portal=self.portal,
+            source_id="deal-default",
+            rows=[
+                {
+                    "ID": "1",
+                    "TITLE": "Recent deal",
+                    "DATE_CREATE": (now - timedelta(days=20)).isoformat(),
+                    "STAGE_ID": "C0:NEW",
+                    "OPPORTUNITY": "100",
+                }
+            ],
+        )
+        self.assertFalse(
+            warehouse_covers_range(
+                self.portal,
+                now - timedelta(days=34),
+                now,
+                source_ids=["deal-default"],
+            )
+        )
+
     def test_pro_without_coverage_uses_bitrix_rest(self):
         self._grant_pro()
         calls = []
@@ -3064,7 +3185,7 @@ class CrmWarehouseTests(TestCase):
             result = provider.build_preview(
                 filters={
                     "period": "days",
-                    "dateRange": {"from": "2026-04-01", "to": "2026-09-07"},
+                    "dateRange": {"from": "2026-05-01", "to": "2026-09-07"},
                     "selectedSources": ["deal-default", "lead-default"],
                     "selectedMetricIds": ["deals_created", "leads_created"],
                     "metricMode": "money",
@@ -3114,12 +3235,12 @@ class CrmWarehouseTests(TestCase):
         ):
             result = sync_portal_crm_warehouse(self.portal.id)
 
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["mode"], "backfill")
-        self.assertGreater(PortalCrmRow.objects.filter(portal=self.portal).count(), 0)
-        state = PortalCrmSyncState.objects.get(portal=self.portal)
-        self.assertEqual(state.status, PortalCrmSyncState.Status.READY)
-        self.assertEqual(serialize_fast_reports(self.portal)["fastReports"], "ready")
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["mode"], "backfill")
+            self.assertGreater(PortalCrmRow.objects.filter(portal=self.portal).count(), 0)
+            state = PortalCrmSyncState.objects.get(portal=self.portal)
+            self.assertEqual(state.status, PortalCrmSyncState.Status.READY)
+            self.assertEqual(serialize_fast_reports(self.portal)["fastReports"], "ready")
 
         old_row = PortalCrmRow.objects.create(
             portal=self.portal,
@@ -3309,6 +3430,59 @@ class CrmWarehouseTests(TestCase):
         self.assertTrue(event_calls)
         oldest_event_from = min(item["date_from"] for item in event_calls)
         self.assertLessEqual(oldest_event_from, now - timedelta(hours=20))
+
+    def test_progress_100_with_short_coverage_resumes_backfill(self):
+        from datetime import timedelta
+
+        from apps.reports.models import PortalCrmSyncState
+        from apps.reports.services.crm_warehouse import upsert_source_rows
+        from apps.reports.services.crm_warehouse_sync import sync_portal_crm_warehouse
+
+        self._grant_pro()
+        now = timezone.now()
+        oldest = now - timedelta(days=30)
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.READY,
+            coverage_from=now - timedelta(days=180),
+            coverage_to=now,
+            next_chunk_to=now - timedelta(days=180),
+            progress_percent=100,
+            last_incremental_at=now,
+        )
+        upsert_source_rows(
+            portal=self.portal,
+            source_id="deal-default",
+            rows=[
+                {
+                    "ID": "1",
+                    "TITLE": "Recent deal",
+                    "DATE_CREATE": oldest.isoformat(),
+                    "STAGE_ID": "C0:NEW",
+                    "OPPORTUNITY": "100",
+                }
+            ],
+        )
+
+        calls = []
+
+        class SpyProvider(BitrixReportDataProvider):
+            def __init__(self):
+                super().__init__(rest_client_factory=FakeBitrixRestClient)
+
+            def _load_single_source_rows(self, **kwargs):
+                calls.append(kwargs)
+                return []
+
+        with patch(
+            "apps.reports.services.crm_warehouse_sync.BitrixReportDataProvider",
+            SpyProvider,
+        ):
+            result = sync_portal_crm_warehouse(self.portal.id)
+
+        self.assertEqual(result["mode"], "backfill")
+        self.assertTrue(calls)
+        self.assertLessEqual(max(item["date_to"] for item in calls), oldest + timedelta(days=1))
 
     def test_failed_incremental_does_not_advance_coverage_to(self):
         from datetime import timedelta

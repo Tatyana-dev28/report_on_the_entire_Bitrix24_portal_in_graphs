@@ -81,6 +81,23 @@ class BitrixPortal(PublicBaseModel, ActiveModel):
         db_index=True,
         verbose_name="Последнее открытие приложения",
     )
+    oauth_reauth_required = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name="Нужна повторная установка OAuth",
+        help_text="Refresh token отозван. Отчёты и склад не ходят в Bitrix, пока портал не откроет или не переустановит приложение.",
+    )
+    oauth_reauth_required_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Когда Bitrix отклонил refresh token",
+    )
+    oauth_reauth_error = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="Код ошибки обновления токена",
+    )
 
     installed_by_user_id = models.CharField(
         max_length=100,

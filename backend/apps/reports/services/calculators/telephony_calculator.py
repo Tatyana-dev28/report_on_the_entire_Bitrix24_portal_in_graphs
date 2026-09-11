@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from typing import Any
 
@@ -16,6 +16,9 @@ SUCCESS_OUTGOING_MIN_DURATION_SECONDS = 10
 CALL_MAX_LIST_PAGES = 1000
 CALL_BATCH_PAGE_SIZE = 25
 BITRIX_LIST_PAGE_SIZE = 50
+# voximplant.statistic.get on a long range often keeps only the newest ~30 days
+# and zeroes the start of the period (e.g. 3–6 Aug inside 3 Aug–6 Sep).
+CALL_QUERY_WINDOW_DAYS = 14
 
 
 def load_call_rows(
@@ -25,22 +28,56 @@ def load_call_rows(
     date_to: datetime,
     bitrix_datetime,
 ) -> list[dict]:
-    params = {
-        "FILTER": {
-            ">=CALL_START_DATE": bitrix_datetime(date_from),
-            "<=CALL_START_DATE": bitrix_datetime(date_to),
-        },
-        "SORT": "CALL_START_DATE",
-        "ORDER": "ASC",
-    }
+    rows: list[dict] = []
+    seen_ids: set[str] = set()
 
     try:
-        rows = _load_call_rows_batched(client, params)
+        for window_from, window_to in iter_call_query_windows(date_from, date_to):
+            params = {
+                "FILTER": {
+                    ">=CALL_START_DATE": bitrix_datetime(window_from),
+                    "<=CALL_START_DATE": bitrix_datetime(window_to),
+                },
+                "SORT": "CALL_START_DATE",
+                "ORDER": "ASC",
+            }
+            for row in _load_call_rows_batched(client, params):
+                if not isinstance(row, dict):
+                    continue
+                row_id = str(row.get("ID") or row.get("CALL_ID") or "")
+                if row_id and row_id in seen_ids:
+                    continue
+                if row_id:
+                    seen_ids.add(row_id)
+                rows.append(row)
     except BitrixRestError:
         logger.warning("Bitrix telephony loading failed; call metrics will be zero.", exc_info=True)
         return []
 
     return [_normalize_call_row(row) for row in rows]
+
+
+def iter_call_query_windows(
+    date_from: datetime,
+    date_to: datetime,
+    *,
+    window_days: int = CALL_QUERY_WINDOW_DAYS,
+) -> list[tuple[datetime, datetime]]:
+    if date_from > date_to:
+        date_from, date_to = date_to, date_from
+
+    step = timedelta(days=max(1, int(window_days)))
+    windows: list[tuple[datetime, datetime]] = []
+    cursor = date_from
+
+    while cursor <= date_to:
+        chunk_to = min(cursor + step, date_to)
+        windows.append((cursor, chunk_to))
+        if chunk_to >= date_to:
+            break
+        cursor = chunk_to + timedelta(microseconds=1)
+
+    return windows
 
 
 def _load_call_rows_batched(client, params: dict) -> list[dict]:

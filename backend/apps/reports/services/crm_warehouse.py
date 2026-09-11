@@ -45,7 +45,10 @@ def iter_pro_portal_ids() -> list[int]:
     now = timezone.now()
     queryset = PortalAccess.objects.filter(has_pro=True).exclude(
         access_level=PortalAccess.AccessLevel.BLOCKED,
-    ).filter(Q(is_lifetime=True) | Q(valid_until__gte=now))
+    ).filter(
+        Q(is_lifetime=True) | Q(valid_until__gte=now),
+        portal__oauth_reauth_required=False,
+    )
     return list(queryset.values_list("portal_id", flat=True))
 
 
@@ -81,19 +84,31 @@ def warehouse_covers_range(
     if state is None:
         return False
 
+    coverage = state.source_coverage if isinstance(state.source_coverage, dict) else {}
+    selected_ids = [str(source_id) for source_id in (source_ids or []) if source_id]
+    telephony_ids = [source_id for source_id in selected_ids if _source_requires_own_coverage(source_id)]
+    if telephony_ids:
+        for source_id in telephony_ids:
+            ranges = _source_coverage_ranges(coverage.get(str(source_id)))
+            if not _ranges_cover(ranges, date_from, date_to):
+                return False
+        other_ids = [source_id for source_id in selected_ids if source_id not in telephony_ids]
+        if not other_ids:
+            return True
+        selected_ids = other_ids
+
     if _ready_window_covers(
         portal,
         state,
         date_from,
         date_to,
     ):
-        return True
+        return _stored_rows_reach_from(portal, date_from)
 
-    if not source_ids:
+    if not selected_ids:
         return False
 
-    coverage = state.source_coverage if isinstance(state.source_coverage, dict) else {}
-    for source_id in source_ids:
+    for source_id in selected_ids:
         ranges = _source_coverage_ranges(coverage.get(str(source_id)))
         if not _ranges_cover(ranges, date_from, date_to):
             return False
@@ -115,11 +130,28 @@ def _ready_window_covers(portal, state, date_from: datetime, date_to: datetime) 
     return _local_date(date_from, tz) >= covered_from and _local_date(date_to, tz) <= covered_to
 
 
+def _stored_rows_reach_from(portal, date_from: datetime) -> bool:
+    oldest = (
+        PortalCrmRow.objects.filter(portal=portal)
+        .order_by("occurred_at")
+        .values_list("occurred_at", flat=True)
+        .first()
+    )
+    if oldest is None:
+        return False
+    tz = get_portal_tzinfo(portal)
+    return _local_date(oldest, tz) <= _local_date(date_from, tz)
+
+
 def _local_date(value: datetime, tz):
     moment = _aware_datetime(value)
     if moment is None:
         return timezone.localtime(timezone.now(), tz).date()
     return timezone.localtime(moment, tz).date()
+
+
+def _source_requires_own_coverage(source_id: str) -> bool:
+    return str(source_id or "").startswith("telephony-")
 
 
 def warehouse_sources_for_portal(portal) -> list[dict]:
@@ -321,6 +353,50 @@ def _ranges_cover(ranges: list[tuple[datetime, datetime]], date_from: datetime, 
         if start <= date_from and end >= date_to:
             return True
     return False
+
+
+def repair_false_warehouse_coverage(portal, state: PortalCrmSyncState, window_start: datetime) -> bool:
+    """If MySQL only has recent rows but coverage_from claims 180 days, resume backfill.
+
+    Incremental used to set coverage_from to the sliding window start without
+    downloading older days. Reports then read MySQL and showed zeros at the
+    start of a long range (e.g. 3–6 Aug in 3 Aug–6 Sep).
+    """
+
+    if state.coverage_from is None:
+        return False
+
+    oldest = (
+        PortalCrmRow.objects.filter(portal=portal)
+        .order_by("occurred_at")
+        .values_list("occurred_at", flat=True)
+        .first()
+    )
+    if oldest is None:
+        return False
+
+    slack = timedelta(days=2)
+    if oldest <= state.coverage_from + slack:
+        return False
+
+    state.coverage_from = oldest
+    state.next_chunk_to = oldest
+    if state.progress_percent >= 100:
+        state.progress_percent = 99
+    state.save(
+        update_fields=[
+            "coverage_from",
+            "next_chunk_to",
+            "progress_percent",
+            "updated_at",
+        ]
+    )
+    logger.info(
+        "CRM warehouse coverage repaired portal=%s coverage_from=%s (oldest row)",
+        getattr(portal, "pk", None),
+        oldest.isoformat(),
+    )
+    return True
 
 
 def prune_warehouse_rows(portal, *, now: datetime | None = None) -> int:

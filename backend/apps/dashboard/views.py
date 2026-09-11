@@ -103,6 +103,12 @@ def _fast_reports_for_portal(portal) -> dict:
     return serialize_fast_reports(portal)
 
 
+def _oauth_reauth_for_portal(portal) -> dict:
+    from apps.bitrix.services.oauth_reauth import serialize_oauth_reauth
+
+    return serialize_oauth_reauth(portal)
+
+
 def _empty_bootstrap_payload(*, access: str, portal=None) -> dict:
     return {
         "ok": True,
@@ -134,6 +140,7 @@ def _empty_bootstrap_payload(*, access: str, portal=None) -> dict:
         "confirmationMethod": "bitrix_launch_link",
         "viewerMode": "owner" if access == "authorized" else "none",
         **_fast_reports_for_portal(portal),
+        **_oauth_reauth_for_portal(portal),
     }
 
 
@@ -318,6 +325,7 @@ def _bootstrap_payload(*, access: str, portal=None, snapshot: DashboardPreparedS
         "confirmationMethod": "bitrix_launch_link",
         "viewerMode": "owner" if access == "authorized" else "none",
         **_fast_reports_for_portal(portal),
+        **_oauth_reauth_for_portal(portal),
     }
 
 
@@ -453,6 +461,7 @@ def _share_bootstrap_payload(link: DashboardShareLink, snapshot: DashboardPrepar
         "confirmationMethod": "share_link",
         "hasPreparedData": _safe_has_prepared_data(snapshot),
         **_fast_reports_for_portal(link.portal),
+        **_oauth_reauth_for_portal(link.portal),
     }
 
 
@@ -759,6 +768,7 @@ def owner_catalog_view(request):
             "ok": True,
             **catalog,
             **_fast_reports_for_portal(session.portal),
+            **_oauth_reauth_for_portal(session.portal),
         },
         json_dumps_params={"ensure_ascii": False},
     )
@@ -1229,6 +1239,7 @@ def share_catalog_view(request):
             "ok": True,
             **_snapshot_catalog(snapshot, link.portal),
             **_fast_reports_for_portal(link.portal),
+            **_oauth_reauth_for_portal(link.portal),
         },
         json_dumps_params={"ensure_ascii": False},
     )

@@ -12,6 +12,7 @@ from apps.billing.services.access import (
 )
 from apps.billing.services.bitrix_tariffs import refresh_portal_bitrix_license
 from apps.bitrix.models import BitrixAuthToken, BitrixPortal
+from apps.bitrix.services.oauth_reauth import clear_oauth_reauth_required
 from apps.common.services.sanitizers import sanitize_payload
 
 
@@ -175,6 +176,9 @@ def create_or_update_portal_from_bitrix_payload(
             portal=portal,
             normalized=normalized,
         )
+
+    if normalized["refresh_token"]:
+        clear_oauth_reauth_required(portal)
 
     ensure_free_subscription_and_access(portal=portal)
     refresh_portal_bitrix_license(portal)

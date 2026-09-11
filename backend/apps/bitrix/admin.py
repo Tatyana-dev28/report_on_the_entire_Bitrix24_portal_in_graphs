@@ -396,6 +396,7 @@ class BitrixPortalAdmin(admin.ModelAdmin):
         "domain",
         "member_id",
         "status",
+        "oauth_reauth_required",
         "is_active",
         "access_summary",
         "bitrix_license_type",
@@ -410,6 +411,7 @@ class BitrixPortalAdmin(admin.ModelAdmin):
     )
     list_filter = (
         "status",
+        "oauth_reauth_required",
         "is_active",
         "language",
         "installed_at",
@@ -483,6 +485,9 @@ class BitrixPortalAdmin(admin.ModelAdmin):
                     "base_url",
                     "status",
                     "is_active",
+                    "oauth_reauth_required",
+                    "oauth_reauth_required_at",
+                    "oauth_reauth_error",
                     "access_summary",
                 )
             },

@@ -12,6 +12,11 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.bitrix.models import BitrixAuthToken, BitrixPortal
+from apps.bitrix.services.oauth_reauth import (
+    clear_oauth_reauth_required,
+    is_permanent_refresh_failure,
+    mark_oauth_reauth_required,
+)
 from apps.common.services.sanitizers import sanitize_for_log, sanitize_payload
 
 
@@ -279,6 +284,13 @@ class BitrixRestClient:
     def refresh_tokens(self) -> BitrixAuthToken:
         """Обновляет OAuth-токены через refresh_token и сохраняет их в БД."""
 
+        self.portal.refresh_from_db()
+        if self.portal.oauth_reauth_required:
+            raise BitrixRestTokenRefreshError(
+                f"Для портала {self.portal.domain} нужен повторный OAuth: "
+                "откройте или переустановите приложение в Bitrix24."
+            )
+
         client_id = getattr(settings, "BITRIX_CLIENT_ID", "")
         client_secret = getattr(settings, "BITRIX_CLIENT_SECRET", "")
 
@@ -287,87 +299,110 @@ class BitrixRestClient:
                 "BITRIX_CLIENT_ID и BITRIX_CLIENT_SECRET обязательны для обновления токенов."
             )
 
-        token = self.auth_token
-        refresh_token = token.get_refresh_token()
-
-        if not refresh_token:
-            raise BitrixRestTokenRefreshError(
-                f"Для портала {self.portal.domain} нет refresh_token."
-            )
-
-        try:
-            response = requests.get(
-                "https://oauth.bitrix.info/oauth/token/",
-                params={
-                    "grant_type": "refresh_token",
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                    "refresh_token": refresh_token,
-                },
-                timeout=self.timeout,
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except requests.RequestException as error:
-            raise BitrixRestTokenRefreshError(
-                f"HTTP-ошибка при обновлении токенов Bitrix24: {error}"
-            ) from error
-        except ValueError as error:
-            raise BitrixRestTokenRefreshError(
-                "Bitrix24 вернул некорректный JSON при обновлении токенов."
-            ) from error
-
-        if self._has_bitrix_error(payload):
-            raise BitrixRestTokenRefreshError(
-                "Bitrix24 отказал в обновлении токенов: "
-                f"{payload.get('error')} — {payload.get('error_description', '')}"
-            )
-
-        access_token = str(payload.get("access_token", "") or "")
-        new_refresh_token = str(payload.get("refresh_token", "") or "")
-        expires_in = self._safe_int(payload.get("expires_in"), default=3600)
-
-        if not access_token:
-            raise BitrixRestTokenRefreshError(
-                "Bitrix24 не вернул access_token при обновлении токенов."
-            )
-
-        expires_at = timezone.now() + timedelta(seconds=expires_in)
+        refresh_failure: tuple[int, str] | None = None
 
         with transaction.atomic():
             locked_token = BitrixAuthToken.objects.select_for_update().get(
                 portal=self.portal
             )
+            now = timezone.now()
+            if (
+                locked_token.last_refresh_at
+                and now - locked_token.last_refresh_at < timedelta(seconds=15)
+                and locked_token.has_access_token
+                and not locked_token.is_expired
+            ):
+                return locked_token
 
-            locked_token.scope = str(payload.get("scope", "") or locked_token.scope)
-            locked_token.auth_user_id = str(
-                payload.get("user_id", "") or locked_token.auth_user_id
-            )
-            locked_token.raw_auth_payload = sanitize_payload(payload)
-            locked_token.last_refresh_at = timezone.now()
-            locked_token.set_tokens(
-                access_token=access_token,
-                refresh_token=new_refresh_token,
-                expires_at=expires_at,
-                save=False,
-            )
-            locked_token.save()
+            refresh_token = locked_token.get_refresh_token()
+            if not refresh_token:
+                raise BitrixRestTokenRefreshError(
+                    f"Для портала {self.portal.domain} нет refresh_token."
+                )
 
-            if payload.get("client_endpoint"):
-                self.portal.client_endpoint = str(payload["client_endpoint"])
-            if payload.get("server_endpoint"):
-                self.portal.server_endpoint = str(payload["server_endpoint"])
-            if payload.get("member_id"):
-                self.portal.member_id = str(payload["member_id"])
-            self.portal.save(
-                update_fields=[
-                    "client_endpoint",
-                    "server_endpoint",
-                    "member_id",
-                    "updated_at",
-                ]
+            try:
+                response = requests.get(
+                    "https://oauth.bitrix.info/oauth/token/",
+                    params={
+                        "grant_type": "refresh_token",
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                        "refresh_token": refresh_token,
+                    },
+                    timeout=self.timeout,
+                )
+            except requests.RequestException as error:
+                raise BitrixRestTokenRefreshError(
+                    f"Сеть недоступна при обновлении токенов Bitrix24 портала {self.portal.domain}."
+                ) from error
+
+            try:
+                payload = response.json() if response.content else {}
+            except ValueError:
+                payload = {}
+
+            if not isinstance(payload, dict):
+                payload = {}
+
+            error_code = str(payload.get("error") or "")
+            if response.status_code >= 400 or self._has_bitrix_error(payload):
+                refresh_failure = (response.status_code, error_code)
+            else:
+                access_token = str(payload.get("access_token", "") or "")
+                new_refresh_token = str(payload.get("refresh_token", "") or "")
+                expires_in = self._safe_int(payload.get("expires_in"), default=3600)
+
+                if not access_token:
+                    raise BitrixRestTokenRefreshError(
+                        "Bitrix24 не вернул access_token при обновлении токенов."
+                    )
+
+                expires_at = timezone.now() + timedelta(seconds=expires_in)
+                locked_token.scope = str(payload.get("scope", "") or locked_token.scope)
+                locked_token.auth_user_id = str(
+                    payload.get("user_id", "") or locked_token.auth_user_id
+                )
+                locked_token.raw_auth_payload = sanitize_payload(payload)
+                locked_token.last_refresh_at = timezone.now()
+                locked_token.set_tokens(
+                    access_token=access_token,
+                    refresh_token=new_refresh_token,
+                    expires_at=expires_at,
+                    save=False,
+                )
+                locked_token.save()
+
+                if payload.get("client_endpoint"):
+                    self.portal.client_endpoint = str(payload["client_endpoint"])
+                if payload.get("server_endpoint"):
+                    self.portal.server_endpoint = str(payload["server_endpoint"])
+                if payload.get("member_id"):
+                    self.portal.member_id = str(payload["member_id"])
+                self.portal.save(
+                    update_fields=[
+                        "client_endpoint",
+                        "server_endpoint",
+                        "member_id",
+                        "updated_at",
+                    ]
+                )
+
+        if refresh_failure is not None:
+            status_code, error_code = refresh_failure
+            if is_permanent_refresh_failure(
+                status_code=status_code,
+                error_code=error_code,
+            ):
+                mark_oauth_reauth_required(
+                    self.portal,
+                    error_code or f"http_{status_code}",
+                )
+            raise BitrixRestTokenRefreshError(
+                f"Bitrix24 отказал в обновлении токенов портала {self.portal.domain}"
+                + (f": {error_code}" if error_code else f" (HTTP {status_code}).")
             )
 
+        clear_oauth_reauth_required(self.portal)
         self.portal.refresh_from_db()
         return self.auth_token
 
@@ -380,6 +415,11 @@ class BitrixRestClient:
             )
 
         if token.is_expired:
+            if self.portal.oauth_reauth_required:
+                raise BitrixRestTokenRefreshError(
+                    f"Для портала {self.portal.domain} нужен повторный OAuth: "
+                    "откройте или переустановите приложение в Bitrix24."
+                )
             self.refresh_tokens()
             token = self.auth_token
 

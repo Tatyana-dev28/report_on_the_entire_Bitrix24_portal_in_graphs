@@ -121,6 +121,7 @@ export type DashboardOwnerBootstrapResponse = ReportSettingsResponse & {
   } | null;
   share?: DashboardShareLinkItem;
   fastReports?: 'preparing' | 'ready' | null;
+  oauthReauthRequired?: boolean;
 };
 
 export const loadDashboardOwnerBootstrap = () =>

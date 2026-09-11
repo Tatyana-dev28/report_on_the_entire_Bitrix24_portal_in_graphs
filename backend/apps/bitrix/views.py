@@ -13,6 +13,7 @@ from apps.bitrix.services.install import (
     BitrixInstallError,
     create_or_update_portal_from_bitrix_payload,
 )
+from apps.bitrix.services.oauth_reauth import serialize_oauth_reauth
 from apps.bitrix.services.portal_tokens import make_portal_api_token
 
 
@@ -79,6 +80,7 @@ def build_safe_bootstrap(portal) -> dict:
             "features": access.features if access else {},
             "limits": access.limits if access else {},
         },
+        **serialize_oauth_reauth(portal),
     }
 
 

@@ -106,30 +106,52 @@ def warehouse_uncovered_ranges(
 
     coverage = state.source_coverage if isinstance(state.source_coverage, dict) else {}
     floor = _coverage_floor_for_reads(portal, state)
-    ranges = _clip_ranges_to_floor(_source_coverage_ranges(coverage.get(str(source_id))), floor)
+    source_ranges = _ranges_with_to_grace(
+        portal,
+        _clip_ranges_to_floor(_source_coverage_ranges(coverage.get(str(source_id))), floor),
+        date_to,
+    )
 
     if _source_requires_own_coverage(source_id):
-        if not ranges:
+        if not source_ranges:
             return [(date_from, date_to)]
-        return _uncovered_ranges(date_from, date_to, _ranges_with_to_grace(portal, ranges, date_to))
+        return _uncovered_ranges(date_from, date_to, source_ranges)
 
-    if ranges:
-        return _uncovered_ranges(date_from, date_to, _ranges_with_to_grace(portal, ranges, date_to))
-
-    oldest = (
-        PortalCrmRow.objects.filter(portal=portal, source_id=str(source_id))
-        .order_by("occurred_at")
-        .values_list("occurred_at", flat=True)
-        .first()
-    )
-    if oldest is None or state.coverage_to is None:
+    # An empty warehouse must not trust a claimed 180-day window.
+    if not PortalCrmRow.objects.filter(portal=portal).exists():
         return [(date_from, date_to)]
 
-    synthetic_from = oldest
-    if floor is not None:
-        synthetic_from = max(_aware_datetime(floor) or oldest, _aware_datetime(oldest) or floor)
-    covered_to = _apply_coverage_to_grace(portal, state.coverage_to, date_to) or state.coverage_to
-    return _uncovered_ranges(date_from, date_to, [(synthetic_from, covered_to)])
+    combined = list(source_ranges)
+    global_range = _honest_global_range(portal, state, date_to)
+    if global_range is not None:
+        combined.append(global_range)
+
+    if not combined:
+        if _source_has_rows(portal, source_id):
+            oldest = (
+                PortalCrmRow.objects.filter(portal=portal, source_id=str(source_id))
+                .order_by("occurred_at")
+                .values_list("occurred_at", flat=True)
+                .first()
+            )
+            covered_to = _apply_coverage_to_grace(portal, state.coverage_to, date_to) or date_to
+            return _uncovered_ranges(date_from, date_to, [(oldest, covered_to)])
+        return []
+
+    gaps = _uncovered_ranges(date_from, date_to, combined)
+    if not gaps:
+        return []
+
+    # Report sits entirely before the latest stored 30-day chunk (e.g. May in
+    # MySQL while the live window is August–September). Keep MySQL, do not REST.
+    if floor is not None and _aware_datetime(date_to) is not None and _aware_datetime(date_to) < _aware_datetime(floor):
+        return []
+
+    # REST only fills holes in sources that already live in MySQL (or have
+    # recorded coverage). Empty catalog sources stay as warehouse zeros.
+    if source_ranges or _source_has_rows(portal, source_id):
+        return gaps
+    return []
 
 
 def _ready_window_covers(portal, state, date_from: datetime, date_to: datetime) -> bool:
@@ -205,6 +227,22 @@ def _local_date(value: datetime, tz):
 
 def _source_requires_own_coverage(source_id: str) -> bool:
     return str(source_id or "").startswith("telephony-")
+
+
+def _source_has_rows(portal, source_id: str) -> bool:
+    return PortalCrmRow.objects.filter(portal=portal, source_id=str(source_id)).exists()
+
+
+def _honest_global_range(portal, state: PortalCrmSyncState, date_to: datetime):
+    floor = _coverage_floor_for_reads(portal, state)
+    if floor is None or state.coverage_to is None:
+        return None
+    covered_to = _apply_coverage_to_grace(portal, state.coverage_to, date_to) or state.coverage_to
+    floor = _aware_datetime(floor)
+    covered_to = _aware_datetime(covered_to)
+    if floor is None or covered_to is None or floor > covered_to:
+        return None
+    return (floor, covered_to)
 
 
 def warehouse_sources_for_portal(portal) -> list[dict]:
@@ -455,11 +493,14 @@ def _coverage_floor_for_reads(portal, state: PortalCrmSyncState) -> datetime | N
     floor = _aware_datetime(state.coverage_from)
     if floor is None:
         return None
+    chunk_floor = timezone.now() - timedelta(days=WAREHOUSE_CHUNK_DAYS)
+    if _needs_false_coverage_repair(portal, state, window_start):
+        return chunk_floor
     if floor > window_start:
-        return floor
-    if not _needs_false_coverage_repair(portal, state, window_start):
-        return floor
-    return _recent_block_frontier(portal) or floor
+        # Backfill in progress. The latest stored chunk is 30 days, even if the
+        # oldest row inside it is newer (quiet days at the start of the chunk).
+        return min(floor, chunk_floor)
+    return floor
 
 
 def _needs_false_coverage_repair(portal, state: PortalCrmSyncState, window_start: datetime) -> bool:

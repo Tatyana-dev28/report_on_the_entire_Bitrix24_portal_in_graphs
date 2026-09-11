@@ -2967,6 +2967,141 @@ class CrmWarehouseTests(TestCase):
         self.assertEqual(result.data[0]["values"]["deals_created"], 1)
         self.assertEqual(result.data[0]["values"]["calls_total"], 0)
 
+    def test_empty_catalog_source_does_not_rest_when_warehouse_already_has_rows(self):
+        from datetime import timedelta
+        from unittest.mock import patch
+
+        from apps.reports.models import PortalCrmSyncState
+        from apps.reports.services.crm_warehouse import upsert_source_rows
+
+        self._grant_pro()
+        now = timezone.now()
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.READY,
+            coverage_from=now - timedelta(days=180),
+            coverage_to=now,
+            next_chunk_to=now - timedelta(days=180),
+            progress_percent=100,
+            last_incremental_at=now,
+        )
+        upsert_source_rows(
+            portal=self.portal,
+            source_id="deal-default",
+            rows=[
+                {
+                    "ID": "1",
+                    "TITLE": "Recent deal",
+                    "DATE_CREATE": (now - timedelta(days=3)).isoformat(),
+                    "STAGE_ID": "C0:NEW",
+                    "OPPORTUNITY": "100",
+                }
+            ],
+        )
+
+        provider = BitrixReportDataProvider(rest_client_factory=FakeBitrixRestClient)
+        with patch.object(
+            BitrixReportDataProvider,
+            "_load_leads",
+            side_effect=AssertionError("Empty leads must stay warehouse zeros"),
+        ), patch.object(
+            BitrixReportDataProvider,
+            "_load_deals",
+            side_effect=AssertionError("Recent deals must stay in the warehouse"),
+        ):
+            result = provider.build_preview(
+                filters={
+                    "period": "days",
+                    "dateRange": {
+                        "from": (timezone.localtime(now) - timedelta(days=7)).date().isoformat(),
+                        "to": timezone.localtime(now).date().isoformat(),
+                    },
+                    "selectedSources": ["deal-default", "lead-default"],
+                    "selectedMetricIds": ["deals_created", "leads_created"],
+                    "metricMode": "count",
+                    "chartDisplayMode": "sum",
+                },
+                context=ReportDataProviderContext(
+                    portal=self.portal,
+                    user=None,
+                    bitrix_user_id="42",
+                    user_name="",
+                ),
+            )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(sum(point["values"]["deals_created"] for point in result.data), 1)
+        self.assertEqual(sum(point["values"]["leads_created"] for point in result.data), 0)
+
+    def test_catchup_source_coverage_does_not_hide_mysql_window(self):
+        from datetime import timedelta
+        from unittest.mock import patch
+
+        from apps.reports.models import PortalCrmSyncState
+        from apps.reports.services.crm_warehouse import upsert_source_rows
+
+        self._grant_pro()
+        now = timezone.now()
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.READY,
+            coverage_from=now - timedelta(days=180),
+            coverage_to=now,
+            next_chunk_to=now - timedelta(days=180),
+            progress_percent=100,
+            last_incremental_at=now,
+            source_coverage={
+                "deal-default": [
+                    {
+                        "from": (now - timedelta(days=2)).isoformat(),
+                        "to": now.isoformat(),
+                    }
+                ]
+            },
+        )
+        upsert_source_rows(
+            portal=self.portal,
+            source_id="deal-default",
+            rows=[
+                {
+                    "ID": "1",
+                    "TITLE": "Week-old deal",
+                    "DATE_CREATE": (now - timedelta(days=6)).isoformat(),
+                    "STAGE_ID": "C0:NEW",
+                    "OPPORTUNITY": "80",
+                }
+            ],
+        )
+
+        provider = BitrixReportDataProvider(rest_client_factory=FakeBitrixRestClient)
+        with patch.object(
+            BitrixReportDataProvider,
+            "_load_deals",
+            side_effect=AssertionError("Catchup JSON must not REST days already in MySQL"),
+        ):
+            result = provider.build_preview(
+                filters={
+                    "period": "days",
+                    "dateRange": {
+                        "from": (timezone.localtime(now) - timedelta(days=7)).date().isoformat(),
+                        "to": timezone.localtime(now).date().isoformat(),
+                    },
+                    "selectedSources": ["deal-default"],
+                    "selectedMetricIds": ["deals_created"],
+                    "metricMode": "count",
+                    "chartDisplayMode": "sum",
+                },
+                context=ReportDataProviderContext(
+                    portal=self.portal,
+                    user=None,
+                    bitrix_user_id="42",
+                    user_name="",
+                ),
+            )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(sum(point["values"]["deals_created"] for point in result.data), 1)
+
     def test_report_rests_only_the_gap_before_recent_warehouse_days(self):
         from datetime import timedelta
 
@@ -3039,9 +3174,9 @@ class CrmWarehouseTests(TestCase):
         self.assertEqual(len(deal_windows), 1)
         rest_from, rest_to = deal_windows[0]
         self.assertLessEqual(rest_from, now - timedelta(days=33))
-        self.assertLessEqual(rest_to, recent + timedelta(days=1))
-        self.assertGreater(rest_to, now - timedelta(days=22))
-        self.assertGreaterEqual(result.data[0]["values"]["deals_created"], 1)
+        self.assertLessEqual(rest_to, now - timedelta(days=28))
+        self.assertGreater(rest_to, now - timedelta(days=32))
+        self.assertGreaterEqual(sum(point["values"]["deals_created"] for point in result.data), 1)
 
     def test_repair_does_not_jump_backfill_to_ancient_modified_row(self):
         from datetime import timedelta

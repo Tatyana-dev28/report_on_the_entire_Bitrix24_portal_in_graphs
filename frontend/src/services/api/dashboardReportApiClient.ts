@@ -141,6 +141,16 @@ export const loadDashboardOwnerSettings = () =>
     fastReports: response.fastReports ?? null,
   }));
 
+export const saveDashboardOwnerSettings = (payload: {
+  settings: Record<string, unknown>;
+  savedViews: Array<Record<string, unknown>>;
+  appSettings: Record<string, unknown>;
+}) =>
+  requestJson<{ ok: boolean }>('/api/dashboard/owner/settings/save/', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
 export const endDashboardOwnerAccess = () =>
   requestJson<{ ok: boolean; ended: boolean }>('/api/dashboard/owner/access/end/', {
     method: 'POST',

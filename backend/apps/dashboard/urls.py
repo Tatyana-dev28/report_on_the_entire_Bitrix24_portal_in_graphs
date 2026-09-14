@@ -9,6 +9,7 @@ urlpatterns = [
     path("owner/launch-link/", views.owner_launch_link_view, name="owner-launch-link"),
     path("owner/catalog/", views.owner_catalog_view, name="owner-catalog"),
     path("owner/preview/", views.owner_preview_view, name="owner-preview"),
+    path("owner/settings/save/", views.owner_settings_save_view, name="owner-settings-save"),
     path("owner/snapshot/save/", views.owner_snapshot_save_view, name="owner-snapshot-save"),
     path("owner/employees/", views.owner_employees_view, name="owner-employees"),
     path("owner/refresh/", views.owner_refresh_view, name="owner-refresh"),

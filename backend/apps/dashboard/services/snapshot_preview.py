@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import timedelta
 
 from django.db import transaction
 from django.utils import timezone
 
 from apps.billing.models import PortalAccess
 from apps.dashboard.models import DashboardPreparedSnapshot
-from apps.dashboard.services.retention import prune_dashboard_history
 from apps.reports.services.exceptions import ReportPreviewSessionError
 from apps.reports.services.filters import make_filters_hash, normalize_report_filters
 
@@ -117,12 +115,7 @@ def try_serve_prepared_snapshot(portal, filters: dict) -> dict | None:
     if not portal_has_pro(portal):
         return None
 
-    from apps.dashboard.services.refresh import (
-        DashboardRefreshError,
-        get_current_snapshot,
-        request_portal_refresh,
-        resolve_portal_refresh_interval,
-    )
+    from apps.dashboard.services.refresh import get_current_snapshot
 
     snapshot = get_current_snapshot(portal)
     if snapshot is None:
@@ -141,8 +134,6 @@ def try_serve_prepared_snapshot(portal, filters: dict) -> dict | None:
 
     if preview.get("status") != "ready":
         return None
-
-    _maybe_refresh_stale_snapshot(portal, snapshot, resolve_portal_refresh_interval, request_portal_refresh, DashboardRefreshError)
 
     return {
         "status": "ready",
@@ -171,61 +162,95 @@ def persist_pro_preview_snapshot(portal, *, filters: dict, preview_payload: dict
         return
 
     from apps.dashboard.services.refresh import get_current_snapshot, resolve_portal_refresh_interval
-
-    existing = get_current_snapshot(portal)
-    existing_data = existing.data if existing and isinstance(existing.data, dict) else {}
-    catalog = _snapshot_catalog_payload(
-        portal,
-        existing_data.get("catalog") if isinstance(existing_data.get("catalog"), dict) else {},
-    )
-    settings_payload = dict(existing.settings_snapshot) if existing and isinstance(existing.settings_snapshot, dict) else {}
-    if isinstance(settings, dict) and settings:
-        settings_payload.update(settings)
-    settings_payload["filters"] = filters
-    if filters.get("period"):
-        settings_payload["period"] = filters["period"]
-    if filters.get("dateRange"):
-        settings_payload["dateRange"] = filters["dateRange"]
-    if filters.get("selectedSources") is not None:
-        settings_payload["selectedSources"] = filters["selectedSources"]
-    if filters.get("chartSelectedSources") is not None:
-        settings_payload["chartSelectedSources"] = filters["chartSelectedSources"]
-    if filters.get("metricMode") is not None:
-        settings_payload["metricMode"] = filters["metricMode"]
-    if filters.get("chartDisplayMode") is not None:
-        settings_payload["chartDisplayMode"] = filters["chartDisplayMode"]
-    if filters.get("schedule") is not None:
-        settings_payload["schedule"] = filters["schedule"]
-    views = (
-        list(existing.saved_views_snapshot)
-        if existing and isinstance(existing.saved_views_snapshot, list)
-        else []
-    )
-    data = {
-        "catalog": catalog,
-        "preview": {
-            "data": preview_payload.get("data") or [],
-            "chart_data": preview_payload.get("chart_data") or preview_payload.get("data") or [],
-            "employees": preview_payload.get("employees") or [],
-            "details": preview_payload.get("details") or [],
-            "source_metrics": preview_payload.get("source_metrics") or {},
-            "chart_source_metrics": preview_payload.get("chart_source_metrics") or preview_payload.get("source_metrics") or {},
-            "metadata": preview_payload.get("metadata") if isinstance(preview_payload.get("metadata"), dict) else {},
-        },
-    }
-    metadata = stamp_filters_hash(
-        {"source": "bitrix_app_report_build"},
-        settings_payload,
-        filters,
-    )
-    payload_size = len(json.dumps(data, ensure_ascii=False, default=str).encode("utf-8"))
-    interval = resolve_portal_refresh_interval(portal, existing)
+    from apps.dashboard.services.snapshot_settings import overlay_preview_filters
 
     with transaction.atomic():
-        DashboardPreparedSnapshot.objects.filter(portal=portal, is_current=True).update(is_current=False)
+        existing = (
+            DashboardPreparedSnapshot.objects.select_for_update()
+            .filter(portal=portal, is_current=True)
+            .order_by("-prepared_at")
+            .first()
+        )
+        if existing is None:
+            existing = get_current_snapshot(portal)
+            if existing is not None:
+                existing = (
+                    DashboardPreparedSnapshot.objects.select_for_update()
+                    .filter(pk=existing.pk)
+                    .first()
+                )
+
+        existing_data = existing.data if existing and isinstance(existing.data, dict) else {}
+        catalog = _snapshot_catalog_payload(
+            portal,
+            existing_data.get("catalog") if isinstance(existing_data.get("catalog"), dict) else {},
+        )
+        settings_payload = (
+            dict(existing.settings_snapshot)
+            if existing and isinstance(existing.settings_snapshot, dict)
+            else {}
+        )
+        if isinstance(settings, dict) and settings:
+            settings_payload.update(settings)
+        settings_payload = overlay_preview_filters(settings_payload, filters)
+        views = (
+            list(existing.saved_views_snapshot)
+            if existing and isinstance(existing.saved_views_snapshot, list)
+            else []
+        )
+        data = {
+            "catalog": catalog,
+            "preview": {
+                "data": preview_payload.get("data") or [],
+                "chart_data": preview_payload.get("chart_data") or preview_payload.get("data") or [],
+                "employees": preview_payload.get("employees") or [],
+                "details": [],
+                "source_metrics": preview_payload.get("source_metrics") or {},
+                "chart_source_metrics": preview_payload.get("chart_source_metrics")
+                or preview_payload.get("source_metrics")
+                or {},
+                "metadata": preview_payload.get("metadata")
+                if isinstance(preview_payload.get("metadata"), dict)
+                else {},
+            },
+        }
+        metadata = stamp_filters_hash(
+            dict(existing.metadata) if existing and isinstance(existing.metadata, dict) else {},
+            settings_payload,
+            filters,
+        )
+        metadata["source"] = "bitrix_app_report_build"
+        payload_size = len(json.dumps(data, ensure_ascii=False, default=str).encode("utf-8"))
+        interval = resolve_portal_refresh_interval(portal, existing)
+        now = timezone.now()
+
+        if existing is not None:
+            existing.prepared_at = now
+            existing.refresh_interval_minutes = interval
+            existing.settings_snapshot = settings_payload
+            existing.saved_views_snapshot = views
+            existing.data = data
+            existing.metadata = metadata
+            existing.payload_size_bytes = payload_size
+            existing.is_current = True
+            existing.save(
+                update_fields=[
+                    "prepared_at",
+                    "refresh_interval_minutes",
+                    "settings_snapshot",
+                    "saved_views_snapshot",
+                    "data",
+                    "metadata",
+                    "payload_size_bytes",
+                    "is_current",
+                    "updated_at",
+                ]
+            )
+            return
+
         DashboardPreparedSnapshot.objects.create(
             portal=portal,
-            prepared_at=timezone.now(),
+            prepared_at=now,
             is_current=True,
             refresh_interval_minutes=interval,
             settings_snapshot=settings_payload,
@@ -235,27 +260,11 @@ def persist_pro_preview_snapshot(portal, *, filters: dict, preview_payload: dict
             payload_size_bytes=payload_size,
         )
 
-    prune_dashboard_history(portal=portal)
 
-
-def _snapshot_catalog_payload(portal, existing_catalog) -> dict:
-    if isinstance(existing_catalog, dict) and (
-        existing_catalog.get("sources") or existing_catalog.get("metrics")
-    ):
+def _snapshot_catalog_payload(_portal, existing_catalog) -> dict:
+    if isinstance(existing_catalog, dict):
         return existing_catalog
-    try:
-        from apps.reports.services.report_catalog import build_report_catalog
-
-        built = build_report_catalog(portal) or {}
-        return {
-            "periods": built.get("periods") or [],
-            "sources": built.get("sources") or [],
-            "metricSections": built.get("metricSections") or [],
-            "metrics": built.get("metrics") or [],
-        }
-    except Exception:
-        logger.exception("Failed to attach catalog to dashboard snapshot")
-        return existing_catalog if isinstance(existing_catalog, dict) else {}
+    return {}
 
 
 def serve_owner_preview(portal, *, session, payload: dict | None) -> dict:
@@ -356,18 +365,3 @@ def _empty_preview() -> dict:
         "chart_source_metrics": {},
         "metadata": {},
     }
-
-
-def _maybe_refresh_stale_snapshot(portal, snapshot, resolve_interval, request_refresh, refresh_error) -> None:
-    prepared_at = snapshot.prepared_at
-    if prepared_at is None:
-        return
-    interval = resolve_interval(portal, snapshot)
-    if timezone.now() - prepared_at < timedelta(minutes=max(interval, 1)):
-        return
-    try:
-        request_refresh(portal=portal, enqueue=True)
-    except refresh_error:
-        return
-    except Exception:
-        logger.exception("Background snapshot refresh failed for portal %s", portal.pk)

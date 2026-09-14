@@ -247,12 +247,10 @@ def report_settings_save_view(request):
         },
     )
 
-    from apps.dashboard.services.refresh import (
-        sync_current_snapshot_saved_views,
-        sync_portal_refresh_interval,
-    )
+    from apps.dashboard.services.refresh import sync_portal_refresh_interval
+    from apps.dashboard.services.snapshot_settings import persist_current_snapshot_settings
 
-    sync_current_snapshot_saved_views(portal, saved_views)
+    persist_current_snapshot_settings(portal, settings=settings, saved_views=saved_views)
 
     interval_value = app_settings.get("dashboardRefreshIntervalMinutes")
     if interval_value not in (None, ""):

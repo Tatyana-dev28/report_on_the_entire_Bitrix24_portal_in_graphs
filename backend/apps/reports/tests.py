@@ -128,7 +128,9 @@ class ReportPreviewApiTests(TestCase):
             payload_size_bytes=32,
         )
 
-        with patch("apps.reports.services.builders.ReportBuilder.build_preview") as build_preview:
+        with patch("apps.reports.services.builders.ReportBuilder.build_preview") as build_preview, patch(
+            "apps.dashboard.services.refresh.request_portal_refresh",
+        ) as request_refresh:
             response = self.client.post(
                 reverse("reports:preview"),
                 data=json.dumps(
@@ -155,6 +157,7 @@ class ReportPreviewApiTests(TestCase):
         self.assertTrue(payload["servedFromSnapshot"])
         self.assertEqual(payload["data"][0]["values"]["leads_created"], 7)
         build_preview.assert_not_called()
+        request_refresh.assert_not_called()
 
     def test_pro_preview_rebuilds_when_snapshot_filters_differ(self):
         from apps.billing.models import PortalAccess

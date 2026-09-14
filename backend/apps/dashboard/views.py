@@ -802,6 +802,55 @@ def owner_preview_view(request):
 
 @csrf_exempt
 @require_POST
+def owner_settings_save_view(request):
+    session, error_response = _resolve_access_session(request)
+    if error_response:
+        return error_response
+
+    has_pro, error_message = _check_pro_access(session.portal)
+    if not has_pro:
+        return _json_error(error_message or "PRO-доступ не найден.", status=403)
+
+    payload, payload_error = _parse_json_body(request)
+    if payload_error:
+        return payload_error
+
+    settings = payload.get("settings", {})
+    saved_views = payload.get("savedViews", [])
+    app_settings = payload.get("appSettings", {})
+    if not isinstance(settings, dict):
+        return _json_error("Поле 'settings' должно быть объектом JSON.")
+    if not isinstance(saved_views, list):
+        return _json_error("Поле 'savedViews' должно быть списком.")
+    if not isinstance(app_settings, dict):
+        app_settings = {}
+
+    from apps.dashboard.services.snapshot_settings import persist_current_snapshot_settings
+    from apps.reports.models import PortalReportSettings
+
+    PortalReportSettings.objects.update_or_create(
+        portal=session.portal,
+        defaults={
+            "settings": settings,
+            "saved_views": saved_views,
+            "app_settings": app_settings,
+            "last_saved_at": timezone.now(),
+        },
+    )
+    persist_current_snapshot_settings(
+        session.portal,
+        settings=settings,
+        saved_views=saved_views,
+    ) or persist_refresh_settings(
+        session.portal,
+        settings=settings,
+        saved_views=saved_views,
+    )
+    return JsonResponse({"ok": True}, json_dumps_params={"ensure_ascii": False})
+
+
+@csrf_exempt
+@require_POST
 def owner_snapshot_save_view(request):
     payload, error_response = _parse_json_body(request)
 

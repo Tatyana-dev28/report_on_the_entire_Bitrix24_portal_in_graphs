@@ -1368,3 +1368,168 @@ class DashboardSchedulerGuardTests(TestCase):
 
         with patch("apps.dashboard.apps.sys.argv", ["manage.py", "test", "apps.dashboard"]):
             self.assertFalse(_should_start_refresh_scheduler())
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class DashboardPreviewSnapshotSyncTests(TestCase):
+    def setUp(self):
+        self.portal = BitrixPortal.objects.create(
+            member_id="preview-sync-member",
+            domain="preview-sync.bitrix24.ru",
+            protocol=BitrixPortal.Protocol.HTTPS,
+            status=BitrixPortal.Status.ACTIVE,
+        )
+        PortalAccess.objects.create(
+            portal=self.portal,
+            access_level=PortalAccess.AccessLevel.PRO,
+            has_pro=True,
+            is_lifetime=True,
+        )
+
+    def test_overlay_preview_filters_keeps_dashboard_ui_fields(self):
+        from apps.dashboard.services.snapshot_settings import overlay_preview_filters
+
+        merged = overlay_preview_filters(
+            {
+                "enabledMetricIdsBySection": {"leads": ["leads_created"]},
+                "sectionOrder": ["leads", "deals"],
+                "period": "days",
+            },
+            {
+                "period": "months",
+                "dateRange": {"start": "2026-05-01", "end": "2026-05-31"},
+                "selectedSources": ["lead-default"],
+            },
+        )
+
+        self.assertEqual(merged["period"], "months")
+        self.assertEqual(merged["enabledMetricIdsBySection"], {"leads": ["leads_created"]})
+        self.assertEqual(merged["sectionOrder"], ["leads", "deals"])
+        self.assertEqual(merged["filters"]["period"], "months")
+
+    def test_persist_preview_updates_current_snapshot_without_dropping_settings_or_details_payload(self):
+        from apps.dashboard.services.snapshot_preview import persist_pro_preview_snapshot
+        from apps.reports.services.filters import normalize_report_filters
+
+        snapshot = DashboardPreparedSnapshot.objects.create(
+            portal=self.portal,
+            is_current=True,
+            refresh_interval_minutes=10,
+            settings_snapshot={
+                "period": "days",
+                "enabledMetricIdsBySection": {"leads": ["leads_created"]},
+                "sectionOrder": ["leads"],
+            },
+            saved_views_snapshot=[{"value": "sales", "label": "Продажи"}],
+            data={
+                "catalog": {"sources": [{"id": "lead-default"}], "metrics": []},
+                "preview": {"data": [], "details": [{"id": "old"}]},
+            },
+            metadata={"source": "web"},
+        )
+        filters = normalize_report_filters(
+            {
+                "period": "days",
+                "dateRange": {"start": "2026-05-01", "end": "2026-05-31"},
+                "selectedSources": ["lead-default"],
+                "chartSelectedSources": ["lead-default"],
+                "selectedMetricIds": ["leads_created"],
+                "metricMode": "money",
+                "chartDisplayMode": "sum",
+            }
+        )
+
+        persist_pro_preview_snapshot(
+            self.portal,
+            filters=filters,
+            preview_payload={
+                "data": [{"key": "2026-05-01", "values": {"leads_created": 3}}],
+                "details": [{"id": "huge-row"} for _ in range(50)],
+                "employees": [],
+                "source_metrics": {},
+                "metadata": {},
+            },
+        )
+
+        snapshot.refresh_from_db()
+        self.assertTrue(snapshot.is_current)
+        self.assertEqual(DashboardPreparedSnapshot.objects.filter(portal=self.portal).count(), 1)
+        self.assertEqual(snapshot.settings_snapshot["enabledMetricIdsBySection"], {"leads": ["leads_created"]})
+        self.assertEqual(snapshot.settings_snapshot["sectionOrder"], ["leads"])
+        self.assertEqual(snapshot.settings_snapshot["period"], "days")
+        self.assertEqual(snapshot.saved_views_snapshot, [{"value": "sales", "label": "Продажи"}])
+        self.assertEqual(snapshot.data["preview"]["data"][0]["values"]["leads_created"], 3)
+        self.assertEqual(snapshot.data["preview"]["details"], [])
+        self.assertEqual(snapshot.data["catalog"]["sources"][0]["id"], "lead-default")
+        self.assertEqual(snapshot.metadata["source"], "bitrix_app_report_build")
+
+    def test_serving_matching_snapshot_does_not_enqueue_refresh(self):
+        from apps.dashboard.services.snapshot_preview import try_serve_prepared_snapshot
+        from apps.reports.services.filters import make_filters_hash, normalize_report_filters
+
+        filters = normalize_report_filters(
+            {
+                "period": "days",
+                "dateRange": {"start": "2026-05-01", "end": "2026-05-31"},
+                "selectedSources": ["lead-default"],
+                "chartSelectedSources": ["lead-default"],
+                "selectedMetricIds": ["leads_created"],
+                "metricMode": "money",
+                "chartDisplayMode": "sum",
+            }
+        )
+        DashboardPreparedSnapshot.objects.create(
+            portal=self.portal,
+            is_current=True,
+            settings_snapshot={"filters": filters},
+            metadata={"filtersHash": make_filters_hash(filters)},
+            data={"preview": {"data": [{"key": "2026-05-01", "values": {"leads_created": 7}}]}},
+        )
+
+        with patch("apps.dashboard.services.refresh.request_portal_refresh") as request_refresh:
+            served = try_serve_prepared_snapshot(self.portal, filters)
+
+        self.assertIsNotNone(served)
+        self.assertTrue(served["servedFromSnapshot"])
+        request_refresh.assert_not_called()
+
+    def test_owner_settings_save_keeps_preview_data_and_metric_visibility(self):
+        snapshot = DashboardPreparedSnapshot.objects.create(
+            portal=self.portal,
+            is_current=True,
+            prepared_at=timezone.now() - timedelta(hours=1),
+            settings_snapshot={"period": "days", "enabledMetricIdsBySection": {}},
+            data={"preview": {"data": [{"key": "keep", "values": {"leads_created": 9}}]}},
+        )
+        prepared_at = snapshot.prepared_at
+        _session, raw_token = create_dashboard_access_session(
+            portal=self.portal,
+            user=None,
+            bitrix_user_id="42",
+            user_name="",
+            is_trusted_device=True,
+        )
+        self.client.cookies[DASHBOARD_ACCESS_COOKIE_NAME] = raw_token
+
+        response = self.client.post(
+            reverse("dashboard:owner-settings-save"),
+            data=json.dumps(
+                {
+                    "settings": {
+                        "period": "months",
+                        "enabledMetricIdsBySection": {"leads": ["leads_created"]},
+                    },
+                    "savedViews": [],
+                    "appSettings": {},
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        snapshot.refresh_from_db()
+        self.assertEqual(DashboardPreparedSnapshot.objects.filter(portal=self.portal).count(), 1)
+        self.assertEqual(snapshot.prepared_at, prepared_at)
+        self.assertEqual(snapshot.settings_snapshot["enabledMetricIdsBySection"], {"leads": ["leads_created"]})
+        self.assertEqual(snapshot.settings_snapshot["period"], "months")
+        self.assertEqual(snapshot.data["preview"]["data"][0]["values"]["leads_created"], 9)

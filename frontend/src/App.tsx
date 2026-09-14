@@ -75,7 +75,6 @@ import {
   loadReportSettings,
   RELOAD_PAGE_TO_CONTINUE_MESSAGE,
   revokeDashboardAccessSessions,
-  saveDashboardPreparedSnapshot,
   saveReportSettings,
   type PortalEmployeeItem,
 } from './services/api/reportApiClient';
@@ -88,6 +87,7 @@ import {
   listDashboardShareLinks,
   loadDashboardOwnerBootstrap,
   loadDashboardOwnerSettings,
+  saveDashboardOwnerSettings,
   requestDashboardOwnerRefresh,
   updateDashboardRefreshInterval,
   type DashboardShareLinkItem,
@@ -2166,10 +2166,14 @@ function App() {
         // suppress the next autosave or reset manual-date state — otherwise a
         // late response can drop an just-applied corridor and block persisting it.
         const userEditedWhileLoading = userTouchedReportSettingsRef.current;
-        if (!userEditedWhileLoading) {
-          suppressNextReportSettingsTouch();
-          dateRangeSelectedManuallyRef.current = false;
+        if (userEditedWhileLoading) {
+          settingsHydratedRef.current = true;
+          proSettingsLoadSucceededRef.current = true;
+          proSettingsLoadAttemptRef.current = 0;
+          return;
         }
+        suppressNextReportSettingsTouch();
+        dateRangeSelectedManuallyRef.current = false;
 
         if (settings && Object.keys(settings).length > 0) {
           // One-shot auto-build (incl. after preview finished) must not be clobbered by a
@@ -2479,6 +2483,9 @@ function App() {
     if (!isDashboardMode || dashboardSnapshotEpoch === 0) {
       return;
     }
+    if (userTouchedReportSettingsRef.current) {
+      return;
+    }
 
     applyBackendSettings();
   }, [applyBackendSettings, dashboardSnapshotEpoch]);
@@ -2654,7 +2661,7 @@ function App() {
     return () => {
       isActive = false;
     };
-  }, [refreshPortalEmployees, suppressNextReportSettingsTouch, dashboardSnapshotEpoch]);
+  }, [refreshPortalEmployees, suppressNextReportSettingsTouch]);
 
   useEffect(() => {
     if (!hasBuiltReport) {
@@ -2962,53 +2969,7 @@ function App() {
             }, 0);
           }
 
-          if (!isDashboardMode && billingHasProRef.current && !preview.servedFromSnapshot) {
-            const currentState = captureCurrentViewState();
-            const refreshInterval = appSettings.dashboardRefreshIntervalMinutes ?? 10;
-            const viewsForSnapshot = savedViewsRef.current;
-            const selectedViewForSnapshot = selectedViewRef.current;
-
-            saveDashboardPreparedSnapshot({
-              refreshIntervalMinutes: refreshInterval,
-              settings: {
-                ...currentState,
-                filters,
-              } as Record<string, unknown>,
-              savedViews: viewsForSnapshot.map((view) => ({
-                value: view.value,
-                label: view.label,
-                isSystem: view.isSystem,
-                isDefault: view.value === selectedViewForSnapshot,
-                state: view.state,
-              })),
-              data: {
-                catalog: {
-                  periods: periodOptions,
-                  sources: crmSources,
-                  metricSections,
-                  metrics,
-                },
-                preview: {
-                  data: preview.data,
-                  chart_data: preview.chartData ?? preview.data,
-                  employees: preview.employees ?? [],
-                  details: preview.details ?? [],
-                  source_metrics: preview.sourceMetrics ?? {},
-                  chart_source_metrics: preview.chartSourceMetrics ?? preview.sourceMetrics ?? {},
-                  metadata: {
-                    valueStates: preview.valueStates ?? {},
-                  },
-                },
-              },
-              metadata: {
-                builtAt: new Date().toISOString(),
-                selectedView: selectedViewForSnapshot,
-                source: 'bitrix_app_report_build',
-              },
-            }).catch((error) => {
-              console.warn('[Dashboard] prepared snapshot was not saved', error);
-            });
-          }
+          // PRO snapshot for the web dashboard is persisted on the server after preview.
         }
       })
       .catch((error) => {
@@ -3098,7 +3059,6 @@ function App() {
     // changes to filters/settings should NOT trigger report building.
     hasBuiltReport,
     reportBuildRequest,
-    dashboardSnapshotEpoch,
     dashboardRefreshStatus?.isRefreshing,
   ]);
 
@@ -6094,8 +6054,8 @@ function App() {
       return;
     }
 
-    // Free version: never save anything
-    if (!billingHasPro || isDashboardMode) {
+    // Free version: never save anything. Share viewers cannot write settings.
+    if (!billingHasPro || isDashboardShareViewer) {
       return;
     }
 
@@ -6158,6 +6118,17 @@ function App() {
         },
         detailColumnWidths: {},
       };
+
+      if (isDashboardMode) {
+        saveDashboardOwnerSettings({
+          settings: payload.settings,
+          savedViews: payload.savedViews,
+          appSettings: payload.appSettings,
+        }).catch((error) => {
+          console.warn('[Settings] Dashboard auto-save failed', error);
+        });
+        return;
+      }
 
       saveReportSettings(payload).catch((error) => {
         console.warn('[Settings] Auto-save failed', error);

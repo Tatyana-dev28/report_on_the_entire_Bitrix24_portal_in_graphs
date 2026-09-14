@@ -111,6 +111,8 @@ class BitrixReportDataProvider:
         client = self.rest_client_factory(context.portal)
         ensure_portal_timezone(context.portal, client)
 
+        from apps.reports.services.crm_warehouse import warehouse_covers_range
+
         date_from, date_to = _resolve_date_range(filters, portal=context.portal)
         buckets = build_period_buckets(
             filters["period"],
@@ -146,10 +148,17 @@ class BitrixReportDataProvider:
             date_to=date_to,
             source_value_states=source_value_states,
         )
+        warehouse_only = warehouse_covers_range(
+            context.portal,
+            date_from,
+            date_to,
+            source_ids=[str(source.get("id") or "") for source in all_selected_sources if source.get("id")],
+        ) if all_selected_sources else False
         _enrich_rows_with_user_names(
             client=client,
             portal=context.portal,
             rows_by_source=rows_by_source,
+            allow_bitrix=not warehouse_only,
         )
         table_rows_by_source = _pick_rows_for_sources(rows_by_source, selected_sources)
         chart_rows_by_source = _pick_rows_for_sources(rows_by_source, chart_selected_sources)
@@ -310,6 +319,15 @@ class BitrixReportDataProvider:
 
         if not rest_jobs:
             return rows_by_source
+
+        logger.info(
+            "PRO report REST gaps portal=%s jobs=%s",
+            getattr(warehouse_portal, "id", None),
+            [
+                (str(source.get("id") or ""), gap_start.isoformat(), gap_end.isoformat())
+                for source, gap_start, gap_end in rest_jobs[:20]
+            ],
+        )
 
         failed_source_ids: set[str] = set()
         rest_rows, rest_persisted = self._load_source_gaps_via_rest(
@@ -2649,6 +2667,7 @@ def _enrich_rows_with_user_names(
     client,
     portal,
     rows_by_source: dict[str, list[dict]],
+    allow_bitrix: bool = True,
 ) -> None:
     user_ids = sorted(
         {
@@ -2664,7 +2683,8 @@ def _enrich_rows_with_user_names(
 
     profiles = _load_cached_user_profiles(portal, user_ids)
     missing_user_ids = [user_id for user_id in user_ids if user_id not in profiles]
-    profiles.update(_load_bitrix_user_profiles(client, portal, missing_user_ids))
+    if allow_bitrix and missing_user_ids:
+        profiles.update(_load_bitrix_user_profiles(client, portal, missing_user_ids))
 
     for rows in rows_by_source.values():
         for row in rows:

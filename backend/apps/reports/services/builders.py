@@ -81,7 +81,7 @@ class ReportBuilder:
             },
         )
 
-        if _should_build_in_background(filters):
+        if _should_build_in_background(filters, portal=context.portal):
             build = self._create_report_build(
                 context=context,
                 session=session,
@@ -413,8 +413,11 @@ class ReportBuilder:
         )
 
 
-def _should_build_in_background(filters: dict) -> bool:
+def _should_build_in_background(filters: dict, portal=None) -> bool:
     if getattr(settings, "REPORT_DATA_PROVIDER", "bitrix").lower() != "bitrix":
+        return False
+
+    if portal is not None and _warehouse_serves_filters(portal, filters):
         return False
 
     selected_sources = {
@@ -444,3 +447,28 @@ def _should_build_in_background(filters: dict) -> bool:
         return range_days > HEAVY_ASYNC_DATE_RANGE_DAYS
 
     return False
+
+
+def _warehouse_serves_filters(portal, filters: dict) -> bool:
+    from apps.reports.services.crm_warehouse import portal_has_pro, warehouse_covers_range
+
+    if not portal_has_pro(portal):
+        return False
+
+    source_ids = [
+        str(source)
+        for source in [
+            *(filters.get("selectedSources") or []),
+            *(filters.get("chartSelectedSources") or []),
+        ]
+        if source
+    ]
+    if not source_ids:
+        return False
+
+    date_range = filters.get("dateRange") or {}
+    date_from = parse_report_datetime(date_range.get("from"))
+    date_to = parse_report_datetime(date_range.get("to"), end_of_day=True)
+    if not date_from or not date_to:
+        return False
+    return warehouse_covers_range(portal, date_from, date_to, source_ids=source_ids)

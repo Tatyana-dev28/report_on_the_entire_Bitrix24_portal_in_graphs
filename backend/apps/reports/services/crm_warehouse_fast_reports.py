@@ -1,4 +1,4 @@
-"""PRO banner status. Must not decide which days a report may REST."""
+"""PRO banner status. A few lagging coverage_to days must not look like a 180-day download."""
 
 from __future__ import annotations
 
@@ -7,13 +7,11 @@ from datetime import datetime
 from django.utils import timezone
 
 from apps.reports.models import PortalCrmSyncState
+from apps.reports.services.crm_warehouse import WAREHOUSE_COVERAGE_GRACE_DAYS
 from apps.reports.services.portal_timezone import get_portal_tzinfo
 
 
-# Report reads keep WAREHOUSE_COVERAGE_GRACE_DAYS = 1 so stale days stay REST holes.
-# The banner only answers “is the 180-day backfill done?”, so a few lagging days
-# of coverage_to must not claim that six months are still downloading.
-WAREHOUSE_BANNER_COVERAGE_TO_LAG_DAYS = 7
+WAREHOUSE_BANNER_COVERAGE_TO_LAG_DAYS = WAREHOUSE_COVERAGE_GRACE_DAYS
 
 
 def serialize_fast_reports(portal) -> dict[str, str | None]:

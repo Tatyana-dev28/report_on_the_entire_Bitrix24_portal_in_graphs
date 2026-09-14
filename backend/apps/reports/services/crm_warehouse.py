@@ -21,9 +21,10 @@ WAREHOUSE_CHUNK_DAYS = 30
 WAREHOUSE_BACKFILL_CHUNKS_PER_RUN = 3
 WAREHOUSE_INCREMENTAL_LOOKBACK_DAYS = 2
 WAREHOUSE_INCREMENTAL_MAX_CATCHUP_DAYS = 14
-WAREHOUSE_INCREMENTAL_MIN_INTERVAL = timedelta(minutes=5)
+WAREHOUSE_INCREMENTAL_MIN_INTERVAL = timedelta(minutes=15)
 WAREHOUSE_STALE_RUNNING = timedelta(minutes=20)
-WAREHOUSE_COVERAGE_GRACE_DAYS = 1
+# Lagging coverage_to of a few days is still a warehouse read, not a Bitrix REST hole.
+WAREHOUSE_COVERAGE_GRACE_DAYS = 7
 WAREHOUSE_READ_LOOKBACK_GRACE_DAYS = 2
 DATE_MODIFY_SOURCE_TYPES = {
     "deal",
@@ -121,7 +122,12 @@ def warehouse_uncovered_ranges(
             if oldest is not None:
                 combined.append((oldest, covered_to))
         if not combined:
-            return [(date_from, date_to)]
+            # Ready 180-day warehouse: serve MySQL (possibly empty) instead of
+            # REST-dumping activities/tasks for the whole report period.
+            global_range = _honest_global_range(portal, state, date_to)
+            if global_range is None:
+                return [(date_from, date_to)]
+            combined = [global_range]
         combined = _ranges_with_from_grace(combined, date_from)
         return _uncovered_ranges(date_from, date_to, combined)
 

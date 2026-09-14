@@ -2831,7 +2831,7 @@ class CrmWarehouseTests(TestCase):
 
         self.assertEqual(result["reason"], "oauth_reauth_required")
 
-    def test_ready_warehouse_does_not_cover_telephony_without_source_coverage(self):
+    def test_ready_warehouse_does_not_cover_deals_without_stored_rows(self):
         from datetime import timedelta
 
         from apps.reports.models import PortalCrmSyncState
@@ -2852,14 +2852,6 @@ class CrmWarehouseTests(TestCase):
                 self.portal,
                 date_from,
                 now,
-                source_ids=["telephony-default"],
-            )
-        )
-        self.assertFalse(
-            warehouse_covers_range(
-                self.portal,
-                date_from,
-                now,
                 source_ids=["deal-default"],
             )
         )
@@ -2868,6 +2860,7 @@ class CrmWarehouseTests(TestCase):
         from datetime import timedelta
 
         from apps.reports.models import PortalCrmSyncState
+        from apps.reports.services.builders import _should_build_in_background
         from apps.reports.services.crm_warehouse import (
             serialize_fast_reports,
             upsert_source_rows,
@@ -2901,14 +2894,93 @@ class CrmWarehouseTests(TestCase):
         )
 
         self.assertEqual(serialize_fast_reports(self.portal)["fastReports"], "ready")
-        gaps = warehouse_uncovered_ranges(
-            self.portal,
-            "deal-default",
-            now - timedelta(days=7),
-            now,
+        self.assertEqual(
+            warehouse_uncovered_ranges(
+                self.portal,
+                "deal-default",
+                now - timedelta(days=7),
+                now,
+            ),
+            [],
         )
-        self.assertTrue(gaps)
-        self.assertGreater(gaps[-1][1], stale)
+        self.assertFalse(
+            _should_build_in_background(
+                {
+                    "period": "days",
+                    "dateRange": {
+                        "from": (timezone.localtime(now) - timedelta(days=7)).date().isoformat(),
+                        "to": timezone.localtime(now).date().isoformat(),
+                    },
+                    "selectedSources": ["deal-default", "lead-default", "activity-default"],
+                    "selectedMetricIds": ["deals_created"],
+                },
+                portal=self.portal,
+            )
+        )
+
+    def test_stale_coverage_to_month_report_does_not_rest(self):
+        from datetime import timedelta
+        from unittest.mock import patch
+
+        from apps.reports.models import PortalCrmSyncState
+        from apps.reports.services.crm_warehouse import upsert_source_rows
+
+        self._grant_pro()
+        now = timezone.now()
+        stale = now - timedelta(days=4)
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.READY,
+            coverage_from=now - timedelta(days=180),
+            coverage_to=stale,
+            next_chunk_to=now - timedelta(days=180),
+            progress_percent=100,
+            last_incremental_at=stale,
+        )
+        upsert_source_rows(
+            portal=self.portal,
+            source_id="deal-default",
+            rows=[
+                {
+                    "ID": "1",
+                    "TITLE": "Month deal",
+                    "DATE_CREATE": (now - timedelta(days=12)).isoformat(),
+                    "STAGE_ID": "C0:NEW",
+                    "OPPORTUNITY": "10",
+                }
+            ],
+        )
+
+        provider = BitrixReportDataProvider(rest_client_factory=FakeBitrixRestClient)
+        rest_calls: list[dict] = []
+
+        def rest_must_not_run(*args, **kwargs):
+            rest_calls.append(kwargs)
+            return []
+
+        with patch.object(BitrixReportDataProvider, "_load_single_source_rows", rest_must_not_run):
+            result = provider.build_preview(
+                filters={
+                    "period": "days",
+                    "dateRange": {
+                        "from": (timezone.localtime(now) - timedelta(days=30)).date().isoformat(),
+                        "to": timezone.localtime(now).date().isoformat(),
+                    },
+                    "selectedSources": ["deal-default", "activity-default"],
+                    "selectedMetricIds": ["deals_created", "activities_created"],
+                    "metricMode": "count",
+                    "chartDisplayMode": "sum",
+                },
+                context=ReportDataProviderContext(
+                    portal=self.portal,
+                    user=None,
+                    bitrix_user_id="42",
+                    user_name="",
+                ),
+            )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(rest_calls, [])
 
     def test_activity_catchup_coverage_does_not_rest_stored_days(self):
         from datetime import timedelta
@@ -3706,12 +3778,13 @@ class CrmWarehouseTests(TestCase):
 
         self._grant_pro()
         now = timezone.now()
+        coverage_from = now - timedelta(days=180)
         PortalCrmSyncState.objects.create(
             portal=self.portal,
             status=PortalCrmSyncState.Status.READY,
-            coverage_from=now - timedelta(days=180),
+            coverage_from=coverage_from,
             coverage_to=now - timedelta(hours=4),
-            next_chunk_to=now - timedelta(days=180),
+            next_chunk_to=coverage_from,
             progress_percent=100,
             last_incremental_at=now - timedelta(hours=4),
         )
@@ -3720,9 +3793,23 @@ class CrmWarehouseTests(TestCase):
             source_id="deal-default",
             rows=[
                 {
+                    "ID": "old",
+                    "TITLE": "Window head deal",
+                    "DATE_CREATE": coverage_from.isoformat(),
+                    "STAGE_ID": "C0:NEW",
+                    "OPPORTUNITY": "1",
+                },
+                {
+                    "ID": "mid",
+                    "TITLE": "Previous chunk deal",
+                    "DATE_CREATE": (now - timedelta(days=45)).isoformat(),
+                    "STAGE_ID": "C0:NEW",
+                    "OPPORTUNITY": "2",
+                },
+                {
                     "ID": "1",
                     "TITLE": "Won deal",
-                    "DATE_CREATE": "2026-05-01T10:15:00+03:00",
+                    "DATE_CREATE": (now - timedelta(days=10)).isoformat(),
                     "STAGE_ID": "C0:WON",
                     "OPPORTUNITY": "1500",
                 },
@@ -3735,7 +3822,7 @@ class CrmWarehouseTests(TestCase):
                 {
                     "ID": "10",
                     "TITLE": "Converted lead",
-                    "DATE_CREATE": "2026-05-01T11:00:00+03:00",
+                    "DATE_CREATE": (now - timedelta(days=10)).isoformat(),
                     "STATUS_ID": "CONVERTED",
                     "OPPORTUNITY": "900",
                 },
@@ -3745,11 +3832,13 @@ class CrmWarehouseTests(TestCase):
         today = timezone.localtime(now).date().isoformat()
         three_months_ago = (timezone.localtime(now) - timedelta(days=90)).date().isoformat()
         provider = BitrixReportDataProvider(rest_client_factory=FakeBitrixRestClient)
-        with patch.object(
-            BitrixReportDataProvider,
-            "_load_single_source_rows",
-            side_effect=AssertionError("REST loader must not run"),
-        ):
+        rest_calls: list[dict] = []
+
+        def rest_must_not_run(*args, **kwargs):
+            rest_calls.append(kwargs)
+            return []
+
+        with patch.object(BitrixReportDataProvider, "_load_single_source_rows", rest_must_not_run):
             result = provider.build_preview(
                 filters={
                     "period": "days",
@@ -3768,6 +3857,7 @@ class CrmWarehouseTests(TestCase):
             )
 
         self.assertEqual(result.status, "ready")
+        self.assertEqual(rest_calls, [])
         self.assertTrue(PortalCrmRow.objects.filter(portal=self.portal).exists())
 
     def test_running_sync_still_serves_ready_warehouse_and_status(self):

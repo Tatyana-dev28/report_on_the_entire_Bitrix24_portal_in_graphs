@@ -434,6 +434,67 @@ class DashboardAccessSessionApiTests(TestCase):
         self.assertEqual(payload["employees"][0]["id"], "42")
         self.assertEqual(payload["details"][0]["id"], "lead-1")
 
+    def test_owner_preview_rebuilds_when_filters_differ_from_snapshot(self):
+        from apps.reports.services.data_providers import ReportDataResult
+
+        PortalAccess.objects.create(
+            portal=self.portal,
+            access_level=PortalAccess.AccessLevel.PRO,
+            has_pro=True,
+            is_lifetime=True,
+        )
+        _session, raw_token = create_dashboard_access_session(
+            portal=self.portal,
+            user=None,
+            bitrix_user_id="42",
+            user_name="",
+            is_trusted_device=True,
+        )
+        DashboardPreparedSnapshot.objects.create(
+            portal=self.portal,
+            is_current=True,
+            settings_snapshot={
+                "period": "days",
+                "dateRange": {"from": "2026-08-01", "to": "2026-08-02"},
+                "selectedSources": ["lead-default"],
+            },
+            data={"preview": {"data": [{"key": "old", "values": {"leads_created": 10}}]}},
+        )
+        self.client.cookies[DASHBOARD_ACCESS_COOKIE_NAME] = raw_token
+        provider = MagicMock()
+        provider.build_preview.return_value = ReportDataResult(
+            data=[{"key": "new", "values": {"deals_created": 3}}],
+            chart_data=[{"key": "new", "values": {"deals_created": 3}}],
+            status="ready",
+            message="",
+        )
+
+        with patch(
+            "apps.reports.services.data_providers.get_report_data_provider",
+            return_value=provider,
+        ), patch(
+            "apps.reports.services.report_catalog.build_report_catalog",
+            return_value={"periods": [], "sources": [], "metricSections": [], "metrics": []},
+        ):
+            response = self.client.post(
+                reverse("dashboard:owner-preview"),
+                data=json.dumps(
+                    {
+                        "period": "days",
+                        "dateRange": {"from": "2026-09-01", "to": "2026-09-03"},
+                        "selectedSources": ["deal-default"],
+                        "chartSelectedSources": ["deal-default"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["data"][0]["values"]["deals_created"], 3)
+        self.assertFalse(payload.get("servedFromSnapshot"))
+        provider.build_preview.assert_called_once()
+
     def test_owner_employees_returns_snapshot_employees_for_valid_cookie(self):
         _session, raw_token = create_dashboard_access_session(
             portal=self.portal,
@@ -724,6 +785,40 @@ class DashboardRefreshTests(TestCase):
         self.assertFalse(self.snapshot.is_current)
         self.assertNotEqual(current.id, self.snapshot.id)
         self.assertIsNotNone(run.next_planned_at)
+
+    def test_refresh_filters_use_current_report_not_all_saved_views(self):
+        from apps.dashboard.services.refresh import build_refresh_filters
+
+        self.snapshot.settings_snapshot = {
+            "period": "days",
+            "dateRange": {"from": "2026-09-01", "to": "2026-09-03"},
+            "selectedSources": ["lead-default"],
+            "chartSelectedSources": ["lead-default"],
+            "enabledMetricIdsBySection": {"leads": ["leads_created"]},
+        }
+        self.snapshot.saved_views_snapshot = [
+            {
+                "value": "sales",
+                "label": "Продажи",
+                "isDefault": True,
+                "state": {
+                    "appliedFilters": {
+                        "period": "days",
+                        "dateRange": {"from": "2026-01-01", "to": "2026-12-31"},
+                        "selectedSources": ["deal-default", "telephony-default"],
+                    }
+                },
+            }
+        ]
+        self.snapshot.save(update_fields=["settings_snapshot", "saved_views_snapshot"])
+
+        filters = build_refresh_filters(self.snapshot)
+
+        self.assertEqual(filters["selectedSources"], ["lead-default"])
+        self.assertEqual(filters["dateRange"]["from"][:10], "2026-09-01")
+        self.assertEqual(filters["dateRange"]["to"][:10], "2026-09-03")
+        self.assertNotIn("deal-default", filters["selectedSources"])
+        self.assertNotIn("telephony-default", filters["selectedSources"])
 
     def test_refresh_copies_portal_settings_saved_views_instead_of_stale_snapshot(self):
         from apps.reports.models import PortalReportSettings

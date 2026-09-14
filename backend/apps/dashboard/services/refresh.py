@@ -628,65 +628,84 @@ def enqueue_dashboard_refresh(run_id: int, *, prefer_thread: bool = False) -> st
 
 
 def build_refresh_filters(snapshot: DashboardPreparedSnapshot) -> dict:
+    """Rebuild the last opened report only. Do not union every saved view."""
+
     known_metric_ids = {str(metric.get("id")) for metric in METRICS if metric.get("id")}
+    settings = _current_report_settings(snapshot)
     sources: list[str] = []
     chart_sources: list[str] = []
     metric_ids: list[str] = []
-    starts: list[str] = []
-    ends: list[str] = []
-    period = ""
-    metric_mode = "money"
-    chart_display_mode = "sum"
-    schedule = {}
 
-    candidates = [_flatten_settings(snapshot.settings_snapshot)]
-    if isinstance(snapshot.saved_views_snapshot, list):
-        for view in snapshot.saved_views_snapshot:
-            if not isinstance(view, dict):
-                continue
-            state = view.get("state") if isinstance(view.get("state"), dict) else {}
-            candidates.append(_flatten_settings(state))
+    _extend_unique(sources, settings.get("selectedSources"))
+    _extend_unique(sources, settings.get("tableSelectedSources"))
+    _extend_unique(chart_sources, settings.get("chartSelectedSources") or settings.get("selectedSources"))
 
-    for settings in candidates:
-        period = period or str(settings.get("period") or "")
-        metric_mode = str(settings.get("metricMode") or metric_mode)
-        chart_display_mode = str(settings.get("chartDisplayMode") or chart_display_mode)
-        if isinstance(settings.get("schedule"), dict) and not schedule:
-            schedule = settings["schedule"]
+    enabled = settings.get("enabledMetricIdsBySection")
+    if isinstance(enabled, dict):
+        for values in enabled.values():
+            _extend_unique(metric_ids, values)
 
-        _extend_unique(sources, settings.get("selectedSources"))
-        _extend_unique(sources, settings.get("tableSelectedSources"))
-        _extend_unique(chart_sources, settings.get("chartSelectedSources") or settings.get("selectedSources"))
-
-        enabled = settings.get("enabledMetricIdsBySection")
-        if isinstance(enabled, dict):
-            for values in enabled.values():
-                _extend_unique(metric_ids, values)
-
-        date_range = settings.get("dateRange") if isinstance(settings.get("dateRange"), dict) else {}
-        start = str(date_range.get("start") or date_range.get("from") or "")
-        end = str(date_range.get("end") or date_range.get("to") or "")
-        if start:
-            starts.append(start)
-        if end:
-            ends.append(end)
-
+    date_range = settings.get("dateRange") if isinstance(settings.get("dateRange"), dict) else {}
+    start = str(date_range.get("start") or date_range.get("from") or "") or None
+    end = str(date_range.get("end") or date_range.get("to") or "") or None
+    schedule = settings.get("schedule") if isinstance(settings.get("schedule"), dict) else {}
     metric_ids = [metric_id for metric_id in metric_ids if metric_id in known_metric_ids]
 
     payload = {
-        "period": period or "days",
-        "dateRange": {
-            "from": min(starts) if starts else None,
-            "to": max(ends) if ends else None,
-        },
+        "period": str(settings.get("period") or "") or "days",
+        "dateRange": {"from": start, "to": end},
         "selectedSources": sources,
         "chartSelectedSources": chart_sources or sources,
         "selectedMetricIds": metric_ids or None,
-        "metricMode": metric_mode,
-        "chartDisplayMode": chart_display_mode,
+        "metricMode": settings.get("metricMode") or "money",
+        "chartDisplayMode": settings.get("chartDisplayMode") or "sum",
         "schedule": schedule or None,
     }
     return normalize_report_filters(payload)
+
+
+def _current_report_settings(snapshot: DashboardPreparedSnapshot) -> dict:
+    settings = _flatten_settings(snapshot.settings_snapshot)
+    if _settings_have_report_scope(settings):
+        return settings
+
+    view = _default_saved_view(snapshot)
+    if view is None:
+        return settings
+    state = view.get("state") if isinstance(view.get("state"), dict) else {}
+    fallback = _flatten_settings(state)
+    return {**fallback, **settings}
+
+
+def _default_saved_view(snapshot: DashboardPreparedSnapshot) -> dict | None:
+    views = snapshot.saved_views_snapshot if isinstance(snapshot.saved_views_snapshot, list) else []
+    default = None
+    first = None
+    for view in views:
+        if not isinstance(view, dict):
+            continue
+        if first is None:
+            first = view
+        if view.get("isDefault"):
+            default = view
+            break
+    return default or first
+
+
+def _settings_have_report_scope(settings: dict) -> bool:
+    sources = (
+        settings.get("selectedSources")
+        or settings.get("chartSelectedSources")
+        or settings.get("tableSelectedSources")
+    )
+    date_range = settings.get("dateRange") if isinstance(settings.get("dateRange"), dict) else {}
+    has_dates = bool(
+        date_range.get("from")
+        or date_range.get("start")
+        or date_range.get("to")
+        or date_range.get("end")
+    )
+    return bool(settings.get("period") or (isinstance(sources, list) and sources) or has_dates)
 
 
 def _start_refresh_thread(run_id: int) -> str:

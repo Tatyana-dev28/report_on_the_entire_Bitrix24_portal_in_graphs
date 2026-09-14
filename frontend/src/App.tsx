@@ -4917,80 +4917,6 @@ function App() {
     immediateAutoSaveRef.current = true;
     setAutoSaveRequest((current) => current + 1);
 
-    if (isDashboardMode && !isDashboardShareViewer) {
-      if (dashboardRefreshStatus?.isRefreshing || dashboardRebuildInFlightRef.current) {
-        setNotification('Обновление уже выполняется.');
-        return;
-      }
-
-      const period = restoredManualDateFilters?.period ?? draftFilters.period;
-      const dateRange = restoredManualDateFilters?.dateRange ?? draftFilters.dateRange;
-      dashboardRebuildInFlightRef.current = true;
-      setNotification('Строим отчёт по текущим настройкам...');
-      requestDashboardOwnerRefresh({
-        settings: {
-          period,
-          dateRange,
-          selectedSources: chartSources,
-          chartSelectedSources: chartSources,
-          tableSelectedSources: [...entitySourceIds, ...pipelineSourceIds],
-          enabledSectionIds: [...nextEnabledSectionIds],
-          enabledMetricIdsBySection: Object.fromEntries(
-            Object.entries(nextEnabledMetricIdsBySection).map(([sectionId, metricIds]) => [
-              sectionId,
-              [...metricIds],
-            ]),
-          ),
-          metricMode: chartMetricMode,
-          chartDisplayMode: 'sum',
-          schedule: {
-            ...chartSchedule,
-            weekendDayIds: [...chartSchedule.weekendDayIds],
-          },
-          draftFilters: serializeFilters({
-            ...draftFilters,
-            period,
-            dateRange,
-            selectedSources: chartSources,
-            enabledSectionIds: nextEnabledSectionIds,
-            metricMode: chartMetricMode,
-            chartDisplayMode: 'sum',
-            schedule: chartSchedule,
-          }),
-          appliedFilters: serializeFilters({
-            ...appliedFilters,
-            period,
-            dateRange,
-            selectedSources: chartSources,
-            enabledSectionIds: nextEnabledSectionIds,
-            metricMode: chartMetricMode,
-            chartDisplayMode: 'sum',
-            schedule: chartSchedule,
-          }),
-        },
-        savedViews: savedViews.map((view) => ({
-          value: view.value,
-          label: view.label,
-          isSystem: view.isSystem,
-          isDefault: view.value === selectedView,
-          state: view.state,
-        })),
-      })
-        .then((response) => {
-          setDashboardRefreshStatus(response.refreshStatus);
-          if (response.accepted) {
-            setNotification('Обновляем данные всего аккаунта...');
-          } else {
-            setNotification('Обновление уже выполняется.');
-          }
-        })
-        .catch((error) => {
-          dashboardRebuildInFlightRef.current = false;
-          setNotification(error instanceof Error ? error.message : 'Не удалось построить отчёт.');
-        });
-      return;
-    }
-
     // Empty chart selection stays empty — never expand to all/default sources.
     applyReportBuild(chartSources, {
       ...(restoredManualDateFilters ?? {}),
@@ -5002,7 +4928,6 @@ function App() {
     applyReportBuild,
     appliedFilters,
     crmSources,
-    dashboardRefreshStatus?.isRefreshing,
     draftFilters,
     draftTableSelectedSources,
     enabledMetricIdsBySection,
@@ -5010,8 +4935,6 @@ function App() {
     metricSections,
     resetTemporaryReportUiState,
     sanitizeChartSources,
-    savedViews,
-    selectedView,
     tableRowChartsMode,
   ]);
 
@@ -6894,7 +6817,7 @@ function App() {
       .then((response) => {
         applyDashboardRefreshStatus(response.refreshStatus);
         if (response.accepted) {
-          setNotification('Обновляем данные всего аккаунта...');
+          setNotification('Обновляем текущий отчёт...');
         } else {
           setNotification('Обновление уже выполняется.');
         }

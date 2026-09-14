@@ -31,16 +31,16 @@ def load_call_rows(
     rows: list[dict] = []
     seen_ids: set[str] = set()
 
-    try:
-        for window_from, window_to in iter_call_query_windows(date_from, date_to):
-            params = {
-                "FILTER": {
-                    ">=CALL_START_DATE": bitrix_datetime(window_from),
-                    "<=CALL_START_DATE": bitrix_datetime(window_to),
-                },
-                "SORT": "CALL_START_DATE",
-                "ORDER": "ASC",
-            }
+    for window_from, window_to in iter_call_query_windows(date_from, date_to):
+        params = {
+            "FILTER": {
+                ">=CALL_START_DATE": bitrix_datetime(window_from),
+                "<=CALL_START_DATE": bitrix_datetime(window_to),
+            },
+            "SORT": "CALL_START_DATE",
+            "ORDER": "ASC",
+        }
+        try:
             for row in _load_call_rows_batched(client, params):
                 if not isinstance(row, dict):
                     continue
@@ -50,9 +50,14 @@ def load_call_rows(
                 if row_id:
                     seen_ids.add(row_id)
                 rows.append(row)
-    except BitrixRestError:
-        logger.warning("Bitrix telephony loading failed; call metrics will be zero.", exc_info=True)
-        return []
+        except BitrixRestError:
+            logger.warning(
+                "Bitrix telephony window failed %s .. %s; keeping already loaded calls.",
+                window_from.isoformat(),
+                window_to.isoformat(),
+                exc_info=True,
+            )
+            continue
 
     return [_normalize_call_row(row) for row in rows]
 

@@ -174,11 +174,28 @@ def persist_pro_preview_snapshot(portal, *, filters: dict, preview_payload: dict
 
     existing = get_current_snapshot(portal)
     existing_data = existing.data if existing and isinstance(existing.data, dict) else {}
-    catalog = existing_data.get("catalog") if isinstance(existing_data.get("catalog"), dict) else {}
+    catalog = _snapshot_catalog_payload(
+        portal,
+        existing_data.get("catalog") if isinstance(existing_data.get("catalog"), dict) else {},
+    )
     settings_payload = dict(existing.settings_snapshot) if existing and isinstance(existing.settings_snapshot, dict) else {}
     if isinstance(settings, dict) and settings:
         settings_payload.update(settings)
     settings_payload["filters"] = filters
+    if filters.get("period"):
+        settings_payload["period"] = filters["period"]
+    if filters.get("dateRange"):
+        settings_payload["dateRange"] = filters["dateRange"]
+    if filters.get("selectedSources") is not None:
+        settings_payload["selectedSources"] = filters["selectedSources"]
+    if filters.get("chartSelectedSources") is not None:
+        settings_payload["chartSelectedSources"] = filters["chartSelectedSources"]
+    if filters.get("metricMode") is not None:
+        settings_payload["metricMode"] = filters["metricMode"]
+    if filters.get("chartDisplayMode") is not None:
+        settings_payload["chartDisplayMode"] = filters["chartDisplayMode"]
+    if filters.get("schedule") is not None:
+        settings_payload["schedule"] = filters["schedule"]
     views = (
         list(existing.saved_views_snapshot)
         if existing and isinstance(existing.saved_views_snapshot, list)
@@ -219,6 +236,126 @@ def persist_pro_preview_snapshot(portal, *, filters: dict, preview_payload: dict
         )
 
     prune_dashboard_history(portal=portal)
+
+
+def _snapshot_catalog_payload(portal, existing_catalog) -> dict:
+    if isinstance(existing_catalog, dict) and (
+        existing_catalog.get("sources") or existing_catalog.get("metrics")
+    ):
+        return existing_catalog
+    try:
+        from apps.reports.services.report_catalog import build_report_catalog
+
+        built = build_report_catalog(portal) or {}
+        return {
+            "periods": built.get("periods") or [],
+            "sources": built.get("sources") or [],
+            "metricSections": built.get("metricSections") or [],
+            "metrics": built.get("metrics") or [],
+        }
+    except Exception:
+        logger.exception("Failed to attach catalog to dashboard snapshot")
+        return existing_catalog if isinstance(existing_catalog, dict) else {}
+
+
+def serve_owner_preview(portal, *, session, payload: dict | None) -> dict:
+    """Empty body keeps the last snapshot. Filters rebuild that report and save the snapshot."""
+
+    from apps.dashboard.services.refresh import get_current_snapshot
+    from apps.reports.services.filters import make_filters_hash
+
+    snapshot = get_current_snapshot(portal)
+    filters = _preview_request_filters(payload)
+    if filters is None:
+        preview = _preview_from_snapshot(snapshot) if snapshot else _empty_preview()
+        preview["status"] = "ready" if snapshot else "empty"
+        return preview
+
+    incoming_hash = make_filters_hash(filters)
+    stored_hash = snapshot_filters_hash(snapshot)
+    if snapshot is not None and stored_hash and stored_hash == incoming_hash:
+        preview = _preview_from_snapshot(snapshot)
+        preview["status"] = "ready"
+        preview["servedFromSnapshot"] = True
+        preview["filtersHash"] = incoming_hash
+        return preview
+
+    try:
+        from apps.reports.services.data_providers import ReportDataProviderContext, get_report_data_provider
+
+        result = get_report_data_provider().build_preview(
+            filters=filters,
+            context=ReportDataProviderContext(
+                portal=portal,
+                user=getattr(session, "user", None),
+                bitrix_user_id=str(getattr(session, "bitrix_user_id", "") or ""),
+                user_name=str(getattr(session, "user_name", "") or ""),
+            ),
+        )
+    except Exception:
+        logger.exception("Owner dashboard live preview failed for portal %s", portal.pk)
+        preview = _preview_from_snapshot(snapshot) if snapshot else _empty_preview()
+        preview["status"] = "ready" if snapshot else "empty"
+        preview["message"] = "Не удалось пересчитать отчёт. Показаны сохранённые данные."
+        return preview
+
+    preview_payload = {
+        "data": result.data,
+        "chart_data": result.chart_data or result.data,
+        "employees": result.employees,
+        "details": result.details,
+        "source_metrics": result.source_metrics,
+        "chart_source_metrics": result.chart_source_metrics or result.source_metrics,
+        "metadata": result.metadata if isinstance(result.metadata, dict) else {},
+        "message": result.message,
+    }
+    try:
+        persist_pro_preview_snapshot(portal, filters=filters, preview_payload=preview_payload)
+    except Exception:
+        logger.exception("Failed to persist owner live preview snapshot for portal %s", portal.pk)
+
+    return {
+        "status": result.status or "ready",
+        "filtersHash": incoming_hash,
+        "servedFromSnapshot": False,
+        **preview_payload,
+    }
+
+
+def _preview_request_filters(payload: dict | None) -> dict | None:
+    if not isinstance(payload, dict) or not payload:
+        return None
+    has_report_keys = any(
+        key in payload
+        for key in (
+            "period",
+            "dateRange",
+            "selectedSources",
+            "chartSelectedSources",
+            "selectedMetricIds",
+            "filters",
+        )
+    )
+    if not has_report_keys:
+        return None
+    raw = payload.get("filters") if isinstance(payload.get("filters"), dict) else payload
+    try:
+        return normalize_report_filters(raw)
+    except ReportPreviewSessionError:
+        return None
+
+
+def _empty_preview() -> dict:
+    return {
+        "status": "empty",
+        "data": [],
+        "chart_data": [],
+        "employees": [],
+        "details": [],
+        "source_metrics": {},
+        "chart_source_metrics": {},
+        "metadata": {},
+    }
 
 
 def _maybe_refresh_stale_snapshot(portal, snapshot, resolve_interval, request_refresh, refresh_error) -> None:

@@ -82,10 +82,10 @@ export const loadDashboardReportCatalog = () => {
   return dashboardCatalogPromise;
 };
 
-export const loadDashboardReportPreview = (_filters: ReportLoadFilters) =>
+export const loadDashboardReportPreview = (filters: ReportLoadFilters) =>
   requestJson<ReportPreviewResponse>(`${dashboardApiPrefix()}/preview/`, {
     method: 'POST',
-    body: JSON.stringify({}),
+    body: JSON.stringify(filters ?? {}),
   });
 
 export const loadDashboardPortalEmployees = () =>

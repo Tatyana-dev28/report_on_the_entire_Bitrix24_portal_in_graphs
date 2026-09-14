@@ -24,6 +24,7 @@ WAREHOUSE_INCREMENTAL_MAX_CATCHUP_DAYS = 14
 WAREHOUSE_INCREMENTAL_MIN_INTERVAL = timedelta(minutes=5)
 WAREHOUSE_STALE_RUNNING = timedelta(minutes=20)
 WAREHOUSE_COVERAGE_GRACE_DAYS = 1
+WAREHOUSE_READ_LOOKBACK_GRACE_DAYS = 2
 DATE_MODIFY_SOURCE_TYPES = {
     "deal",
     "lead",
@@ -106,10 +107,13 @@ def warehouse_uncovered_ranges(
 
     coverage = state.source_coverage if isinstance(state.source_coverage, dict) else {}
     floor = _coverage_floor_for_reads(portal, state)
-    source_ranges = _ranges_with_to_grace(
-        portal,
-        _clip_ranges_to_floor(_source_coverage_ranges(coverage.get(str(source_id))), floor),
-        date_to,
+    source_ranges = _ranges_with_from_grace(
+        _ranges_with_to_grace(
+            portal,
+            _clip_ranges_to_floor(_source_coverage_ranges(coverage.get(str(source_id))), floor),
+            date_to,
+        ),
+        date_from,
     )
 
     if _source_requires_own_coverage(source_id):
@@ -124,7 +128,9 @@ def warehouse_uncovered_ranges(
     combined = list(source_ranges)
     global_range = _honest_global_range(portal, state, date_to)
     if global_range is not None:
-        combined.append(global_range)
+        combined.extend(
+            _ranges_with_from_grace([global_range], date_from)
+        )
 
     if not combined:
         if _source_has_rows(portal, source_id):
@@ -218,6 +224,28 @@ def _ranges_with_to_grace(
     ]
 
 
+def _ranges_with_from_grace(
+    ranges: list[tuple[datetime, datetime]],
+    date_from: datetime,
+    *,
+    grace_days: int = WAREHOUSE_READ_LOOKBACK_GRACE_DAYS,
+) -> list[tuple[datetime, datetime]]:
+    """Treat a 1–2 day prefix before a stored chunk as covered (calendar month vs 30-day window)."""
+
+    start_limit = _aware_datetime(date_from)
+    grace = timedelta(days=max(0, int(grace_days)))
+    adjusted: list[tuple[datetime, datetime]] = []
+    for start, end in ranges:
+        start = _aware_datetime(start)
+        end = _aware_datetime(end)
+        if start is None or end is None:
+            continue
+        if start_limit is not None and start > start_limit and start - start_limit <= grace:
+            start = start_limit
+        adjusted.append((start, end))
+    return adjusted
+
+
 def _local_date(value: datetime, tz):
     moment = _aware_datetime(value)
     if moment is None:
@@ -226,7 +254,8 @@ def _local_date(value: datetime, tz):
 
 
 def _source_requires_own_coverage(source_id: str) -> bool:
-    return str(source_id or "").startswith("telephony-")
+    value = str(source_id or "")
+    return value.startswith(("telephony-", "activity-", "task-"))
 
 
 def _source_has_rows(portal, source_id: str) -> bool:
@@ -493,7 +522,9 @@ def _coverage_floor_for_reads(portal, state: PortalCrmSyncState) -> datetime | N
     floor = _aware_datetime(state.coverage_from)
     if floor is None:
         return None
-    chunk_floor = timezone.now() - timedelta(days=WAREHOUSE_CHUNK_DAYS)
+    chunk_floor = timezone.now() - timedelta(
+        days=WAREHOUSE_CHUNK_DAYS + WAREHOUSE_READ_LOOKBACK_GRACE_DAYS
+    )
     if _needs_false_coverage_repair(portal, state, window_start):
         return chunk_floor
     if floor > window_start:

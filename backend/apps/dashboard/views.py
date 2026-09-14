@@ -58,7 +58,7 @@ from apps.dashboard.services.refresh import (
     sync_portal_refresh_interval,
 )
 from apps.dashboard.services.retention import prune_dashboard_history
-from apps.dashboard.services.snapshot_preview import stamp_filters_hash
+from apps.dashboard.services.snapshot_preview import serve_owner_preview, stamp_filters_hash
 
 
 logger = logging.getLogger(__name__)
@@ -286,10 +286,7 @@ def _bootstrap_payload(*, access: str, portal=None, snapshot: DashboardPreparedS
         logger.exception("Dashboard refresh status failed")
         refresh_status = None
 
-    try:
-        has_prepared = bool(snapshot and int(snapshot.payload_size_bytes or 0) > 0)
-    except Exception:
-        has_prepared = False
+    has_prepared = _safe_has_prepared_data(snapshot)
 
     return {
         "ok": True,
@@ -782,22 +779,17 @@ def owner_preview_view(request):
     if error_response:
         return error_response
 
-    snapshot = _get_current_snapshot(session.portal)
+    payload, payload_error = _parse_json_body(request)
+    if payload_error:
+        payload = {}
 
     try:
-        preview = _snapshot_preview(snapshot)
+        preview = serve_owner_preview(session.portal, session=session, payload=payload)
     except Exception:
         logger.exception("Dashboard preview failed for portal %s", session.portal_id)
-        preview = {
-            "status": "empty",
-            "data": [],
-            "chart_data": [],
-            "employees": [],
-            "details": [],
-            "source_metrics": {},
-            "chart_source_metrics": {},
-            "metadata": {},
-        }
+        snapshot = _get_current_snapshot(session.portal)
+        preview = _snapshot_preview(snapshot)
+        preview["status"] = "ready" if snapshot else "empty"
 
     return JsonResponse(
         {

@@ -130,11 +130,8 @@ def build_entity_details(
 
 
 def enrich_details_linked_element_titles(details: list[dict], client: Any) -> None:
-    """Resolve linked CRM titles for activity / telephony / form details.
-
-    Failures are swallowed so report building never breaks because of title lookup.
-    """
-    if not details or client is None:
+    """Resolve linked CRM titles from the local warehouse. Do not call Bitrix here."""
+    if not details:
         return
 
     ids_by_type: dict[str, set[str]] = {}
@@ -151,7 +148,8 @@ def enrich_details_linked_element_titles(details: list[dict], client: Any) -> No
     if not ids_by_type:
         return
 
-    titles = _load_linked_element_titles(client, ids_by_type)
+    portal = getattr(client, "portal", None)
+    titles = _load_warehouse_linked_titles(portal, ids_by_type) if portal is not None else {}
 
     if not titles:
         return
@@ -592,6 +590,57 @@ def _parse_uf_crm_task_binding(value: object) -> dict[str, str] | None:
             "entityId": match.group(2),
         }
 
+    return None
+
+
+def _load_warehouse_linked_titles(
+    portal: Any,
+    ids_by_type: dict[str, set[str]],
+) -> dict[tuple[str, str], str]:
+    from apps.reports.models import PortalCrmRow
+
+    wanted: dict[str, set[str]] = {
+        entity_type: set(entity_ids)
+        for entity_type, entity_ids in ids_by_type.items()
+        if entity_ids
+    }
+    if not wanted:
+        return {}
+
+    all_ids = {entity_id for entity_ids in wanted.values() for entity_id in entity_ids}
+    titles: dict[tuple[str, str], str] = {}
+
+    stored = PortalCrmRow.objects.filter(
+        portal=portal,
+        entity_id__in=list(all_ids),
+    ).values_list("source_id", "entity_id", "payload")
+
+    for source_id, entity_id, payload in stored:
+        entity_type = _linked_type_from_source_id(str(source_id or ""))
+        if entity_type is None or entity_id not in wanted.get(entity_type, set()):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        title = _format_linked_element_title(entity_type, payload)
+        if title:
+            titles[(entity_type, str(entity_id))] = title
+
+    return titles
+
+
+def _linked_type_from_source_id(source_id: str) -> str | None:
+    if source_id.startswith("deal-"):
+        return "deal"
+    if source_id.startswith("lead-"):
+        return "lead"
+    if source_id.startswith("company-"):
+        return "company"
+    if source_id.startswith("contact-"):
+        return "contact"
+    if source_id.startswith("quote-"):
+        return "quote"
+    if source_id.startswith("invoice-"):
+        return "invoice"
     return None
 
 

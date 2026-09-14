@@ -2864,6 +2864,148 @@ class CrmWarehouseTests(TestCase):
             )
         )
 
+    def test_month_report_reads_telephony_from_warehouse_when_covered(self):
+        from datetime import timedelta
+        from unittest.mock import patch
+
+        from apps.reports.models import PortalCrmSyncState
+        from apps.reports.services.crm_warehouse import upsert_source_rows
+
+        self._grant_pro()
+        now = timezone.now()
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.READY,
+            coverage_from=now - timedelta(days=180),
+            coverage_to=now,
+            next_chunk_to=now - timedelta(days=180),
+            progress_percent=100,
+            last_incremental_at=now,
+            source_coverage={
+                "telephony-default": [
+                    {
+                        "from": (now - timedelta(days=30)).isoformat(),
+                        "to": now.isoformat(),
+                    }
+                ]
+            },
+        )
+        upsert_source_rows(
+            portal=self.portal,
+            source_id="telephony-default",
+            rows=[
+                {
+                    "ID": "400",
+                    "CALL_ID": "call-400",
+                    "CALL_START_DATE": (now - timedelta(days=3)).isoformat(),
+                    "CALL_TYPE": "1",
+                    "CALL_DURATION": "25",
+                    "CALL_FAILED_CODE": "200",
+                    "PORTAL_USER_ID": "42",
+                }
+            ],
+        )
+
+        provider = BitrixReportDataProvider(rest_client_factory=FakeBitrixRestClient)
+        with patch.object(
+            BitrixReportDataProvider,
+            "_load_calls",
+            side_effect=AssertionError("Covered calls must stay in the warehouse"),
+        ):
+            result = provider.build_preview(
+                filters={
+                    "period": "days",
+                    "dateRange": {
+                        "from": (timezone.localtime(now) - timedelta(days=31)).date().isoformat(),
+                        "to": timezone.localtime(now).date().isoformat(),
+                    },
+                    "selectedSources": ["telephony-default"],
+                    "selectedMetricIds": ["calls_total"],
+                    "metricMode": "count",
+                    "chartDisplayMode": "sum",
+                },
+                context=ReportDataProviderContext(
+                    portal=self.portal,
+                    user=None,
+                    bitrix_user_id="42",
+                    user_name="",
+                ),
+            )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(sum(point["values"]["calls_total"] for point in result.data), 1)
+
+    def test_calendar_month_grace_does_not_rest_one_day_prefix(self):
+        from datetime import timedelta
+
+        from apps.reports.models import PortalCrmSyncState
+        from apps.reports.services.crm_warehouse import (
+            upsert_source_rows,
+            warehouse_uncovered_ranges,
+        )
+
+        self._grant_pro()
+        now = timezone.now()
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.READY,
+            coverage_from=now - timedelta(days=30),
+            coverage_to=now,
+            next_chunk_to=now - timedelta(days=180),
+            progress_percent=100,
+            last_incremental_at=now,
+        )
+        upsert_source_rows(
+            portal=self.portal,
+            source_id="deal-default",
+            rows=[
+                {
+                    "ID": "1",
+                    "TITLE": "Recent deal",
+                    "DATE_CREATE": (now - timedelta(days=5)).isoformat(),
+                    "STAGE_ID": "C0:NEW",
+                    "OPPORTUNITY": "10",
+                }
+            ],
+        )
+
+        gaps = warehouse_uncovered_ranges(
+            self.portal,
+            "deal-default",
+            now - timedelta(days=31),
+            now,
+        )
+        self.assertEqual(gaps, [])
+
+    def test_linked_titles_use_warehouse_instead_of_rest(self):
+        from apps.reports.services.crm_warehouse import upsert_source_rows
+        from apps.reports.services.entity_details import enrich_details_linked_element_titles
+
+        self._grant_pro()
+        upsert_source_rows(
+            portal=self.portal,
+            source_id="deal-default",
+            rows=[
+                {
+                    "ID": "77",
+                    "TITLE": "Warehouse deal",
+                    "DATE_CREATE": "2026-05-01T10:15:00+03:00",
+                    "STAGE_ID": "C0:NEW",
+                    "OPPORTUNITY": "10",
+                }
+            ],
+        )
+        details = [{"linkedElementType": "deal", "linkedElementId": "77"}]
+
+        class TrackingClient:
+            portal = self.portal
+
+            def call_list(self, *args, **kwargs):
+                raise AssertionError("Linked titles must not hit Bitrix during preview")
+
+        enrich_details_linked_element_titles(details, TrackingClient())
+        self.assertEqual(details[0]["linkedElementTitle"], "Warehouse deal")
+
     def test_claimed_180_day_coverage_does_not_hide_missing_early_days(self):
         from datetime import timedelta
 
@@ -3174,8 +3316,8 @@ class CrmWarehouseTests(TestCase):
         self.assertEqual(len(deal_windows), 1)
         rest_from, rest_to = deal_windows[0]
         self.assertLessEqual(rest_from, now - timedelta(days=33))
-        self.assertLessEqual(rest_to, now - timedelta(days=28))
-        self.assertGreater(rest_to, now - timedelta(days=32))
+        self.assertLessEqual(rest_to, now - timedelta(days=30))
+        self.assertGreater(rest_to, now - timedelta(days=34))
         self.assertGreaterEqual(sum(point["values"]["deals_created"] for point in result.data), 1)
 
     def test_repair_does_not_jump_backfill_to_ancient_modified_row(self):

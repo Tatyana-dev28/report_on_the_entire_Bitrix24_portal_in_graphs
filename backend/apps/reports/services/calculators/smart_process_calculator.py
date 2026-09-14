@@ -6,6 +6,8 @@ from decimal import Decimal, InvalidOperation
 import logging
 from typing import Any
 
+from apps.bitrix.services.rest_client import BitrixRestAuthError, BitrixRestError
+
 
 SmartProcessRow = dict[str, Any]
 ReportSource = dict[str, Any]
@@ -66,14 +68,24 @@ def load_smart_process_rows(
     if category_id is not None:
         filter_payload["categoryId"] = category_id
 
-    rows = client.call_list(
-        "crm.item.list",
-        {
-            "entityTypeId": entity_type_id,
-            "filter": filter_payload,
-            "select": SMART_PROCESS_SELECT_FIELDS,
-        },
-    )
+    try:
+        rows = client.call_list(
+            "crm.item.list",
+            {
+                "entityTypeId": entity_type_id,
+                "filter": filter_payload,
+                "select": SMART_PROCESS_SELECT_FIELDS,
+            },
+        )
+    except BitrixRestAuthError:
+        raise
+    except BitrixRestError:
+        logger.warning(
+            "Smart process %s is unavailable; metrics stay at zero.",
+            source.get("id") or entity_type_id,
+            exc_info=True,
+        )
+        return []
 
     rows = _extract_items(rows)
 

@@ -60,17 +60,9 @@ def warehouse_window(now: datetime | None = None) -> tuple[datetime, datetime]:
 
 
 def serialize_fast_reports(portal) -> dict[str, str | None]:
-    if not portal_has_pro(portal):
-        return {"fastReports": None}
+    from apps.reports.services.crm_warehouse_fast_reports import serialize_fast_reports as serialize_banner
 
-    state = PortalCrmSyncState.objects.filter(portal=portal).first()
-    if state is None:
-        return {"fastReports": "preparing"}
-
-    window_start, window_end = warehouse_window()
-    if _ready_window_covers(portal, state, window_start, window_end):
-        return {"fastReports": "ready"}
-    return {"fastReports": "preparing"}
+    return serialize_banner(portal)
 
 
 def warehouse_covers_range(
@@ -117,9 +109,21 @@ def warehouse_uncovered_ranges(
     )
 
     if _source_requires_own_coverage(source_id):
-        if not source_ranges:
+        combined = list(source_ranges)
+        if _source_has_rows(portal, source_id):
+            oldest = (
+                PortalCrmRow.objects.filter(portal=portal, source_id=str(source_id))
+                .order_by("occurred_at")
+                .values_list("occurred_at", flat=True)
+                .first()
+            )
+            covered_to = _apply_coverage_to_grace(portal, state.coverage_to, date_to) or date_to
+            if oldest is not None:
+                combined.append((oldest, covered_to))
+        if not combined:
             return [(date_from, date_to)]
-        return _uncovered_ranges(date_from, date_to, source_ranges)
+        combined = _ranges_with_from_grace(combined, date_from)
+        return _uncovered_ranges(date_from, date_to, combined)
 
     # An empty warehouse must not trust a claimed 180-day window.
     if not PortalCrmRow.objects.filter(portal=portal).exists():
@@ -158,34 +162,6 @@ def warehouse_uncovered_ranges(
     if source_ranges or _source_has_rows(portal, source_id):
         return gaps
     return []
-
-
-def _ready_window_covers(portal, state, date_from: datetime, date_to: datetime) -> bool:
-    if state.coverage_from is None or state.coverage_to is None:
-        return False
-
-    tz = get_portal_tzinfo(portal)
-    today = timezone.localtime(timezone.now(), tz).date()
-    covered_from = _local_date(state.coverage_from, tz)
-    covered_to = _local_date(state.coverage_to, tz)
-    # Same calendar day, or yesterday's sync, still covers a report that ends today.
-    # Multi-day lag must not pretend 7–10 Sep are in MySQL if coverage stopped on the 6th.
-    if 0 <= (today - covered_to).days <= WAREHOUSE_COVERAGE_GRACE_DAYS:
-        covered_to = max(covered_to, today)
-    return _local_date(date_from, tz) >= covered_from and _local_date(date_to, tz) <= covered_to
-
-
-def _stored_rows_reach_from(portal, date_from: datetime) -> bool:
-    oldest = (
-        PortalCrmRow.objects.filter(portal=portal)
-        .order_by("occurred_at")
-        .values_list("occurred_at", flat=True)
-        .first()
-    )
-    if oldest is None:
-        return False
-    tz = get_portal_tzinfo(portal)
-    return _local_date(oldest, tz) <= _local_date(date_from, tz)
 
 
 def _stored_source_rows_reach_from(portal, source_id: str, date_from: datetime) -> bool:

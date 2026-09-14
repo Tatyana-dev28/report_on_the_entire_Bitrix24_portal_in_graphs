@@ -527,6 +527,7 @@ class BitrixReportDataProvider:
         date_from: datetime,
         date_to: datetime,
         modified_since: datetime | None = None,
+        warehouse_load: bool = False,
     ) -> list[dict]:
         source_type = source.get("type")
 
@@ -616,6 +617,7 @@ class BitrixReportDataProvider:
                 client=client,
                 date_from=date_from,
                 date_to=date_to,
+                use_entity_fallback=not warehouse_load,
             )
 
         return []
@@ -1151,6 +1153,7 @@ class BitrixReportDataProvider:
         client,
         date_from: datetime,
         date_to: datetime,
+        use_entity_fallback: bool = True,
     ) -> list[dict]:
         # Пытаемся загрузить через crm.webform.result.list (требует скоуп crm.webform)
         try:
@@ -1168,9 +1171,13 @@ class BitrixReportDataProvider:
                 return [_normalize_crm_form_row(row) for row in rows]
         except BitrixRestError:
             logger.warning(
-                "crm.webform.result.list failed; falling back to leads/deals with SOURCE_ID=WEBFORM.",
+                "crm.webform.result.list failed; falling back to leads/deals with SOURCE_ID=WEBFORM."
+                if use_entity_fallback
+                else "crm.webform.result.list failed; warehouse keeps form zeros.",
                 exc_info=True,
             )
+            if not use_entity_fallback:
+                return []
 
         # Fallback: загружаем лиды и сделки с SOURCE_ID=WEBFORM
         logger.info("Loading CRM forms fallback via leads and deals with SOURCE_ID=WEBFORM.")

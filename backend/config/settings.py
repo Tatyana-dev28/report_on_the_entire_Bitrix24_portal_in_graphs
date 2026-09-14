@@ -315,6 +315,11 @@ CELERY_TASK_REJECT_ON_WORKER_LOST = True
 CELERY_TASK_TIME_LIMIT = get_int_env("CELERY_TASK_TIME_LIMIT", default=1800)
 CELERY_TASK_SOFT_TIME_LIMIT = get_int_env("CELERY_TASK_SOFT_TIME_LIMIT", default=1500)
 CELERY_WORKER_PREFETCH_MULTIPLIER = get_int_env("CELERY_WORKER_PREFETCH_MULTIPLIER", default=1)
+CELERY_TASK_DEFAULT_QUEUE = "celery"
+CELERY_TASK_ROUTES = {
+    "apps.reports.tasks.run_report_build_task": {"queue": "reports"},
+    "apps.dashboard.tasks.run_dashboard_refresh": {"queue": "reports"},
+}
 CELERY_BEAT_SCHEDULE = {
     "refresh-due-dashboards": {
         "task": "apps.dashboard.tasks.refresh_due_dashboard_portals",

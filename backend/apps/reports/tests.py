@@ -2864,6 +2864,122 @@ class CrmWarehouseTests(TestCase):
             )
         )
 
+    def test_banner_ready_when_coverage_to_lags_a_few_days(self):
+        from datetime import timedelta
+
+        from apps.reports.models import PortalCrmSyncState
+        from apps.reports.services.crm_warehouse import (
+            serialize_fast_reports,
+            upsert_source_rows,
+            warehouse_uncovered_ranges,
+        )
+
+        self._grant_pro()
+        now = timezone.now()
+        stale = now - timedelta(days=4)
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.READY,
+            coverage_from=now - timedelta(days=180),
+            coverage_to=stale,
+            next_chunk_to=now - timedelta(days=180),
+            progress_percent=100,
+            last_incremental_at=stale,
+        )
+        upsert_source_rows(
+            portal=self.portal,
+            source_id="deal-default",
+            rows=[
+                {
+                    "ID": "1",
+                    "TITLE": "Recent deal",
+                    "DATE_CREATE": (now - timedelta(days=10)).isoformat(),
+                    "STAGE_ID": "C0:NEW",
+                    "OPPORTUNITY": "10",
+                }
+            ],
+        )
+
+        self.assertEqual(serialize_fast_reports(self.portal)["fastReports"], "ready")
+        gaps = warehouse_uncovered_ranges(
+            self.portal,
+            "deal-default",
+            now - timedelta(days=7),
+            now,
+        )
+        self.assertTrue(gaps)
+        self.assertGreater(gaps[-1][1], stale)
+
+    def test_activity_catchup_coverage_does_not_rest_stored_days(self):
+        from datetime import timedelta
+        from unittest.mock import patch
+
+        from apps.reports.models import PortalCrmSyncState
+        from apps.reports.services.crm_warehouse import upsert_source_rows
+
+        self._grant_pro()
+        now = timezone.now()
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.READY,
+            coverage_from=now - timedelta(days=180),
+            coverage_to=now,
+            next_chunk_to=now - timedelta(days=180),
+            progress_percent=100,
+            last_incremental_at=now,
+            source_coverage={
+                "activity-default": [
+                    {
+                        "from": (now - timedelta(days=2)).isoformat(),
+                        "to": now.isoformat(),
+                    }
+                ]
+            },
+        )
+        upsert_source_rows(
+            portal=self.portal,
+            source_id="activity-default",
+            rows=[
+                {
+                    "ID": "900",
+                    "SUBJECT": "Stored activity",
+                    "START_TIME": (now - timedelta(days=3)).isoformat(),
+                    "DATE_CREATE": (now - timedelta(days=3)).isoformat(),
+                    "TYPE_ID": "2",
+                    "COMPLETED": "Y",
+                }
+            ],
+        )
+
+        provider = BitrixReportDataProvider(rest_client_factory=FakeBitrixRestClient)
+        with patch.object(
+            BitrixReportDataProvider,
+            "_load_activities",
+            side_effect=AssertionError("Stored activity days must stay in the warehouse"),
+        ):
+            result = provider.build_preview(
+                filters={
+                    "period": "days",
+                    "dateRange": {
+                        "from": (timezone.localtime(now) - timedelta(days=3)).date().isoformat(),
+                        "to": timezone.localtime(now).date().isoformat(),
+                    },
+                    "selectedSources": ["activity-default"],
+                    "selectedMetricIds": ["activities_created"],
+                    "metricMode": "count",
+                    "chartDisplayMode": "sum",
+                },
+                context=ReportDataProviderContext(
+                    portal=self.portal,
+                    user=None,
+                    bitrix_user_id="42",
+                    user_name="",
+                ),
+            )
+
+        self.assertEqual(result.status, "ready")
+        self.assertGreaterEqual(sum(point["values"]["activities_created"] for point in result.data), 1)
+
     def test_month_report_reads_telephony_from_warehouse_when_covered(self):
         from datetime import timedelta
         from unittest.mock import patch
@@ -4037,6 +4153,97 @@ class CrmWarehouseTests(TestCase):
         with patch(
             "apps.reports.services.crm_warehouse_sync.BitrixReportDataProvider",
             FailingProvider,
+        ):
+            result = sync_portal_crm_warehouse(self.portal.id)
+
+        state = PortalCrmSyncState.objects.get(portal=self.portal)
+        self.assertEqual(result["mode"], "incremental")
+        self.assertEqual(state.coverage_to, stale)
+        self.assertEqual(state.last_incremental_at, stale)
+        self.assertTrue(state.error_message)
+
+    def test_optional_failed_incremental_still_advances_coverage_to(self):
+        from datetime import timedelta
+
+        from django.utils.dateparse import parse_datetime
+
+        from apps.reports.models import PortalCrmSyncState
+        from apps.reports.services.crm_warehouse_sync import sync_portal_crm_warehouse
+
+        self._grant_pro()
+        now = timezone.now()
+        stale = now - timedelta(days=4)
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.READY,
+            coverage_from=now - timedelta(days=180),
+            coverage_to=stale,
+            next_chunk_to=now - timedelta(days=180),
+            progress_percent=100,
+            last_incremental_at=stale,
+        )
+
+        class OptionalFailingProvider(BitrixReportDataProvider):
+            def __init__(self):
+                super().__init__(rest_client_factory=FakeBitrixRestClient)
+
+            def _load_single_source_rows(self, **kwargs):
+                source = kwargs["source"]
+                if source.get("type") in {"smartProcess", "crm_form"}:
+                    raise RuntimeError("catalog source missing on portal")
+                return []
+
+        with patch(
+            "apps.reports.services.crm_warehouse_sync.BitrixReportDataProvider",
+            OptionalFailingProvider,
+        ):
+            result = sync_portal_crm_warehouse(self.portal.id)
+
+        state = PortalCrmSyncState.objects.get(portal=self.portal)
+        self.assertEqual(result["mode"], "incremental")
+        self.assertIn("smart-production", result["failed_sources"])
+        self.assertGreater(state.coverage_to, stale)
+        self.assertGreater(state.last_incremental_at, stale)
+        self.assertTrue(state.error_message)
+        coverage = state.source_coverage or {}
+        self.assertNotIn("smart-production", coverage)
+        deal_ranges = coverage.get("deal-default") or []
+        self.assertTrue(deal_ranges)
+        deal_start = parse_datetime(deal_ranges[0]["from"])
+        self.assertIsNotNone(deal_start)
+        self.assertGreater(deal_start, now - timedelta(days=20))
+
+    def test_deal_failure_still_freezes_coverage_to(self):
+        from datetime import timedelta
+
+        from apps.reports.models import PortalCrmSyncState
+        from apps.reports.services.crm_warehouse_sync import sync_portal_crm_warehouse
+
+        self._grant_pro()
+        now = timezone.now()
+        stale = now - timedelta(days=4)
+        PortalCrmSyncState.objects.create(
+            portal=self.portal,
+            status=PortalCrmSyncState.Status.READY,
+            coverage_from=now - timedelta(days=180),
+            coverage_to=stale,
+            next_chunk_to=now - timedelta(days=180),
+            progress_percent=100,
+            last_incremental_at=stale,
+        )
+
+        class DealFailingProvider(BitrixReportDataProvider):
+            def __init__(self):
+                super().__init__(rest_client_factory=FakeBitrixRestClient)
+
+            def _load_single_source_rows(self, **kwargs):
+                if kwargs["source"].get("type") == "deal":
+                    raise RuntimeError("deals unavailable")
+                return []
+
+        with patch(
+            "apps.reports.services.crm_warehouse_sync.BitrixReportDataProvider",
+            DealFailingProvider,
         ):
             result = sync_portal_crm_warehouse(self.portal.id)
 

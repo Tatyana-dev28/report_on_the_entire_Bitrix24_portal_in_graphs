@@ -9,6 +9,9 @@ from apps.bitrix.models import BitrixPortal
 from apps.bitrix.services.rest_client import BitrixRestTokenRefreshError
 from apps.reports.models import PortalCrmSyncState
 from apps.reports.services.bitrix_report_data_provider import BitrixReportDataProvider
+from apps.reports.services.crm_warehouse_incremental_policy import (
+    failed_ids_block_incremental_coverage,
+)
 from apps.reports.services.crm_warehouse import (
     DATE_MODIFY_SOURCE_TYPES,
     WAREHOUSE_BACKFILL_CHUNKS_PER_RUN,
@@ -199,6 +202,7 @@ def _run_incremental(portal, state, provider, client, sources, window_start, win
     catchup_start = _incremental_catchup_start(state, window_end)
     written = 0
     failed_source_ids: list[str] = []
+    oauth_abort: list[str] = []
 
     modify_sources = [source for source in sources if source.get("type") in DATE_MODIFY_SOURCE_TYPES]
     event_sources = [source for source in sources if source.get("type") not in DATE_MODIFY_SOURCE_TYPES]
@@ -212,17 +216,20 @@ def _run_incremental(portal, state, provider, client, sources, window_start, win
         date_to=window_end,
         modified_since=catchup_start,
         failed_source_ids=failed_source_ids,
+        oauth_abort=oauth_abort,
     )
-    written += _fetch_and_store(
-        portal=portal,
-        provider=provider,
-        client=client,
-        sources=event_sources,
-        date_from=catchup_start,
-        date_to=window_end,
-        modified_since=None,
-        failed_source_ids=failed_source_ids,
-    )
+    if not oauth_abort:
+        written += _fetch_and_store(
+            portal=portal,
+            provider=provider,
+            client=client,
+            sources=event_sources,
+            date_from=catchup_start,
+            date_to=window_end,
+            modified_since=None,
+            failed_source_ids=failed_source_ids,
+            oauth_abort=oauth_abort,
+        )
 
     prune_warehouse_rows(portal, now=window_end)
     now = timezone.now()
@@ -237,17 +244,22 @@ def _run_incremental(portal, state, provider, client, sources, window_start, win
         state.progress_percent = min(99, int((filled_days / WAREHOUSE_WINDOW_DAYS) * 100))
     state.last_finished_at = now
 
+    blocking_failed_ids = failed_ids_block_incremental_coverage(failed_source_ids, sources)
+    freeze_global_coverage = bool(oauth_abort) or bool(blocking_failed_ids)
+
     if failed_source_ids:
         state.progress_message = "Склад готов, повтор свежих дней"
         state.error_message = (
             "Не удалось обновить источники: " + ", ".join(failed_source_ids[:12])
         )[:2000]
-        # Keep coverage_to / last_incremental_at so the next run still catch-up from the gap.
     else:
-        state.coverage_to = window_end
-        state.last_incremental_at = window_end
         state.progress_message = "Склад готов"
         state.error_message = ""
+
+    if not freeze_global_coverage:
+        # Optional catalog holes stay in source_coverage; do not freeze the window.
+        state.coverage_to = window_end
+        state.last_incremental_at = window_end
 
     _keep_persisted_source_coverage(state)
     state.save()
@@ -292,6 +304,7 @@ def _fetch_and_store(
     date_to,
     modified_since,
     failed_source_ids: list[str] | None = None,
+    oauth_abort: list[str] | None = None,
 ) -> int:
     written = 0
     for source in sources:
@@ -303,6 +316,7 @@ def _fetch_and_store(
                 date_from=date_from,
                 date_to=date_to,
                 modified_since=modified_since,
+                warehouse_load=True,
             )
         except BitrixRestTokenRefreshError:
             logger.warning(
@@ -312,6 +326,8 @@ def _fetch_and_store(
             )
             if failed_source_ids is not None:
                 failed_source_ids.append(source_id)
+            if oauth_abort is not None:
+                oauth_abort.append(source_id)
             break
         except Exception:
             logger.warning(

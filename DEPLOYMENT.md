@@ -96,8 +96,12 @@ python backend/manage.py migrate
 python backend/manage.py collectstatic --noinput
 python backend/manage.py check --deploy
 gunicorn --config config/gunicorn.conf.py config.wsgi:application --chdir backend --bind 127.0.0.1:8000
-celery -A config.celery:app worker --workdir backend --loglevel=INFO --concurrency=2
+celery -A config.celery:app worker --workdir backend --loglevel=INFO --concurrency=2 -Q reports,celery
 ```
+
+The worker must listen to both `reports` (preview/build and dashboard refresh) and
+`celery` (CRM warehouse sync). If systemd still starts the worker without `-Q reports,celery`,
+queued reports will sit forever.
 
 For systemd, run gunicorn and celery worker as two separate services from the
 same virtualenv. Bind gunicorn to `127.0.0.1:8000`. nginx should proxy `/api/`,

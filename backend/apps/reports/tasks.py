@@ -13,6 +13,8 @@ if shared_task is not None:
         autoretry_for=(Exception,),
         retry_backoff=True,
         retry_kwargs={"max_retries": 2},
+        name="apps.reports.tasks.run_report_build_task",
+        queue="reports",
     )
     def run_report_build_task(self, build_id: int) -> None:
         from apps.reports.services.builders import ReportBuilder

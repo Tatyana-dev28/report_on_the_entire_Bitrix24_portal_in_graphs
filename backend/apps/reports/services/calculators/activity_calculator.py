@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from typing import Any
 
@@ -14,6 +14,22 @@ BITRIX_LIST_PAGE_SIZE = 50
 
 
 def load_activity_rows(
+    *,
+    client,
+    date_from: datetime,
+    date_to: datetime,
+    bitrix_datetime,
+) -> list[dict]:
+    rows = _load_activity_rows_for_window(
+        client=client,
+        date_from=date_from,
+        date_to=date_to,
+        bitrix_datetime=bitrix_datetime,
+    )
+    return [_normalize_activity_row(row) for row in rows]
+
+
+def _load_activity_rows_for_window(
     *,
     client,
     date_from: datetime,
@@ -45,12 +61,38 @@ def load_activity_rows(
             "DIRECTION",
         ],
     }
-    rows = _load_activity_rows_batched(client, params)
+    try:
+        return _load_activity_rows_batched(client, params)
+    except ActivityWindowTooLarge:
+        midpoint = date_from + (date_to - date_from) / 2
+        if midpoint <= date_from or (date_to - date_from) <= timedelta(hours=1):
+            logger.warning(
+                "crm.activity.list still exceeds %s rows for %s .. %s; loading the first pages only.",
+                ACTIVITY_MAX_LIST_PAGES * BITRIX_LIST_PAGE_SIZE,
+                date_from,
+                date_to,
+            )
+            return _load_activity_rows_batched(client, params, truncate=True)
+        left = _load_activity_rows_for_window(
+            client=client,
+            date_from=date_from,
+            date_to=midpoint,
+            bitrix_datetime=bitrix_datetime,
+        )
+        right = _load_activity_rows_for_window(
+            client=client,
+            date_from=midpoint + timedelta(microseconds=1),
+            date_to=date_to,
+            bitrix_datetime=bitrix_datetime,
+        )
+        return _deduplicate_activity_rows(left + right)
 
-    return [_normalize_activity_row(row) for row in rows]
+
+class ActivityWindowTooLarge(BitrixRestError):
+    """A single crm.activity.list window is larger than the Bitrix page cap."""
 
 
-def _load_activity_rows_batched(client, params: dict) -> list[dict]:
+def _load_activity_rows_batched(client, params: dict, *, truncate: bool = False) -> list[dict]:
     if not hasattr(client, "call_method") or not hasattr(client, "call_batch"):
         return client.call_list(
             "crm.activity.list",
@@ -82,11 +124,19 @@ def _load_activity_rows_batched(client, params: dict) -> list[dict]:
     max_rows = ACTIVITY_MAX_LIST_PAGES * BITRIX_LIST_PAGE_SIZE
 
     if total > max_rows:
-        raise BitrixRestError(
-            f"crm.activity.list returned {total} rows, limit is {max_rows} rows."
-        )
-
-    starts = list(range(BITRIX_LIST_PAGE_SIZE, total, BITRIX_LIST_PAGE_SIZE))
+        if truncate:
+            logger.warning(
+                "crm.activity.list returned %s rows, truncating to %s.",
+                total,
+                max_rows,
+            )
+            starts = list(range(BITRIX_LIST_PAGE_SIZE, max_rows, BITRIX_LIST_PAGE_SIZE))
+        else:
+            raise ActivityWindowTooLarge(
+                f"crm.activity.list returned {total} rows, limit is {max_rows} rows."
+            )
+    else:
+        starts = list(range(BITRIX_LIST_PAGE_SIZE, total, BITRIX_LIST_PAGE_SIZE))
 
     for index in range(0, len(starts), ACTIVITY_BATCH_PAGE_SIZE):
         chunk = starts[index : index + ACTIVITY_BATCH_PAGE_SIZE]
@@ -119,9 +169,11 @@ def _load_activity_rows_sequentially(
         page_count += 1
 
         if page_count > ACTIVITY_MAX_LIST_PAGES:
-            raise BitrixRestError(
-                f"crm.activity.list pagination exceeded {ACTIVITY_MAX_LIST_PAGES} pages."
+            logger.warning(
+                "crm.activity.list pagination exceeded %s pages; using loaded rows.",
+                ACTIVITY_MAX_LIST_PAGES,
             )
+            return rows
 
         response = client.call_method(
             "crm.activity.list",
@@ -171,6 +223,21 @@ def _safe_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _deduplicate_activity_rows(rows: list[dict]) -> list[dict]:
+    unique: list[dict] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        entity_id = str(row.get("ID") or "")
+        if entity_id:
+            if entity_id in seen:
+                continue
+            seen.add(entity_id)
+        unique.append(row)
+    return unique
 
 
 def apply_activity_metrics(values: dict[str, int | float], activity_rows: list[dict]) -> None:
